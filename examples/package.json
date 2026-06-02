@@ -1,0 +1,6 @@
+{
+  "name": "@realreel/examples",
+  "private": true,
+  "type": "module",
+  "description": "Runnable examples for the RealReel C2PA monorepo. Run via `npm run demo` from the repo root."
+}

@@ -1,0 +1,6 @@
+# Temporary fixture directories produced by tests that build on-disk
+# trust-sources / YAML stubs. Cleaned up by afterAll hooks on normal
+# exit; this glob covers the case where vitest is interrupted (Ctrl-C,
+# OOM, SIGKILL) and the dir survives. Scoped to this directory so we
+# don't accidentally ignore .tmp-* outside the test tree.
+.tmp-*

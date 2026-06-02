@@ -1,0 +1,17 @@
+{
+  "name": "@realreel/photo-attest",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Expo native module for hardware-bound C2PA capture signing (iOS Secure Enclave / Android Keystore). Swift + Kotlin native source requires a full Expo app to build; only the TypeScript bridge is type-checked here.",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  },
+  "devDependencies": {
+    "expo-modules-core": "~55.0.25",
+    "typescript": "~5.9.2"
+  }
+}

@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: trust-core + verifier (Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Verifier tests read real C2PA media fixtures stored in Git LFS
+          # (verifier/__tests__/fixtures/*.jpg|*.mov). Without lfs:true the
+          # checkout leaves ~130-byte pointer files and the verify-*.test.ts
+          # suites fail to parse them.
+          lfs: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Installs all npm workspaces (trust-core, verifier, native) from the
+      # root lockfile and links @realreel/c2pa-trust-core into the verifier.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: trust-core — vitest
+        run: npm test --workspace trust-core
+
+      # Type-checks src/ only (production build). The test-config typecheck
+      # (tsconfig.test.json) is intentionally not gated here: it includes the
+      # __tests__/ partial-object fixtures, which vitest transpiles with
+      # esbuild rather than tsc. This mirrors the upstream repo.
+      - name: verifier — tsc (src)
+        run: npx tsc --noEmit
+        working-directory: verifier
+
+      - name: verifier — vitest
+        run: npm test --workspace verifier
+
+  ca:
+    name: ca edge functions (Deno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Mirrors the upstream `cd supabase && deno test --allow-read --allow-env
+      # functions/` invocation. --allow-read loads the attestation fixture JSON
+      # under _shared/attestation/__fixtures__/; --allow-env is read by cbor-x
+      # at module init (CBOR_NATIVE_ACCELERATION_DISABLED).
+      - name: ca — deno test
+        run: deno test --allow-read --allow-env .
+        working-directory: ca
+
+  # The native Expo module (native/) ships Swift + Kotlin source for
+  # transparency, but compiling it requires a full Expo/React Native app
+  # (Xcode + Gradle + autolinking). Only the TypeScript bridge is type-checked
+  # here; building the native targets is out of scope for this CI.
+  native:
+    name: native TS bridge (typecheck only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: native — tsc (TS bridge only)
+        run: npx tsc --noEmit
+        working-directory: native

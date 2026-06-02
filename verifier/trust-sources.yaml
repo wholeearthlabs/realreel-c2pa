@@ -1,0 +1,165 @@
+# Per-source server-side policy for trusted C2PA content sources.
+#
+# This file holds the verifier-only fields per trusted source: which
+# root_cert to load into c2pa-node's trust bundle and which verification
+# profile to dispatch to.
+#
+# The cross-process portion of the trust list (id, displayName,
+# issuerMatch substring, rootCommonName) lives in
+# @realreel/c2pa-trust-core's TRUSTED_ISSUERS array. The two are joined
+# by `id` at startup. The verifier's React Native client gate (preflight
+# in the upload screen) consumes the same TRUSTED_ISSUERS so both
+# validators agree on what counts as a trusted issuer by construction.
+#
+# To add a source:
+#   1. Register the entry in
+#      trust-core/src/trust-list/trusted-issuers.ts
+#      (id + displayName + issuerMatch + rootCommonName).
+#   2. Append an entry here with the matching `id` and the
+#      verifier-specific policy fields below.
+#   3. Commit the root PEM at trust-sources/<id>/root.pem.
+#   4. Set verification_profile:
+#        - `realreel`         — eligible to sign Stage 2 (active manifest).
+#                               The only profile dispatched at ingestion.
+#        - `wrap_parent_only` — trusted ONLY as a Stage 1 parent inside a
+#                               RealReel-wrapped upload. A raw single-stage
+#                               upload chained to this root is rejected at
+#                               the force-wrap gate.
+#   5. Redeploy the verifier.
+#
+# To remove a source: delete the entry from both files + the PEM
+# subdirectory; redeploy.
+#
+# Public-facing format — designed to remain readable in this open-source
+# repository.
+
+# Trusted C2PA content sources — the cameras whose captures the verifier accepts.
+# Today: RealReel + Google Pixel. Most phones don't sign with C2PA yet; as more
+# cameras ship native C2PA, add their root here (see "To add a source" above).
+sources:
+  # The `issuerMatch` substring used by identifyTrustSource() no longer
+  # lives in this file — it's joined by `id` against TRUSTED_ISSUERS in
+  # @realreel/c2pa-trust-core. To add a new trusted source: register the
+  # entry in trust-core/src/trust-list/trusted-issuers.ts
+  # FIRST, then add the per-source server policy below.
+
+  - id: realreel
+    name: RealReel
+    description: |
+      Content captured in the RealReel mobile app. Cryptographically signed
+      at capture time by hardware-backed device keys (Apple Secure Enclave
+      or Android StrongBox/TEE); re-signed at upload time with the same
+      key. Two-stage manifest (Stage 1 capture + Stage 2 upload), per-user
+      signing keys registered via the register-signing-key edge function,
+      revocation checked against user_signing_keys.revoked_at.
+    root_cert: trust-sources/realreel/root.pem
+    verification_profile: realreel
+
+  - id: pixel
+    name: Google Pixel
+    description: |
+      Content captured with Google Pixel devices (Pixel 8 and later) via
+      the stock Pixel Camera app with Content Credentials. Single-stage
+      capture manifest (no parent ingredient, no Stage 2 — Pixel doesn't
+      re-sign at upload). No per-device revocation: Pixels don't enroll
+      into user_signing_keys.
+    # Root cert is "Google C2PA Root CA G3" (CN), extracted cert #6 from
+    # the official C2PA Trust List at
+    # https://github.com/c2pa-org/conformance-public/blob/main/trust-list/C2PA-TRUST-LIST.pem
+    # (downloaded 2026-05-14). Verified against the Pixel fixture
+    # → validation_state: Trusted, no validation_status entries.
+    # Renew when Google publishes a G4 (current G3 valid through 2050).
+    root_cert: trust-sources/pixel/root.pem
+    verification_profile: wrap_parent_only
+
+# Time-Stamp Authority (TSA) roots — distinct from `sources` above.
+#
+# Sources above sign CONTENT; the entries below sign TIMESTAMPS over
+# COSE signatures (RFC 3161 sigTst2 tokens embedded in C2PA manifests).
+# TSAs are not content issuers — they have no verification_profile and
+# no lockstep with TRUSTED_ISSUERS in
+# @realreel/c2pa-trust-core.
+#
+# The loader concatenates these PEMs into the SAME `trustAnchorsBundle`
+# that c2pa-node's settings.trust.trust_anchors consumes. c2pa-rs uses
+# one trust pool for both signing-cert and TSA validation, so this is
+# the correct destination.
+#
+# To rotate / update: replace the PEM file. To add a new TSA root: add
+# an entry below + commit the PEM.
+tsa_roots:
+  - id: c2pa-tsa-list
+    name: C2PA TSA Trust List (incoming-validation only today)
+    description: |
+      The C2PA Conformance Programme's curated list of trusted RFC 3161
+      Time-Stamp Authorities. Vendored byte-for-byte from upstream so a
+      diff against the source is trivial to audit:
+      https://github.com/c2pa-org/conformance-public/blob/main/trust-list/C2PA-TSA-TRUST-LIST.pem
+      (snapshot taken 2026-05-27).
+
+      Includes: Google C2PA (Core + Pixel TSAs), DigiCert RSA4096/ECC
+      P384 Root for C2PA G1, SSL.com C2PA RSA/ECC Root CA 2025, Trufo,
+      Tauth, Irdeto, vivo, Huawei, Huanyu.
+
+      Maintenance: bump manually when C2PA publishes an update (GitHub
+      Action automation deferred). Full procedure — fetch, diff-to-audit,
+      replace-verbatim, redeploy — in an internal operator runbook.
+
+      Known c2patool quirk (server-side verifier unaffected): the
+      upstream file includes human-readable `Subject\tCN=...` lines
+      before each PEM block. c2pa-rs / c2pa-node (what our Cloud Run
+      verifier uses) tolerate the annotations and validate the chain
+      correctly. The standalone c2patool CLI's parser does NOT tolerate
+      them and surfaces `signingCredential.untrusted` /
+      `timeStamp.untrusted` even when the chains are valid. End users
+      self-verifying with c2patool can work around it by stripping the
+      annotations themselves (`awk '/-----BEGIN/,/-----END/' upstream.pem`).
+      We keep the verbatim upstream form here because byte-identical
+      mirroring is more valuable than c2patool ergonomics.
+
+      Used today for: validating sigTst2 tokens that arrive embedded in
+      manifests we receive but didn't sign (e.g. wrap-mode Pixel
+      parents — Pixel's Stage 1 carries its own sigTst2 timestamped by
+      Google's C2PA TSA whose root lives in this list).
+
+      NOT yet used for: validating sigTst2 tokens our own client emits.
+      We attempted to wire our client to SSL.com's free C2PA-conformant
+      TSA (api.c2patool.io) which IS on this list, but it returns
+      tokens missing the SSL.com C2PA TSA ICA E1 intermediate which
+      isn't published anywhere we can discover. Reopen when SSL.com
+      fixes their chain or when another free C2PA-conformant TSA
+      becomes available. See the app's TSA client header comment for
+      context.
+    root_cert: trust-sources/c2pa-tsa/c2pa-tsa-trust-list.pem
+
+  - id: c2pa-tsa-fallback
+    name: General-purpose TSA roots (used for our own emitted timestamps)
+    description: |
+      Despite the "-fallback" id (kept stable; this dir was originally
+      conceived as a degraded-mode backstop to a C2PA-conformant
+      primary), these are CURRENTLY the roots anchoring all sigTst2
+      tokens our client emits. We use DigiCert + SSL.com general-
+      purpose TSAs because no free C2PA-conformant TSA has a working
+      end-to-end chain today.
+
+      Bundled roots:
+        - DigiCert Trusted Root G4
+          → anchors http://timestamp.digicert.com (PRIMARY in the app's TSA client)
+        - SSL.com Root Certification Authority RSA
+          → anchors http://ts.ssl.com (FALLBACK in the app's TSA client)
+
+      Trade-off: assets timestamped by these TSAs are valid under OUR
+      verifier (we control this trust pool) but third-party C2PA
+      verifiers (Content Credentials Verify, etc.) won't trust them
+      because the chains terminate in general-purpose roots, not C2PA-
+      program-specific roots. Acceptable today because no third party
+      validates RealReel content. Revisit when api.c2patool.io's chain
+      is complete or when another free C2PA-conformant endpoint
+      appears.
+
+      The app's TSA client emits a Sentry warning whenever the SSL.com
+      fallback chain engages so we can monitor DigiCert health.
+
+      Maintenance: rotate when DigiCert or SSL.com publishes new roots
+      (both currently valid through ~2038-2041).
+    root_cert: trust-sources/c2pa-tsa-fallback/fallback-tsa-roots.pem

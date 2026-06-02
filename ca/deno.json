@@ -1,0 +1,11 @@
+{
+  "//": "Deno project config for edge function code under ca/.",
+  "//1": "Lives at ca/ rather than repo root so its node_modules/.deno cache",
+  "//2": "doesn't intermix with the React Native project's yarn-managed node_modules.",
+  "nodeModulesDir": "auto",
+  "imports": {
+    "pkijs": "npm:pkijs@3.2.4",
+    "asn1js": "npm:asn1js@3.0.5",
+    "cbor-x": "npm:cbor-x@1.5.9"
+  }
+}

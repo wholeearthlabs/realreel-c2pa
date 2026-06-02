@@ -1,0 +1,40 @@
+{
+  "name": "@realreel/verifier",
+  "private": true,
+  "version": "0.1.0",
+  "description": "RealReel C2PA verifier microservice. Validates the embedded C2PA manifest of each upload against a curated trust list and revocation state; runs synchronously inside the upload path via the verify-and-create-media edge function. Self-contained — imports nothing from the app codebase. Designed for future open-source extraction.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@contentauth/c2pa-node": "0.5.5",
+    "@contentauth/c2pa-types": "0.4.4",
+    "@peculiar/asn1-android": "^2.7.0",
+    "@peculiar/asn1-schema": "^2.7.0",
+    "@peculiar/asn1-x509": "^2.7.0",
+    "@realreel/c2pa-trust-core": "*",
+    "@sentry/node": "^8.0.0",
+    "cbor-x": "^1.6.4",
+    "fastify": "^5.0.0",
+    "google-auth-library": "^9.15.1",
+    "pino": "^9.0.0",
+    "postgres": "^3.4.0",
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "@peculiar/x509": "^1.14.3",
+    "@types/node": "^22.0.0",
+    "pino-pretty": "^11.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@realreel/c2pa-trust-core",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Part of the open-source RealReel C2PA signing/verification stack — shapes, trust list, action allowlists, and pure policy functions (no I/O, no native deps, no crypto). Shared between the RealReel client preflight gate and the Cloud Run verifier.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./shapes": "./src/shapes/index.ts",
+    "./errors": "./src/errors/index.ts",
+    "./policies": "./src/policies/index.ts",
+    "./trust-list": "./src/trust-list/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.2",
+    "vitest": "^2.0.0"
+  }
+}

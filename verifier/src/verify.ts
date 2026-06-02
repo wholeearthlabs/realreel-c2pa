@@ -1,0 +1,229 @@
+// Main verify orchestrator. Called by the /verify route handler in
+// server.ts AFTER auth + SSRF + If-Match guards have passed.
+//
+//   1. Hand the asset bytes to c2pa-node's Reader.fromAsset() with our
+//      curated trust_anchors bundle (verify_trust_list: false).
+//   2. Reader returns null if no C2PA provenance is embedded → reject
+//      as MANIFEST_MALFORMED.
+//   3. Identify the trust source from the active manifest's
+//      signature_info.issuer.
+//   4. Force-wrap: the active manifest MUST be RealReel-signed. A
+//      foreign-issuer active manifest (a raw single-stage Pixel capture
+//      uploaded directly) is rejected — every upload must carry a
+//      RealReel Stage 2. There is ONE ingestion profile (realreel).
+//   5. Run the realreel profile; it returns the sanitized manifest store,
+//      which the orchestrator passes back to the caller.
+
+import {
+  Reader,
+  createTrustSettings,
+  settingsToJson,
+} from "@contentauth/c2pa-node";
+import { VerifyError, VerifyErrorCode } from "./errors.js";
+import type { PlayIntegrityConfig } from "./config.js";
+import type { TrustConfig } from "./trust/types.js";
+import { identifyTrustSource } from "./trust/dispatcher.js";
+import { verifyRealReel } from "./profiles/realreel.js";
+import { postgresAdapter } from "./db.js";
+import type { VerifierDatastore } from "./ports.js";
+import type { SanitizedManifestStore } from "./sanitize.js";
+import {
+  type ManifestStoreShape,
+  getActiveManifest,
+} from "./c2pa-shape.js";
+import {
+  checkCertValidityTimeBounds,
+  readTsaState,
+  SYSTEM_CLOCK,
+  DEFAULT_CERT_LIFETIME_MS,
+  type Clock,
+} from "./cert-validity.js";
+
+export interface VerifyArgs {
+  assetBytes: Buffer;
+  mimeType: string;
+  /** The uploader's JWT subject. Part of the verifier's HTTP request
+   *  contract (server.ts parses + forwards it), but it does NOT gate
+   *  verification: the verifier is user-anonymous. Stage-2 attestation
+   *  forces own-key signing; the enrollment-time user_id↔key_id link is the
+   *  revocation handle, not an upload-time check. Retained for telemetry. */
+  expectedUserId: string;
+  trustConfig: TrustConfig;
+  /** Optional Play Integrity config threaded through to the realreel profile
+   *  for Android manifest validation. Lenient when undefined (profile accepts
+   *  the structural envelope but skips the JWS decode); set in production via
+   *  PLAY_INTEGRITY_PACKAGE_NAME + PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER. */
+  playIntegrityConfig?: PlayIntegrityConfig;
+  /** When true, the realreel profile requires Stage 2 upload-time attestation
+   *  matching the signing-key platform (iOS → app_attest, Android →
+   *  play_integrity). When false, the lenient gate applies:
+   *  validate-if-present, accept-if-absent. Set from ATTESTATION_REQUIRED. */
+  attestationRequired?: boolean;
+  /** Optional clock for the time-bound cert-validity gates. Tests inject a
+   *  fixed `now`; production defaults to SYSTEM_CLOCK. */
+  clock?: Clock;
+  /** Cert-lifetime ceiling (ms) for the required-TSA gate. Past this age with
+   *  no trusted sigTst2 stamp, the verifier rejects with CERT_EXPIRED.
+   *  Defaults to DEFAULT_CERT_LIFETIME_MS (180d). */
+  certLifetimeMs?: number;
+  /** Datastore adapter for the revocation lookup + attestation nonce burn
+   *  (see src/ports.ts). Defaults to the Postgres-backed `postgresAdapter`;
+   *  an OSS integrator injects their own VerifierDatastore here. */
+  datastore?: VerifierDatastore;
+}
+
+export interface VerifyResult {
+  sanitizedManifest: SanitizedManifestStore;
+}
+
+export async function verify(args: VerifyArgs): Promise<VerifyResult> {
+  const {
+    assetBytes,
+    mimeType,
+    trustConfig,
+    playIntegrityConfig,
+    attestationRequired = false,
+    clock = SYSTEM_CLOCK,
+    certLifetimeMs = DEFAULT_CERT_LIFETIME_MS,
+    datastore = postgresAdapter,
+  } = args;
+
+  // createTrustSettings returns a camelCase object; c2pa-rs's settings format
+  // is snake_case. settingsToJson() does the conversion. Without it,
+  // Reader.fromAsset silently ignores our trustAnchors and emits
+  // `signingCredential.untrusted` in validation_status for every manifest.
+  //
+  // trustAnchorsBundle includes BOTH signer roots AND TSA roots (concatenated
+  // by the loader); c2pa-rs uses a single trust pool for both signing-cert and
+  // TSA-token chain validation.
+  //
+  // verifyTimestampTrust IS the c2pa-rs default today (see c2pa-rs
+  // context-settings.md) — setting it here is defensive pinning against a
+  // future upstream flip. TSA chain-trust state then surfaces in the
+  // TOP-LEVEL `validation_results.activeManifest` (not on individual
+  // manifests): success contains `timeStamp.trusted` when the TSA chain
+  // validates against trustAnchorsBundle; informational contains
+  // `timeStamp.untrusted` when it can't be rooted.
+  const trustSettings = settingsToJson({
+    ...createTrustSettings({
+      verifyTrustList: false,
+      trustAnchors: trustConfig.trustAnchorsBundle,
+    }),
+    verify: { verifyTimestampTrust: true },
+  });
+
+  let reader: Reader | null;
+  try {
+    reader = await Reader.fromAsset(
+      { buffer: assetBytes, mimeType },
+      trustSettings,
+    );
+  } catch (e) {
+    // Reader throws on parse-level errors (truncated JUMBF, etc.).
+    throw new VerifyError(
+      VerifyErrorCode.MANIFEST_MALFORMED,
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+
+  if (reader === null) {
+    // No C2PA provenance embedded in the asset.
+    throw new VerifyError(
+      VerifyErrorCode.MANIFEST_MALFORMED,
+      "asset has no embedded C2PA provenance",
+    );
+  }
+
+  // Serialize the manifest store to its plain-object form. The runtime
+  // shape comes from @contentauth/c2pa-types' ManifestStore; we use
+  // the narrow ManifestStoreShape from c2pa-shape.ts which captures
+  // exactly what the verifier reads.
+  const store = reader.json() as unknown as ManifestStoreShape;
+
+  const issuer = readActiveIssuer(store);
+  if (!issuer) {
+    throw new VerifyError(
+      VerifyErrorCode.MANIFEST_MALFORMED,
+      "active manifest signature_info.issuer is missing",
+    );
+  }
+  const commonName = readActiveCommonName(store);
+
+  const sourceId = identifyTrustSource(issuer, commonName, trustConfig);
+  if (!sourceId) {
+    // c2pa-node validated the chain to one of our trust anchors, but
+    // the issuer DN doesn't match any TRUSTED_ISSUERS entry whose PEM
+    // is loaded. Shouldn't happen if the shared trust list, the
+    // verifier YAML, and the on-disk PEMs are in sync — flag as a
+    // "verifier misconfiguration" signal.
+    throw new VerifyError(
+      VerifyErrorCode.UNTRUSTED_ISSUER,
+      `issuer '${issuer}' does not match any configured trust source`,
+    );
+  }
+
+  const source = trustConfig.sources.find((s) => s.id === sourceId);
+  if (!source) {
+    // Defensive — the dispatcher returned a sourceId the source list doesn't
+    // carry. Distinct message so triage can tell this apart from the no-match
+    // branch above.
+    throw new VerifyError(
+      VerifyErrorCode.UNTRUSTED_ISSUER,
+      `internal: trust source '${sourceId}' present in dispatcher but missing from config`,
+    );
+  }
+
+  // Force-wrap: the ACTIVE manifest must be RealReel-signed. We dispatch on
+  // verification_profile (not source.id) so a future transitional second
+  // RealReel root for CA rotation — same profile, different id — still
+  // ingests. A foreign-issuer active manifest (a raw single-stage Pixel
+  // capture uploaded directly) is rejected here: the Pixel root stays in the
+  // trust bundle ONLY to validate Pixel *parents* in wrap mode, never to
+  // ingest a Pixel-active file. UNTRUSTED_ISSUER is the closest existing
+  // code — the cert chain is trusted, but not as a RealReel Stage 2.
+  if (source.verification_profile !== "realreel") {
+    throw new VerifyError(
+      VerifyErrorCode.UNTRUSTED_ISSUER,
+      `active manifest issuer '${issuer}' (${source.name}) is not RealReel — ` +
+        `every upload must carry a RealReel Stage 2 manifest (force-wrap); ` +
+        `raw single-stage ${source.name} files are not accepted`,
+    );
+  }
+
+  // Time-bound cert-validity gates: Trusted-TSA-when-present, future-dated
+  // signature, and required-TSA-for-old-assets. Reads
+  // validation_results.activeManifest BEFORE sanitize drops it. Active
+  // manifest is guaranteed present here — readActiveIssuer above would have
+  // thrown otherwise.
+  const active = getActiveManifest(store)!;
+  checkCertValidityTimeBounds({
+    active,
+    tsaState: readTsaState(store),
+    clock,
+    certLifetimeMs,
+  });
+
+  const sanitized = await verifyRealReel(
+    store,
+    source.id,
+    playIntegrityConfig,
+    attestationRequired,
+    datastore,
+  );
+
+  return { sanitizedManifest: sanitized };
+}
+
+// Resolve the active manifest's signature_info.issuer via the shared
+// helper. See c2pa-shape.ts for the active_manifest-is-a-label rule.
+function readActiveIssuer(store: ManifestStoreShape): string | null {
+  return getActiveManifest(store)?.signature_info?.issuer ?? null;
+}
+
+// Resolve the active manifest's signature_info.common_name. Pinned by
+// entries in TRUSTED_ISSUERS whose commonNameMatch is set (today: Pixel).
+// May legitimately be absent on a manifest — identifyTrustSource treats
+// null and undefined identically for the equality check.
+function readActiveCommonName(store: ManifestStoreShape): string | null {
+  return getActiveManifest(store)?.signature_info?.common_name ?? null;
+}

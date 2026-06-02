@@ -1,0 +1,6 @@
+verifier/__tests__/fixtures/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+verifier/__tests__/fixtures/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+verifier/__tests__/fixtures/**/*.png filter=lfs diff=lfs merge=lfs -text
+verifier/__tests__/fixtures/**/*.mov filter=lfs diff=lfs merge=lfs -text
+verifier/__tests__/fixtures/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+verifier/__tests__/fixtures/**/*.heic filter=lfs diff=lfs merge=lfs -text

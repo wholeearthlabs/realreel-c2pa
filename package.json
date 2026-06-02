@@ -1,0 +1,22 @@
+{
+  "name": "realreel-c2pa",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Open-source RealReel C2PA trust core, verifier microservice, native capture module, and CA edge functions.",
+  "workspaces": [
+    "trust-core",
+    "verifier",
+    "native"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test:trust-core": "npm test --workspace trust-core",
+    "test:verifier": "npm test --workspace verifier",
+    "typecheck:verifier": "tsc -p verifier/tsconfig.json --noEmit",
+    "test:ca": "cd ca && deno test --allow-read --allow-env .",
+    "test": "npm run test:trust-core && npm run typecheck:verifier && npm run test:verifier && npm run test:ca",
+    "demo": "cd verifier && tsx ../examples/verify-demo.ts"
+  }
+}

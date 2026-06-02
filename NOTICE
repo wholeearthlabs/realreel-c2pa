@@ -1,0 +1,66 @@
+RealReel C2PA Signing & Verification Stack
+Copyright 2026 Whole Earth Labs LLC
+
+This product includes software developed by Whole Earth Labs LLC.
+
+Licensed under the Apache License, Version 2.0 (the "License"); see the LICENSE
+file in this repository for the full terms.
+
+================================================================================
+Third-party trust anchors redistributed in verifier/trust-sources/
+================================================================================
+
+This repository vendors several PUBLIC certificate-authority root certificates,
+used by the verifier to validate certificate and RFC 3161 timestamp chains. They
+are redistributed verbatim for verification convenience, contain no private key
+material, and remain the property of their respective owners. Their inclusion
+here does not imply any endorsement by their issuers.
+
+  * Google C2PA Root CA G3
+    verifier/trust-sources/pixel/root.pem
+    Sourced from the C2PA Conformance Programme / C2PA Trust List.
+
+  * C2PA TSA Trust List
+    verifier/trust-sources/c2pa-tsa/c2pa-tsa-trust-list.pem
+    Redistributed from the C2PA Conformance Programme public trust list
+    (https://github.com/c2pa-org/conformance-public).
+
+  * DigiCert Trusted Root G4 and SSL.com Root Certification Authority RSA
+    verifier/trust-sources/c2pa-tsa-fallback/fallback-tsa-roots.pem
+    Public timestamping-authority roots, redistributed to anchor RFC 3161
+    timestamp tokens emitted by those authorities.
+
+The RealReel Root CA certificate (verifier/trust-sources/realreel/root.pem) is a
+self-signed public root published by Whole Earth Labs LLC. The corresponding CA
+private key is held in a hardware security module and is NOT part of this
+repository.
+
+================================================================================
+Platform-attestation trust anchors embedded in ca/_shared/attestation/roots.ts
+================================================================================
+
+The CA's enrollment-time attestation validators embed several PUBLIC
+certificate-authority roots as PEM strings, used to validate Apple App Attest
+and Android Key Attestation chains. They contain no private key material and
+remain the property of their respective owners.
+
+  * Apple App Attestation Root CA
+    Property of Apple Inc. Published at
+    https://www.apple.com/certificateauthority/Apple_App_Attestation_Root_CA.pem
+
+  * Google Hardware Attestation Roots
+    Property of Google LLC. Extracted verbatim from the reference validation
+    library github.com/google/android-key-attestation (Apache License 2.0).
+    These are the self-signed roots at which real-device Android Key
+    Attestation chains terminate.
+
+================================================================================
+Third-party runtime dependency notice
+================================================================================
+
+The Android native module declares a dependency on Google's Play Integrity
+client (com.google.android.play:integrity). That library is distributed under
+Google's proprietary Play Core Software Development Kit Terms of Service, not an
+OSI-approved license. This repository's own code is Apache-2.0 and vendors no
+code from it — the dependency is resolved at build time by consumers who accept
+Google's terms.

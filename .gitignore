@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+**/coverage/
+
+# Deno cache
+.deno/
+**/.deno/
+
+# Native build artifacts
+native/android/build/
+native/android/.gradle/
+native/android/.cxx/
+native/ios/build/
+**/Pods/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Local env
+.env
+.env.local
+.env.*.local

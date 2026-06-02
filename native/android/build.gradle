@@ -1,0 +1,55 @@
+plugins {
+  id 'com.android.library'
+  id 'org.jetbrains.kotlin.android'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.photoattest'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.photoattest"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // c2pa-android — sister of c2pa-ios. JitPack repo registered at the root
+  // android/build.gradle allprojects.repositories. Requires API 28+, which
+  // our app sets via expo-build-properties (see app.config.ts).
+  // Version pinned here; update in lockstep with C2PA.version on iOS.
+  implementation 'com.github.contentauth:c2pa-android:0.0.9'
+
+  // AndroidX ExifInterface — broader EXIF tag coverage than the platform's
+  // android.media.ExifInterface (TAG_LENS_MAKE / TAG_LENS_MODEL, plus a
+  // version-stable `latLong` getter). Used by signC2PACapture to populate the
+  // `stds.exif` C2PA assertion at sign time.
+  implementation 'androidx.exifinterface:exifinterface:1.3.7'
+
+  // BouncyCastle — used to build the X.509 cert chain for C2PA signing.
+  // bcpkix provides X509v3CertificateBuilder + extension types; bcprov is the
+  // transitive provider implementation (ASN.1, OIDs, primitives).
+  implementation 'org.bouncycastle:bcpkix-jdk18on:1.81'
+  implementation 'org.bouncycastle:bcprov-jdk18on:1.81'
+
+  // Google Play Integrity (Standard requests) — per-capture attestation
+  // primitive for Android (sister of iOS App Attest). Standard requests are
+  // online-first: the device fetches a fresh integrity verdict per signing
+  // event, bound to a server-issued single-use challenge via requestHash.
+  // The verifier decodes the JWS via Google's decodeIntegrityToken server
+  // API (verifier/src/attestation/play_integrity.ts).
+  //
+  // 1.6.0 (2025-11-20): added optional webViewRequestMode param on
+  // PrepareIntegrityTokenRequest (WebView-only — we ignore it). 1.5.0
+  // raised the library's min API floor to 23, deprecated
+  // StandardIntegrityToken.showDialog() in favor of a manager-level
+  // showDialog(), and added new remediation dialog codes for
+  // MEETS_DEVICE_INTEGRITY / MEETS_STRONG_INTEGRITY. We don't currently
+  // call showDialog at all; future work could surface a richer
+  // remediation UX via StandardIntegrityManager.showDialog() instead of
+  // the generic "secure capture not supported" toast. Our photo-attest
+  // minSdk is 28 (c2pa-android floor) so the API-23 floor is moot.
+  implementation 'com.google.android.play:integrity:1.6.0'
+}
