@@ -16,7 +16,7 @@
     "test:verifier": "npm test --workspace verifier",
     "typecheck:verifier": "tsc -p verifier/tsconfig.json --noEmit",
     "test:ca": "cd ca && deno test --allow-read --allow-env .",
-    "test": "npm run test:trust-core && npm run typecheck:verifier && npm run test:verifier && npm run test:ca",
+    "test": "npm run build -w trust-core && npm run test:trust-core && npm run typecheck:verifier && npm run test:verifier && npm run test:ca",
     "demo": "cd verifier && tsx ../examples/verify-demo.ts"
   }
 }

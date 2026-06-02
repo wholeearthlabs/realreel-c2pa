@@ -1,24 +1,72 @@
 {
   "name": "@realreel/c2pa-trust-core",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.1.0",
   "description": "Part of the open-source RealReel C2PA signing/verification stack — shapes, trust list, action allowlists, and pure policy functions (no I/O, no native deps, no crypto). Shared between the RealReel client preflight gate and the Cloud Run verifier.",
+  "keywords": [
+    "c2pa",
+    "content-credentials",
+    "content-authenticity",
+    "provenance",
+    "trust-list",
+    "realreel"
+  ],
+  "license": "Apache-2.0",
+  "author": "Whole Earth Labs LLC",
+  "homepage": "https://github.com/wholeearthlabs/realreel-c2pa/tree/main/trust-core#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wholeearthlabs/realreel-c2pa.git",
+    "directory": "trust-core"
+  },
+  "bugs": {
+    "url": "https://github.com/wholeearthlabs/realreel-c2pa/issues"
+  },
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "sideEffects": false,
+  "//": "main/types/exports point at compiled dist/. The in-repo verifier workspace consumes these same entry points, so dist/ must exist before it resolves: `prepare` builds it on install, and the root `test` rebuilds it before the verifier typecheck/tests run. dist/ is gitignored — it is regenerated, never committed.",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./shapes": "./src/shapes/index.ts",
-    "./errors": "./src/errors/index.ts",
-    "./policies": "./src/policies/index.ts",
-    "./trust-list": "./src/trust-list/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./shapes": {
+      "types": "./dist/shapes/index.d.ts",
+      "import": "./dist/shapes/index.js",
+      "default": "./dist/shapes/index.js"
+    },
+    "./errors": {
+      "types": "./dist/errors/index.d.ts",
+      "import": "./dist/errors/index.js",
+      "default": "./dist/errors/index.js"
+    },
+    "./policies": {
+      "types": "./dist/policies/index.d.ts",
+      "import": "./dist/policies/index.js",
+      "default": "./dist/policies/index.js"
+    },
+    "./trust-list": {
+      "types": "./dist/trust-list/index.d.ts",
+      "import": "./dist/trust-list/index.js",
+      "default": "./dist/trust-list/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
-    "src",
-    "README.md"
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
+    "prepare": "tsc",
     "test": "vitest run"
   },
   "devDependencies": {
