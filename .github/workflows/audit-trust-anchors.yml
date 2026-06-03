@@ -1,0 +1,105 @@
+name: Audit trust anchors
+
+on:
+  schedule:
+    - cron: '0 14 * * MON'   # Mondays 14:00 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'verifier/trust-sources/**'
+      - 'verifier/trust-sources.yaml'
+      - 'verifier/scripts/audit-trust-anchors.ts'
+      - '.github/workflows/audit-trust-anchors.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  # Global group (no ref qualifier) on purpose: serializes the issue-writing
+  # cron/dispatch runs so two concurrent failures can't each open a duplicate
+  # trust-anchors tracking issue.
+  group: audit-trust-anchors
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'   # match this repo's other workflows (ci.yml)
+
+      # IMPORTANT — install at the MONOREPO ROOT, not in verifier/.
+      # The verifier is an npm workspace with no verifier-scoped lockfile,
+      # so `npm ci` inside verifier/ fails (the same gotcha the Dockerfile
+      # hit). Root install hoists deps; tsx then resolves from verifier/.
+      - name: Install deps (monorepo root)
+        run: npm ci
+
+      - name: Run trust-anchor audit
+        id: audit
+        continue-on-error: true
+        working-directory: verifier
+        shell: bash
+        run: |
+          set -o pipefail
+          npx tsx scripts/audit-trust-anchors.ts | tee /tmp/audit-output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Ensure tracking labels exist
+        if: steps.audit.outcome == 'failure' && github.event_name != 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = [
+              { name: 'trust-anchors', color: 'D93F0B', description: 'Trust-anchor expiry / rotation' },
+              { name: 'audit', color: 'BFDADC', description: 'Automated audit findings' },
+            ];
+            for (const label of labels) {
+              try {
+                await github.rest.issues.getLabel({ owner: context.repo.owner, repo: context.repo.repo, name: label.name });
+              } catch (e) {
+                if (e.status !== 404) throw e;
+                await github.rest.issues.createLabel({ owner: context.repo.owner, repo: context.repo.repo, ...label });
+              }
+            }
+
+      - name: Open or comment on tracking issue
+        if: steps.audit.outcome == 'failure' && github.event_name != 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/audit-output.txt', 'utf-8');
+            const today = new Date().toISOString().slice(0, 10);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '`make verify-trust-anchors` reported a non-zero exit.',
+              '', '```', output.trim(), '```', '',
+              `Run: ${runUrl}`, '',
+              'Rotation ritual: see `verifier/DEPLOY.md` § trust-anchor rotation.',
+              'Close this issue once the affected anchor has been rotated and redeployed.',
+            ].join('\n');
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo, labels: 'trust-anchors', state: 'open',
+            });
+            if (existing.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing[0].number, body: `Audit re-run on ${today}:\n\n${body}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: `Trust anchor audit: action required (${today})`,
+                labels: ['trust-anchors', 'audit'], body,
+              });
+            }
+
+      - name: Fail PR check when audit fails
+        if: steps.audit.outcome == 'failure' && github.event_name == 'pull_request'
+        run: |
+          echo "Trust-anchor audit failed on this PR — see the audit step output above."
+          exit 1

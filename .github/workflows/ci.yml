@@ -13,7 +13,7 @@ jobs:
     name: trust-core + verifier (Node)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Verifier tests read real C2PA media fixtures stored in Git LFS
           # (verifier/__tests__/fixtures/*.jpg|*.mov). Without lfs:true the
@@ -21,7 +21,7 @@ jobs:
           # suites fail to parse them.
           lfs: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
 
@@ -54,7 +54,7 @@ jobs:
     name: ca edge functions (Deno)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: denoland/setup-deno@v2
         with:
@@ -76,9 +76,9 @@ jobs:
     name: native TS bridge (typecheck only)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
 
