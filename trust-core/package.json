@@ -1,6 +1,6 @@
 {
   "name": "@realreel/c2pa-trust-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Part of the open-source RealReel C2PA signing/verification stack — shapes, trust list, action allowlists, and pure policy functions (no I/O, no native deps, no crypto). Shared between the RealReel client preflight gate and the Cloud Run verifier.",
   "keywords": [
     "c2pa",
@@ -23,41 +23,35 @@
   },
   "type": "module",
   "sideEffects": false,
-  "//": "main/types/exports point at compiled dist/. The in-repo verifier workspace consumes these same entry points, so dist/ must exist before it resolves: `prepare` builds it on install, and the root `test` rebuilds it before the verifier typecheck/tests run. dist/ is gitignored — it is regenerated, never committed.",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "//": "Dual-format because jest (jest-expo, CommonJS) doesn't transform node_modules ESM, so the closed app needs a CommonJS build (resolved via `require` → dist/commonjs); ESM consumers like the verifier (NodeNext) get dist/esm via `import`. The in-repo verifier consumes these entry points, so dist/ must be built before it resolves: `prepare` builds on install, and the root `test` rebuilds first. dist/ is gitignored — regenerated, never committed.",
+  "main": "./dist/commonjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/commonjs/index.d.ts",
   "exports": {
+    "./package.json": "./package.json",
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "import": { "types": "./dist/esm/index.d.ts", "default": "./dist/esm/index.js" },
+      "require": { "types": "./dist/commonjs/index.d.ts", "default": "./dist/commonjs/index.js" }
     },
     "./shapes": {
-      "types": "./dist/shapes/index.d.ts",
-      "import": "./dist/shapes/index.js",
-      "default": "./dist/shapes/index.js"
+      "import": { "types": "./dist/esm/shapes/index.d.ts", "default": "./dist/esm/shapes/index.js" },
+      "require": { "types": "./dist/commonjs/shapes/index.d.ts", "default": "./dist/commonjs/shapes/index.js" }
     },
     "./errors": {
-      "types": "./dist/errors/index.d.ts",
-      "import": "./dist/errors/index.js",
-      "default": "./dist/errors/index.js"
+      "import": { "types": "./dist/esm/errors/index.d.ts", "default": "./dist/esm/errors/index.js" },
+      "require": { "types": "./dist/commonjs/errors/index.d.ts", "default": "./dist/commonjs/errors/index.js" }
     },
     "./policies": {
-      "types": "./dist/policies/index.d.ts",
-      "import": "./dist/policies/index.js",
-      "default": "./dist/policies/index.js"
+      "import": { "types": "./dist/esm/policies/index.d.ts", "default": "./dist/esm/policies/index.js" },
+      "require": { "types": "./dist/commonjs/policies/index.d.ts", "default": "./dist/commonjs/policies/index.js" }
     },
     "./trust-list": {
-      "types": "./dist/trust-list/index.d.ts",
-      "import": "./dist/trust-list/index.js",
-      "default": "./dist/trust-list/index.js"
-    },
-    "./package.json": "./package.json"
+      "import": { "types": "./dist/esm/trust-list/index.d.ts", "default": "./dist/esm/trust-list/index.js" },
+      "require": { "types": "./dist/commonjs/trust-list/index.d.ts", "default": "./dist/commonjs/trust-list/index.js" }
+    }
   },
   "files": [
-    "dist/**/*.js",
-    "dist/**/*.d.ts",
+    "dist",
     "README.md",
     "LICENSE"
   ],
@@ -65,8 +59,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc",
-    "prepare": "tsc",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json && node scripts/finalize-build.mjs",
+    "prepare": "npm run build",
     "test": "vitest run"
   },
   "devDependencies": {
