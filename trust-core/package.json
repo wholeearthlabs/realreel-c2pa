@@ -62,7 +62,8 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json && node scripts/finalize-build.mjs",
     "prepare": "npm run build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:dual-format": "node scripts/verify-dual-format.mjs"
   },
   "devDependencies": {
     "typescript": "~5.9.2",

@@ -33,6 +33,12 @@ jobs:
       - name: trust-core — vitest
         run: npm test --workspace trust-core
 
+      # Packs the tarball and asserts it is genuinely dual-format (CJS loads via
+      # require + ESM via import + exports.require wired). Makes an ESM-only
+      # regression — which broke jest consumers in 0.1.0 — impossible to publish.
+      - name: trust-core — dual-format publish guard
+        run: npm run verify:dual-format --workspace trust-core
+
       # Type-checks src/ only (production build). The test-config typecheck
       # (tsconfig.test.json) is intentionally not gated here: it includes the
       # __tests__/ partial-object fixtures, which vitest transpiles with
@@ -82,3 +88,9 @@ jobs:
       - name: native — tsc (TS bridge only)
         run: npx tsc --noEmit
         working-directory: native
+
+      # The native code hardcodes the C2PA timestamp assertion label (it can't
+      # import the TS constant); assert it still matches trust-core's canonical
+      # TIMESTAMP_ASSERTION_LABEL so the invariant lives with the native source.
+      - name: native — timestamp-label drift guard (vs trust-core)
+        run: npm run check:native-labels --workspace native

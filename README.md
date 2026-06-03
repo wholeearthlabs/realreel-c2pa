@@ -53,6 +53,13 @@ The CA signing key itself is **not** in this repository — it lives in a hardwa
 security module. Only the public RealReel root certificate ships here, alongside
 the public trust anchors the verifier needs (see [`NOTICE`](./NOTICE)).
 
+**On npm:** `trust-core/` and `native/` publish as
+[`@realreel/c2pa-trust-core`](https://www.npmjs.com/package/@realreel/c2pa-trust-core)
+and [`@realreel/photo-attest`](https://www.npmjs.com/package/@realreel/photo-attest)
+— an integrating app typically installs **both** (trust-core describes and gates
+captures; photo-attest produces them). `verifier/` and `ca/` deploy from source,
+not npm.
+
 Thinking of reusing part of this in your own app? See [`ADAPTING.md`](./ADAPTING.md)
 — what's reusable, what's RealReel-specific, and the exact swap-points.
 

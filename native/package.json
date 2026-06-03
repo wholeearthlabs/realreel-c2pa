@@ -51,7 +51,8 @@
     "prepare": "expo-module prepare",
     "prepublishOnly": "expo-module prepublishOnly",
     "expo-module": "expo-module",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:native-labels": "node scripts/check-native-labels.mjs"
   },
   "peerDependencies": {
     "expo": "*",
@@ -60,6 +61,7 @@
   },
   "devDependencies": {
     "@expo/config-plugins": "~55.0.0",
+    "@realreel/c2pa-trust-core": "*",
     "expo-module-scripts": "~55.0.0",
     "expo-modules-core": "~55.0.25",
     "typescript": "~5.9.2"
