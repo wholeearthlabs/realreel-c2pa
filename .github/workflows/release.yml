@@ -1,0 +1,39 @@
+name: Release
+
+# Publishes @realreel/c2pa-trust-core (trust-core/) and @realreel/photo-attest
+# (native/) via Changesets — push to main, then merge the "Version Packages" PR
+# it opens. Auth is npm Trusted Publishing (OIDC): no stored token, provenance
+# automatic, but each package must register this repo + workflow as a trusted
+# publisher on npmjs.com, and npm must be >= 11.5 (node 24 ships it). verifier/
+# and ca/ deploy from source, not npm.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # version-bump commit, tags, GitHub Releases
+  pull-requests: write # the "Version Packages" PR
+  id-token: write # OIDC for npm Trusted Publishing (no token)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - run: npm ci
+
+      - name: Create "Version Packages" PR or publish
+        uses: changesets/action@v1
+        with:
+          publish: npm run release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

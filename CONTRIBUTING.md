@@ -26,4 +26,8 @@ workspace is, plus per-workspace build and test instructions.
 - Add or update tests; keep the existing suites green.
 - Note any change that affects the trust model, the wire format, or a public
   interface.
+- If your change affects a **published package** (`@realreel/c2pa-trust-core` or
+  `@realreel/photo-attest`), include a changeset: run `npx changeset`, pick the
+  package(s) and bump, and commit the generated `.changeset/*.md`. Changes to
+  `verifier/` and `ca/` (which deploy from source) don't need one.
   

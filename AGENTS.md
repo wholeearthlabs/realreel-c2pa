@@ -53,6 +53,18 @@ look like ~130-byte text stubs, run `git lfs pull`.
 - Comments should earn their place — explain non-obvious **why** (especially
   security invariants and external-spec references), not the obvious **what**.
 
+## Releasing
+
+The two **published** packages — `@realreel/c2pa-trust-core` (`trust-core/`) and
+`@realreel/photo-attest` (`native/`) — are versioned with
+[Changesets](https://github.com/changesets/changesets). For any change to either
+package's published code, add a changeset and commit the generated file with
+your change:
+
+```bash
+npx changeset                       # pick the package(s) + semver bump + changelog line
+```
+
 ## Don't
 
 - Don't run, assume, or require a native/device build here — Swift/Kotlin need a

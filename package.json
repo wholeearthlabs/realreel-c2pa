@@ -17,6 +17,12 @@
     "typecheck:verifier": "tsc -p verifier/tsconfig.json --noEmit",
     "test:ca": "cd ca && deno test --allow-read --allow-env .",
     "test": "npm run build -w trust-core && npm run test:trust-core && npm run typecheck:verifier && npm run test:verifier && npm run test:ca",
-    "demo": "cd verifier && tsx ../examples/verify-demo.ts"
+    "demo": "cd verifier && tsx ../examples/verify-demo.ts",
+    "changeset": "changeset",
+    "release": "changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0"
   }
 }
