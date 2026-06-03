@@ -92,8 +92,15 @@ make test-verifier
 ## Build + container
 
 ```bash
-npm run build           # tsc → dist/
-docker build -t realreel-verifier .
+npm run build           # tsc → dist/ (local)
+```
+
+The container image builds from the **repo root** (not `verifier/`), so the
+`@realreel/c2pa-trust-core` workspace dep is compiled from source into it:
+
+```bash
+# from the repo root:
+docker build -f verifier/Dockerfile -t realreel-verifier .
 ```
 
 ## Trust list

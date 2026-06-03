@@ -131,7 +131,15 @@ Once these are in hand, you're ready for the **Deploy** flow below.
 
 1. **`verifier_readonly` password.** The schema migration creates the role with a placeholder password. In the Supabase SQL editor: `ALTER USER verifier_readonly WITH PASSWORD '<new>';`. The `DATABASE_URL` above embeds this password.
 
-2. **Build + push** the container to your Artifact Registry.
+2. **Build + push** the container image. It builds from the **repo root** (not `verifier/`) so the `@realreel/c2pa-trust-core` workspace dep is compiled from source — no published-npm dependency, no publish-before-deploy — and is pinned to `linux/amd64` (Cloud Run's arch):
+
+   ```bash
+   # from the repo root:
+   docker build -f verifier/Dockerfile -t <region>-docker.pkg.dev/<project>/verifier/realreel-verifier:<tag> .
+   docker push <region>-docker.pkg.dev/<project>/verifier/realreel-verifier:<tag>
+   ```
+
+   (Cloud Build: keep the context at the repo root, pointing at `verifier/Dockerfile`.)
 
 3. **Play Integrity IAM grant.** The verifier calls Google's `decodeIntegrityToken` API on every Android upload; it needs the `roles/playintegrity.user` role on the Google Cloud project that issues your Play Integrity tokens (same project as `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` above). Application Default Credentials picks up the Cloud Run runtime SA automatically — no credential file needed.
 
@@ -168,7 +176,7 @@ Once these are in hand, you're ready for the **Deploy** flow below.
 
    **Verifying the grant worked:** after deploy, hit `/verify` with any Android-signed manifest. If you see HTTP 503 logs with `Play Integrity decode rejected (HTTP 401)` or `(HTTP 403)`, the SA grant is missing or scoped to the wrong project.
 
-4. **Deploy** to Cloud Run with the env vars above and a startup probe on `GET /healthz/ready` (`failureThreshold: 6`, `periodSeconds: 5`). Readiness round-trips `lookup_signing_key_revocation` — a misconfigured `DATABASE_URL` or revoked grant fails the probe instead of letting bad instances serve `/verify`. If using a custom SA (step 3 above), pass `--service-account=<sa-email>`.
+4. **Deploy** the pushed image to Cloud Run with the env vars above and a startup probe on `GET /healthz/ready` (`failureThreshold: 6`, `periodSeconds: 5`). Readiness round-trips `lookup_signing_key_revocation` — a misconfigured `DATABASE_URL` or revoked grant fails the probe instead of letting bad instances serve `/verify`. If using a custom SA (step 3 above), pass `--service-account=<sa-email>`. The image runs **node 24 / OpenSSL 3.5**, so confirm the readiness probe goes green on first deploy — the Postgres TLS cert must be ≥2048-bit RSA / ≥224-bit ECC (managed Postgres meets this).
 
 5. **Wire the Edge function side.** In Supabase Edge secrets:
    - `VERIFIER_URL` = Cloud Run service URL

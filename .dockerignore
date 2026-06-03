@@ -1,0 +1,15 @@
+# Lean root build context for the verifier image (see verifier/Dockerfile):
+# everything here is reinstalled/recompiled in the image, or unused by the build.
+**/node_modules
+**/dist
+**/build
+.git
+.github
+ca
+examples
+docs
+**/__tests__
+**/*.md
+native
+
+**/.env*

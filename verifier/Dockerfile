@@ -1,46 +1,48 @@
-# RealReel C2PA verifier — multi-stage build for Cloud Run.
-#
-# Stage 1 (builder): install all deps incl. dev, compile TypeScript to dist/.
-# Stage 2 (runtime): production-only deps + dist/ + the trust-sources/ tree.
-# node:22-bookworm-slim is small enough (~150 MB base) and includes glibc
-# (c2pa-node's prebuilt native binary is glibc, not musl — don't use alpine).
+# RealReel C2PA verifier image (Cloud Run), built from the MONOREPO ROOT so the
+# @realreel/c2pa-trust-core workspace dep is compiled from source — no published
+# npm dependency, no publish-before-deploy.  Build: docker build -f verifier/Dockerfile .
+# Pinned to linux/amd64 (Cloud Run's arch): c2pa-node ships a single-arch prebuilt
+# that --ignore-scripts doesn't arch-correct, so the image must match the deploy arch.
+# bookworm (not alpine): that prebuilt is glibc, not musl.
 
 # ---------- Stage 1: build ----------
-FROM node:22-bookworm-slim AS builder
+FROM --platform=linux/amd64 node:24-bookworm-slim AS builder
 WORKDIR /app
 
-# Install build-time deps for native modules. c2pa-node fetches a prebuilt
-# binary via @neon-rs/load at install time, but having build-essential
-# present lets the install fall back gracefully if the prebuilt for this
-# arch/libc isn't available.
+# build-essential: fallback if c2pa-node has no prebuilt for this arch/libc.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json* ./
-RUN npm ci
+# Skip the native workspace (-w); trust-core is built explicitly below, after its source.
+COPY package.json package-lock.json ./
+COPY trust-core/package.json ./trust-core/
+COPY verifier/package.json ./verifier/
+RUN npm ci --ignore-scripts --include-workspace-root -w trust-core -w verifier
 
-COPY tsconfig.json ./
-COPY src ./src
-RUN npm run build
+COPY trust-core/tsconfig.json trust-core/tsconfig.cjs.json trust-core/tsconfig.esm.json ./trust-core/
+COPY trust-core/src ./trust-core/src
+COPY trust-core/scripts ./trust-core/scripts
+COPY verifier/tsconfig.json ./verifier/
+COPY verifier/src ./verifier/src
+RUN npm run build -w trust-core
+RUN npm run build -w verifier
 
 # ---------- Stage 2: runtime ----------
-FROM node:22-bookworm-slim AS runtime
+FROM --platform=linux/amd64 node:24-bookworm-slim AS runtime
 WORKDIR /app
 
-# Production-only deps. Re-running npm ci with --omit=dev gives a smaller
-# node_modules than copying from the builder.
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev
+COPY package.json package-lock.json ./
+COPY trust-core/package.json ./trust-core/
+COPY verifier/package.json ./verifier/
+RUN npm ci --omit=dev --ignore-scripts --include-workspace-root -w trust-core -w verifier
 
-# Bring over the compiled JS and the trust-source bundle. The bundle is
-# baked into the image; rotating a vendor's root cert is a redeploy.
-COPY --from=builder /app/dist ./dist
-COPY trust-sources.yaml ./trust-sources.yaml
-COPY trust-sources ./trust-sources
+COPY --from=builder /app/trust-core/dist ./trust-core/dist
+COPY --from=builder /app/verifier/dist ./verifier/dist
+# Trust-source bundle is baked into the image; rotating a vendor root cert is a redeploy.
+COPY verifier/trust-sources.yaml ./trust-sources.yaml
+COPY verifier/trust-sources ./trust-sources
 
-# Non-root runtime user. Cloud Run runs containers as the user the image
-# specifies; node:bookworm-slim already includes a `node` user with UID 1000.
 USER node
 
 ENV NODE_ENV=production
@@ -48,13 +50,8 @@ ENV PORT=8080
 ENV TRUST_SOURCES_PATH=/app/trust-sources.yaml
 EXPOSE 8080
 
-# Hits /healthz/ready so a container with broken DB access (wrong
-# DATABASE_URL, expired pooler creds, missing GRANT) reports unhealthy
-# instead of serving /verify requests that all 500. Cloud Run ignores
-# HEALTHCHECK and uses its own startup/liveness probes (configured in
-# the service YAML — see verifier/DEPLOY.md); this directive is for
-# `docker run`, Compose, and local smoke tests.
+# Cloud Run uses its own probes and ignores HEALTHCHECK; this is for docker run / Compose.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://localhost:'+(process.env.PORT||8080)+'/healthz/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
-CMD ["node", "dist/server.js"]
+CMD ["node", "verifier/dist/server.js"]
