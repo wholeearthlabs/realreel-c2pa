@@ -1,16 +1,66 @@
 {
   "name": "@realreel/photo-attest",
-  "version": "0.0.1",
-  "private": true,
-  "description": "Expo native module for hardware-bound C2PA capture signing (iOS Secure Enclave / Android Keystore). Swift + Kotlin native source requires a full Expo app to build; only the TypeScript bridge is type-checked here.",
-  "main": "index.ts",
+  "version": "0.1.0",
+  "description": "Expo native module for hardware-bound C2PA capture signing (iOS Secure Enclave / Android Keystore) with platform attestation (App Attest / Play Integrity). Reference implementation, best-effort support.",
+  "keywords": [
+    "c2pa",
+    "content-credentials",
+    "content-authenticity",
+    "provenance",
+    "expo",
+    "expo-module",
+    "react-native",
+    "secure-enclave",
+    "android-keystore",
+    "attestation",
+    "realreel"
+  ],
+  "license": "Apache-2.0",
+  "author": "Whole Earth Labs LLC",
+  "homepage": "https://github.com/wholeearthlabs/realreel-c2pa/tree/main/native#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wholeearthlabs/realreel-c2pa.git",
+    "directory": "native"
+  },
+  "bugs": {
+    "url": "https://github.com/wholeearthlabs/realreel-c2pa/issues"
+  },
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "build",
+    "src",
+    "ios",
+    "android/build.gradle",
+    "android/src",
+    "expo-module.config.json",
+    "app.plugin.js",
+    "plugin/build",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "build": "expo-module build",
+    "clean": "expo-module clean",
+    "lint": "expo-module lint",
+    "prepare": "expo-module prepare",
+    "prepublishOnly": "expo-module prepublishOnly",
+    "expo-module": "expo-module",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "expo-modules-core": "*"
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
   },
   "devDependencies": {
+    "@expo/config-plugins": "~55.0.0",
+    "expo-module-scripts": "~55.0.0",
     "expo-modules-core": "~55.0.25",
     "typescript": "~5.9.2"
   }

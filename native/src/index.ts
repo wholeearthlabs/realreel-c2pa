@@ -1,4 +1,4 @@
-import PhotoAttestModule from './src/PhotoAttestModule';
+import PhotoAttestModule from './PhotoAttestModule';
 
 /**
  * Hardware-backed signing key + platform attestation.

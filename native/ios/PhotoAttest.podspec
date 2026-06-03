@@ -3,8 +3,8 @@ Pod::Spec.new do |s|
   s.version        = '1.0.0'
   s.summary        = 'Hardware-backed photo signing key + App Attest for RealReel'
   s.description    = s.summary
-  s.license        = 'MIT'
-  s.author         = 'RealReel'
+  s.license        = 'Apache-2.0'
+  s.author         = 'Whole Earth Labs LLC'
   s.homepage       = 'https://github.com/wholeearthlabs/realreel-c2pa'
   s.platform       = :ios, '16.0'
   s.swift_version  = '5.4'
@@ -17,8 +17,8 @@ Pod::Spec.new do |s|
 
   # SPM-in-pod plumbing for SPM dependencies (c2pa-ios + swift-certificates):
   #
-  # The post_install hook in plugins/withC2PAiOS.js attaches both c2pa-ios
-  # (product `C2PA`) and swift-certificates (product `X509`) as
+  # The post_install hook injected by the config plugin (plugin/src/index.ts)
+  # attaches both c2pa-ios (product `C2PA`) and swift-certificates (product `X509`) as
   # packageProductDependencies on this pod target in Pods.xcodeproj — that
   # gives us the build-order edge (their .swiftmodules are built before this
   # pod) and a link-time dependency on each Swift product.
