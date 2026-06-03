@@ -76,6 +76,31 @@ export interface VerifyResult {
   sanitizedManifest: SanitizedManifestStore;
 }
 
+// c2pa settings for Reader.fromAsset. settingsToJson() converts our camelCase to
+// c2pa-rs snake_case; without it the trustAnchors are silently ignored (every
+// manifest then reports signingCredential.untrusted). verifyTimestampTrust pins
+// the current c2pa-rs default.
+//
+// remoteManifestFetch + ocspFetch: false — the verifier makes NO outbound request
+// during verification. c2pa-rs defaults remoteManifestFetch ON: an asset with no
+// embedded manifest but a remote-manifest reference would make the Reader GET an
+// attacker-chosen URL (SSRF). ocspFetch is off by default but pinned for the same
+// reason. Both are lossless — RealReel ingests embedded manifests only and does
+// revocation via the datastore, not OCSP.
+export function buildVerifierSettings(trustConfig: TrustConfig): string {
+  return settingsToJson({
+    ...createTrustSettings({
+      verifyTrustList: false,
+      trustAnchors: trustConfig.trustAnchorsBundle,
+    }),
+    verify: {
+      verifyTimestampTrust: true,
+      remoteManifestFetch: false,
+      ocspFetch: false,
+    },
+  });
+}
+
 export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   const {
     assetBytes,
@@ -88,29 +113,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     datastore = postgresAdapter,
   } = args;
 
-  // createTrustSettings returns a camelCase object; c2pa-rs's settings format
-  // is snake_case. settingsToJson() does the conversion. Without it,
-  // Reader.fromAsset silently ignores our trustAnchors and emits
-  // `signingCredential.untrusted` in validation_status for every manifest.
-  //
-  // trustAnchorsBundle includes BOTH signer roots AND TSA roots (concatenated
-  // by the loader); c2pa-rs uses a single trust pool for both signing-cert and
-  // TSA-token chain validation.
-  //
-  // verifyTimestampTrust IS the c2pa-rs default today (see c2pa-rs
-  // context-settings.md) — setting it here is defensive pinning against a
-  // future upstream flip. TSA chain-trust state then surfaces in the
-  // TOP-LEVEL `validation_results.activeManifest` (not on individual
-  // manifests): success contains `timeStamp.trusted` when the TSA chain
-  // validates against trustAnchorsBundle; informational contains
-  // `timeStamp.untrusted` when it can't be rooted.
-  const trustSettings = settingsToJson({
-    ...createTrustSettings({
-      verifyTrustList: false,
-      trustAnchors: trustConfig.trustAnchorsBundle,
-    }),
-    verify: { verifyTimestampTrust: true },
-  });
+  const trustSettings = buildVerifierSettings(trustConfig);
 
   let reader: Reader | null;
   try {
