@@ -79,7 +79,7 @@ jobs:
               '`make verify-trust-anchors` reported a non-zero exit.',
               '', '```', output.trim(), '```', '',
               `Run: ${runUrl}`, '',
-              'Rotation ritual: see `verifier/DEPLOY.md` § trust-anchor rotation.',
+              'Rotation ritual: see `verifier/OPERATIONS.md` § trust-anchor rotation.',
               'Close this issue once the affected anchor has been rotated and redeployed.',
             ].join('\n');
             const { data: existing } = await github.rest.issues.listForRepo({

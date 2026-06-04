@@ -50,7 +50,7 @@ export { PLAY_INTEGRITY_LABEL };
 // All VerifyErrors thrown from this file carry `category: 'play-integrity'`
 // so server-side Sentry alerts can filter on Android-specific failures
 // (e.g., `category:play-integrity AND error_code:VERIFIER_UNAVAILABLE`).
-// See verifier/DEPLOY.md § "Monitoring + alerts" for the alert spec.
+// See verifier/OPERATIONS.md § "Monitoring + alerts" for the alert spec.
 function piVerifyError(code: VerifyErrorCode, detail: string): VerifyError {
   return new VerifyError(code, detail, { category: "play-integrity" });
 }

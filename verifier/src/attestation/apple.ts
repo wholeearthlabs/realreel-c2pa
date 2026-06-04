@@ -69,7 +69,7 @@ export const APPLE_APP_ID = `${APPLE_TEAM_ID}.${APPLE_BUNDLE_ID}`;
 
 // All VerifyErrors thrown from this file carry `category: 'app-attest'`
 // so server-side Sentry alerts can filter on iOS-specific failures
-// independently from Android. See verifier/DEPLOY.md § "Monitoring +
+// independently from Android. See verifier/OPERATIONS.md § "Monitoring +
 // alerts" for the alert spec.
 function aaVerifyError(code: VerifyErrorCode, detail: string): VerifyError {
   return new VerifyError(code, detail, { category: "app-attest" });

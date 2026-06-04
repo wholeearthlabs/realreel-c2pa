@@ -27,7 +27,7 @@
 // This is an on-demand script, not a scheduled CI job: run it
 // (`make verify-trust-anchors`) on a recurring reminder, or wire it into
 // your own scheduler. A non-zero exit is the signal to start the
-// trust-anchor rotation runbook (see verifier/DEPLOY.md
+// trust-anchor rotation runbook (see verifier/OPERATIONS.md
 // "#trust-anchor-rotation").
 
 import { readFile } from "node:fs/promises";
@@ -168,7 +168,7 @@ export function renderAudit(result: AuditResult): string {
     lines.push(`OK: all ${rows.length} trust anchors within validity windows.`);
   } else if (exitCode === 1) {
     const firstWarn = rows.find((r) => r.status === "WARN")!;
-    lines.push(`WARN: ${warnCount} warning${warnCount === 1 ? "" : "s"} (${firstWarn.id}: ${firstWarn.days} days). Plan rotation; see verifier/DEPLOY.md § trust-anchor rotation.`);
+    lines.push(`WARN: ${warnCount} warning${warnCount === 1 ? "" : "s"} (${firstWarn.id}: ${firstWarn.days} days). Plan rotation; see verifier/OPERATIONS.md § trust-anchor rotation.`);
   } else {
     const parts: string[] = [];
     if (critCount > 0) {
@@ -182,7 +182,7 @@ export function renderAudit(result: AuditResult): string {
     if (warnCount > 0) {
       parts.push(`${warnCount} warning${warnCount === 1 ? "" : "s"}`);
     }
-    lines.push(`FAIL: ${parts.join(", ")}. Rotate now; see verifier/DEPLOY.md § trust-anchor rotation.`);
+    lines.push(`FAIL: ${parts.join(", ")}. Rotate now; see verifier/OPERATIONS.md § trust-anchor rotation.`);
   }
 
   return lines.join("\n");
