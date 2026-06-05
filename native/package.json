@@ -1,6 +1,6 @@
 {
   "name": "@realreel/photo-attest",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Expo native module for hardware-bound C2PA capture signing (iOS Secure Enclave / Android Keystore) with platform attestation (App Attest / Play Integrity). Reference implementation, best-effort support.",
   "keywords": [
     "c2pa",
