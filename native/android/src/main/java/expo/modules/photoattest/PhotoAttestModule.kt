@@ -3,6 +3,7 @@ package expo.modules.photoattest
 import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.provider.MediaStore
 // AndroidX (not platform) ExifInterface: see native/android/
 // build.gradle for the dep declaration. The platform `android.media.ExifInterface`
@@ -677,7 +678,7 @@ class PhotoAttestModule : Module() {
 
   // TSA drain. Overwrite an app-created gallery asset's bytes in place with the
   // stamped file at `sourcePath`. The app owns the MediaStore entry it created
-  // via createAssetAsync, so a "wt" (write+truncate) output stream overwrites
+  // via `Asset.create`, so a "wt" (write+truncate) output stream overwrites
   // the bytes with no user prompt (scoped storage grants the owner write
   // access). Throws ASSET_NOT_FOUND if the entry is gone (deleted from the
   // gallery since enqueue) so the caller dequeues it.
@@ -688,9 +689,10 @@ class PhotoAttestModule : Module() {
     }
     val context = appContext.reactContext
       ?: throw CodedException("C2PA_SIGN_FAILED", "No app context available", null)
-    // expo-media-library asset ids on Android are the MediaStore _ID (numeric).
-    val id = assetId.toLongOrNull()
-      ?: throw CodedException("ASSET_NOT_FOUND", "MediaLibrary asset id is not numeric: $assetId", null)
+    // expo-media-library's Asset.id is a MediaStore content:// uri; its last
+    // path segment is the row id.
+    val id = Uri.parse(assetId).lastPathSegment?.toLongOrNull()
+      ?: throw CodedException("ASSET_NOT_FOUND", "MediaLibrary asset id is not resolvable: $assetId", null)
     // Files collection covers both images and videos, so we don't need to know
     // which from the id alone. "external" is the legacy external volume name,
     // available on all API levels (avoids the API-29 VOLUME_EXTERNAL constant).
@@ -710,7 +712,7 @@ class PhotoAttestModule : Module() {
       // Entry no longer exists (deleted from gallery between enqueue and drain).
       throw CodedException("ASSET_NOT_FOUND", "MediaStore entry $assetId not found: ${e.message}", e)
     } catch (e: SecurityException) {
-      // App doesn't own the entry — shouldn't happen for createAssetAsync assets.
+      // App doesn't own the entry — shouldn't happen for `Asset.create` assets.
       throw CodedException("C2PA_SIGN_FAILED", "No write access to MediaStore entry $assetId: ${e.message}", e)
     } catch (e: Exception) {
       throw CodedException("C2PA_SIGN_FAILED", "Failed to overwrite MediaStore entry $assetId: ${e.message}", e)

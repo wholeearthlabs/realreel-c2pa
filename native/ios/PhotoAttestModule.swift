@@ -1245,7 +1245,10 @@ public class PhotoAttestModule: Module {
       return
     }
 
-    let fetch = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
+    // expo-media-library's Asset.id is the PHAsset localIdentifier prefixed
+    // with `ph://`; strip the scheme for PHAsset.fetchAssets.
+    let localId = String(assetId.dropFirst("ph://".count))
+    let fetch = PHAsset.fetchAssets(withLocalIdentifiers: [localId], options: nil)
     guard let asset = fetch.firstObject else {
       // Deleted from the gallery between enqueue and drain — caller dequeues.
       promise.reject("ASSET_NOT_FOUND", "no PHAsset for local identifier \(assetId)")
@@ -1263,7 +1266,7 @@ public class PhotoAttestModule: Module {
         // existence so a genuinely-gone asset is reported ASSET_NOT_FOUND (the
         // drain dequeues it) rather than C2PA_SIGN_FAILED (which would retry it
         // forever). If it's still present, it's a real, retryable failure.
-        if !phAssetExists(assetId) {
+        if !phAssetExists(localId) {
           promise.reject("ASSET_NOT_FOUND", "PHAsset \(assetId) no longer exists (deleted after fetch)")
         } else {
           promise.reject("C2PA_SIGN_FAILED", "could not obtain PHContentEditingInput for \(assetId) (asset present — likely limited Photos access)")
@@ -1300,7 +1303,7 @@ public class PhotoAttestModule: Module {
         // (drain reclaims + dequeues, matching Android); anything else stays
         // C2PA_SIGN_FAILED (retryable). Prefer the explicit PHPhotosError code
         // when available, else fall back to a version-agnostic re-fetch.
-        var gone = !phAssetExists(assetId)
+        var gone = !phAssetExists(localId)
         if #available(iOS 15, *), let phErr = error as? PHPhotosError,
            phErr.code == .identifierNotFound {
           gone = true

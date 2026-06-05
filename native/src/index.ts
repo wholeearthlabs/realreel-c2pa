@@ -558,12 +558,15 @@ interface NativeModule {
    * with its stamped (Update-Manifest) version so a later upload reads the
    * timestamped chain.
    *
-   * Android: the app owns the MediaStore entry (it created it via
-   * createAssetAsync), so `contentResolver.openOutputStream(uri, "wt")`
-   * overwrites with no user prompt. iOS: PhotoKit's `PHContentEditingOutput`
-   * edit flow inside `performChanges` — prompt-free for app-created assets;
-   * the pre-stamp original stays revertable (it becomes a reversible edit, the
-   * only Apple-sanctioned way to mutate a library asset).
+   * Android: the app owns the MediaStore entry (it created it via the
+   * media-library `Asset.create`), so `contentResolver.openOutputStream(uri,
+   * "wt")` overwrites with no user prompt. iOS: PhotoKit's
+   * `PHContentEditingOutput` edit flow inside `performChanges` — prompt-free for
+   * app-created assets; the pre-stamp original stays revertable (it becomes a
+   * reversible edit, the only Apple-sanctioned way to mutate a library asset).
+   *
+   * `assetId` is an expo-media-library `Asset.id`: `ph://<localIdentifier>` on
+   * iOS, a `content://` MediaStore uri on Android.
    *
    * Rejects (without mutating the asset) with ASSET_NOT_FOUND if the id no
    * longer resolves (user deleted it from the gallery between enqueue and
