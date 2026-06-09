@@ -141,6 +141,53 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     expect(stage1.signature_info.time).toBeTruthy();
   });
 
+  it("surfaces the signer common_name + signing alg on both stages", async () => {
+    vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
+
+    const result = await verify({
+      assetBytes: fixtureBytes,
+      mimeType: "image/jpeg",
+      expectedUserId: FIXTURE_CAPTURER_UUID,
+      trustConfig,
+    });
+
+    // The enrichment a manifest viewer reads: the leaf cert's common_name
+    // (friendlier than the issuer DN) and the signing algorithm, kept for
+    // every manifest in the store. Pinned against the real fixture's certs.
+    const active = result.sanitizedManifest.active_manifest!;
+    expect(active.signature_info.common_name).toBe("RealReel-Device-Key");
+    expect(active.signature_info.alg).toBe("Es256");
+
+    const stage1 = result.sanitizedManifest.manifests[active.parent_label!];
+    expect(stage1!.signature_info.common_name).toBe("RealReel-Device-Key");
+    expect(stage1!.signature_info.alg).toBe("Es256");
+  });
+
+  it("drops re-verification-only assertions and keeps the row a few KB", async () => {
+    vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
+
+    const result = await verify({
+      assetBytes: fixtureBytes,
+      mimeType: "image/jpeg",
+      expectedUserId: FIXTURE_CAPTURER_UUID,
+      trustConfig,
+    });
+
+    const labels = Object.values(result.sanitizedManifest.manifests).flatMap(
+      (m) => m.assertions.map((a) => a.label),
+    );
+    // Consumed-at-ingest / re-verification material is stripped...
+    expect(labels.some((l) => l.startsWith("c2pa.hash."))).toBe(false);
+    expect(labels).not.toContain("org.realreel.play_integrity");
+    // ...while the provenance a viewer renders is kept: signed EXIF, the
+    // actions log, the capture UUID.
+    expect(labels).toContain("stds.exif");
+    expect(labels).toContain("org.realreel.capture");
+    // Real-row size pin: the kept shape is a few KB, and this ceiling also
+    // trips if the drop ever regresses (unfiltered this fixture is ~5.5 KB).
+    expect(JSON.stringify(result.sanitizedManifest).length).toBeLessThan(5000);
+  });
+
   it("looks up BOTH stages' cert serials (Stage 1 for the revocation denylist, Stage 2 for the full gate)", async () => {
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
 

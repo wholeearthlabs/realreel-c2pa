@@ -1,7 +1,7 @@
 {
   "name": "@realreel/verifier",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "RealReel C2PA verifier microservice. Validates the embedded C2PA manifest of each upload against a curated trust list and revocation state; runs synchronously inside the upload path via the verify-and-create-media edge function. Self-contained — imports nothing from the app codebase. Designed for future open-source extraction.",
   "type": "module",
   "engines": {

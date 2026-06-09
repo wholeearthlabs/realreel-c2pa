@@ -104,6 +104,37 @@ describe("sanitizeManifestStore", () => {
     expect(out.active_manifest?.assertions[1]!.label).toBe("org.realreel.capture");
   });
 
+  it("drops re-verification-only assertions (hash bindings, timestamp token, attestation envelopes)", () => {
+    const out = sanitizeManifestStore(
+      {
+        active_manifest: "m1",
+        manifests: {
+          m1: {
+            label: "m1",
+            assertions: [
+              { label: "c2pa.actions.v2", data: { actions: [{ action: "c2pa.resized" }] } },
+              { label: "stds.exif", data: { "tiff:Model": "Pixel 10" } },
+              { label: "org.realreel.upload", data: { appVersion: "1.2.3" } },
+              // dropped — re-verification / consumed-at-ingest material
+              { label: "c2pa.hash.data.part", data: { hash: "…" } },
+              { label: "c2pa.hash.multi-asset", data: { hash: "…" } },
+              { label: "c2pa.time-stamp", data: { "urn:c2pa:x": "<base64 RFC 3161 token>" } },
+              { label: "org.realreel.play_integrity", data: { token: "…" } },
+              { label: "org.realreel.app_attest", data: { token: "…" } },
+            ],
+          },
+        },
+        validation_status: [],
+      },
+      "realreel",
+    );
+    expect(out.active_manifest?.assertions.map((a) => a.label)).toEqual([
+      "c2pa.actions.v2",
+      "stds.exif",
+      "org.realreel.upload",
+    ]);
+  });
+
   it("maps signature_info: issuer + ISO time string", () => {
     const out = sanitizeManifestStore(
       {
@@ -152,10 +183,98 @@ describe("sanitizeManifestStore", () => {
       "realreel",
     );
     expect(out.active_manifest?.signature_info.issuer).toBeNull();
+    expect(out.active_manifest?.signature_info.common_name).toBeNull();
+    expect(out.active_manifest?.signature_info.alg).toBeNull();
     expect(out.active_manifest?.signature_info.time).toBeNull();
   });
 
-  it("targets a small JSON payload (<2 KB for a typical 2-stage manifest)", () => {
+  it("keeps signature_info common_name + alg (the human-readable signer)", () => {
+    const out = sanitizeManifestStore(
+      {
+        active_manifest: "m1",
+        manifests: {
+          m1: {
+            label: "m1",
+            signature_info: {
+              issuer: "CN=Google LLC",
+              common_name: "Pixel Camera",
+              alg: "Es256",
+            },
+          },
+        },
+        validation_status: [],
+      },
+      "realreel",
+    );
+    expect(out.active_manifest?.signature_info.common_name).toBe("Pixel Camera");
+    expect(out.active_manifest?.signature_info.alg).toBe("Es256");
+  });
+
+  it("preserves ingredient title/format/relationship alongside the parent pointer", () => {
+    const out = sanitizeManifestStore(
+      {
+        active_manifest: "stage2",
+        manifests: {
+          stage1: { label: "stage1" },
+          stage2: {
+            label: "stage2",
+            ingredients: [
+              {
+                title: "PXL_20260516.jpg",
+                format: "image/jpeg",
+                relationship: "parentOf",
+                active_manifest: "stage1",
+              },
+            ],
+          },
+        },
+        validation_status: [],
+      },
+      "realreel",
+    );
+    const ingredients = out.active_manifest?.ingredients;
+    expect(ingredients).toHaveLength(1);
+    expect(ingredients?.[0]).toEqual({
+      title: "PXL_20260516.jpg",
+      format: "image/jpeg",
+      relationship: "parentOf",
+      active_manifest: "stage1",
+    });
+    // parent_label still derives from the same ingredient.
+    expect(out.active_manifest?.parent_label).toBe("stage1");
+  });
+
+  it("nulls absent ingredient fields and returns [] when there are no ingredients", () => {
+    const out = sanitizeManifestStore(
+      {
+        active_manifest: "stage2",
+        manifests: {
+          lone: { label: "lone" },
+          stage2: { label: "stage2", ingredients: [{ active_manifest: "lone" }] },
+        },
+        validation_status: [],
+      },
+      "realreel",
+    );
+    expect(out.manifests["lone"]?.ingredients).toEqual([]);
+    expect(out.active_manifest?.ingredients[0]).toEqual({
+      title: null,
+      format: null,
+      relationship: null,
+      active_manifest: "lone",
+    });
+  });
+
+  it("drops the re-verification bulk, keeping the persisted shape compact", () => {
+    // Hard-binding hashes + an attestation envelope dominate a raw manifest
+    // (~2 KB here) but carry no provenance a viewer reads — sanitize drops
+    // them, so the kept shape stays small. Real-row sizes are pinned against
+    // actual fixtures in verify-realreel*.test.ts; this guards the structure.
+    const heavyReVerify = [
+      { label: "c2pa.hash.data.part", data: { hash: "A".repeat(1200), pad: "B".repeat(400) } },
+      { label: "c2pa.time-stamp", data: { "urn:c2pa:x": "D".repeat(8000) } },
+      { label: "org.realreel.play_integrity", data: { token: "C".repeat(900) } },
+    ];
     const typical = {
       active_manifest: "stage2",
       manifests: {
@@ -164,9 +283,10 @@ describe("sanitizeManifestStore", () => {
           claim_generator: "RealReel-capture/1.2.3 c2pa-rs/0.13.0",
           title: "img.jpg",
           format: "image/jpeg",
-          signature_info: { issuer: "CN=RealReel Issuing CA", time: "2026-05-14T10:30:00Z" },
+          signature_info: { issuer: "CN=RealReel Issuing CA", common_name: "RealReel-Device-Key", alg: "Es256", time: "2026-05-14T10:30:00Z" },
           assertions: [
             { label: "org.realreel.capture", data: { capturerUuid: "00000000-0000-0000-0000-000000000000", deviceManufacturer: "Apple" } },
+            ...heavyReVerify,
           ],
         },
         stage2: {
@@ -174,22 +294,24 @@ describe("sanitizeManifestStore", () => {
           claim_generator: "RealReel-upload/1.2.3 c2pa-rs/0.13.0",
           title: "img.jpg",
           format: "image/jpeg",
-          signature_info: { issuer: "CN=RealReel Issuing CA", time: "2026-05-14T10:30:05Z" },
+          signature_info: { issuer: "CN=RealReel Issuing CA", common_name: "RealReel-Device-Key", alg: "Es256", time: "2026-05-14T10:30:05Z" },
           assertions: [
             { label: "org.realreel.upload", data: { deviceManufacturer: "Apple", appVersion: "1.2.3" } },
             { label: "c2pa.actions", data: { actions: [{ action: "c2pa.resized" }, { action: "c2pa.transcoded" }] } },
+            { label: "stds.exif", data: { "tiff:Make": "Apple", "tiff:Model": "iPhone 15 Pro", "exif:FNumber": "1.78" } },
+            ...heavyReVerify,
           ],
-          ingredients: [{ active_manifest: "stage1" }],
+          ingredients: [{ title: "img.jpg", format: "image/jpeg", relationship: "parentOf", active_manifest: "stage1" }],
         },
       },
       validation_status: [],
     };
-    const out = sanitizeManifestStore(typical, "realreel");
-    const json = JSON.stringify(out);
-    // Ceiling documented in sanitize.ts. If this grows materially,
-    // revisit the kept-fields policy — assertions are the bulk of the
-    // size, but the capturer-UUID UI needs them for the Content
-    // Credentials overlay.
+    const json = JSON.stringify(sanitizeManifestStore(typical, "realreel"));
+    // The dropped categories leave no trace...
+    expect(json).not.toContain("c2pa.hash.");
+    expect(json).not.toContain("c2pa.time-stamp");
+    expect(json).not.toContain("play_integrity");
+    // ...and the kept shape stays compact despite the ~20 KB of dropped input.
     expect(json.length).toBeLessThan(2048);
   });
 });

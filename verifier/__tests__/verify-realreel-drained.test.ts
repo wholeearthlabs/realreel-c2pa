@@ -17,7 +17,9 @@
 //       returns Trusted (the Update Manifest is not mistaken for the capture),
 //   (b) capturer attribution (org.realreel.capture) resolves through the
 //       deeper chain,
-//   (c) the Update Manifest carries the c2pa.time-stamp assertion, and
+//   (c) the interposed Update Manifest is the timestamped one — its RFC 3161
+//       token is dropped from the persisted shape (re-verification-only) but
+//       its stamp time survives as signature_info.time, and
 //   (d) GPS privacy holds end-to-end — Stage-1's stds.exif was redacted at
 //       upload (the capture has NO stds.exif assertion), and Stage-2 records
 //       the redaction against the Stage-1 (grandparent) URN.
@@ -106,8 +108,13 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
     expect(updateLabel).toBeTruthy();
     const update = store.manifests[updateLabel]!;
     expect(update).toBeDefined();
-    // The interposed manifest carries the c2pa.time-stamp over Stage-1.
-    expect(update.assertions.some((a) => a.label === "c2pa.time-stamp")).toBe(true);
+    // The interposed manifest is the timestamped one. Its ~8 KB RFC 3161 token
+    // is dropped from the persisted shape (re-verification-only), but the stamp
+    // time a viewer renders survives as signature_info.time.
+    expect(update.assertions.some((a) => a.label === "c2pa.time-stamp")).toBe(false);
+    expect(update.signature_info.time).toBeTruthy();
+    // Dropping the token keeps even a drained row a few KB (unfiltered ~13 KB).
+    expect(JSON.stringify(store).length).toBeLessThan(5000);
 
     // Update Manifest → Stage-1 capture
     const captureLabel = update.parent_label!;

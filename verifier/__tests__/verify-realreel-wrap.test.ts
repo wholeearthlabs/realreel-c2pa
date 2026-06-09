@@ -201,14 +201,38 @@ describe.skipIf(!fixtureExists)(
       const parent = result.sanitizedManifest.manifests[parentLabel];
       expect(parent).toBeDefined();
       // Empirically pinned against TRUSTED_ISSUERS[id=pixel].issuerMatch.
-      // The H6 dispatcher tightening additionally requires
+      // The dispatcher tightening additionally requires
       // common_name === "Pixel Camera" before routing here; that check
       // happens upstream (verifier/src/trust/dispatcher.ts) on the raw
-      // c2pa-node manifest. The SanitizedManifest shape persisted into
-      // media.c2pa_manifest carries issuer but not common_name today —
-      // see trust-source-dispatch.test.ts for the common_name routing
-      // regression coverage.
+      // c2pa-node manifest — see trust-source-dispatch.test.ts for the
+      // common_name routing regression coverage. The SanitizedManifest now
+      // persists that common_name too, so a viewer can name the camera.
       expect(parent.signature_info.issuer).toContain("Google LLC");
+      expect(parent.signature_info.common_name).toBe("Pixel Camera");
+    });
+
+    it("drops the Pixel parent's hash bindings + the upload attestation envelope", async () => {
+      mockWrapKeys(defaultStage2Row());
+
+      const result = await verify({
+        assetBytes: wrapBytes,
+        mimeType: "image/jpeg",
+        expectedUserId: STAGE2_USER,
+        trustConfig,
+      });
+
+      const labels = Object.values(result.sanitizedManifest.manifests).flatMap(
+        (m) => m.assertions.map((a) => a.label),
+      );
+      // The Pixel Stage-1 carries c2pa.hash.* hard-bindings (the bulk of a
+      // wrap manifest) and the RealReel Stage-2 carries the attestation
+      // envelope — both re-verification-only, both stripped.
+      expect(labels.some((l) => l.startsWith("c2pa.hash."))).toBe(false);
+      expect(labels).not.toContain("org.realreel.play_integrity");
+      // The signed EXIF survives for the viewer.
+      expect(labels).toContain("stds.exif");
+      // Real-row size pin (unfiltered this wrap is ~6.4 KB).
+      expect(JSON.stringify(result.sanitizedManifest).length).toBeLessThan(5000);
     });
   },
 );
