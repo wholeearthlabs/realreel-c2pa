@@ -2,7 +2,9 @@
   "extends": "expo-module-scripts/tsconfig.plugin",
   "compilerOptions": {
     "outDir": "build",
-    "rootDir": "src"
+    "rootDir": "src",
+    // base config sets types:["jest"], which drops Node's fs/path/__dirname
+    "types": ["node"]
   },
   "include": ["./src"],
   "exclude": ["**/__mocks__/*", "**/__tests__/*"]

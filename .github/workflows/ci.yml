@@ -89,6 +89,12 @@ jobs:
         run: npx tsc --noEmit
         working-directory: native
 
+      # app.plugin.js requires ./plugin/build, but the expo-module publish
+      # lifecycle builds the native module and not the config plugin. Pack the
+      # tarball and assert plugin/build is present.
+      - name: native — config-plugin packaging guard
+        run: npm run verify:packaging --workspace native
+
       # The native code hardcodes the C2PA timestamp assertion label (it can't
       # import the TS constant); assert it still matches trust-core's canonical
       # TIMESTAMP_ASSERTION_LABEL so the invariant lives with the native source.
