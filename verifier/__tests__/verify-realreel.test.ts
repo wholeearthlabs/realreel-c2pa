@@ -163,6 +163,28 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     expect(stage1!.signature_info.alg).toBe("Es256");
   });
 
+  it("lifts the TSA provider name onto both stages' signature_info.timestamp_authority", async () => {
+    vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
+
+    const result = await verify({
+      assetBytes: fixtureBytes,
+      mimeType: "image/jpeg",
+      expectedUserId: FIXTURE_CAPTURER_UUID,
+      trustConfig,
+    });
+
+    // Both stages of this fixture carry a DigiCert sigTst2 (capture at
+    // 19:46:30, upload at 19:46:41). The provider name survives only in
+    // c2pa-rs's validation_results explanation strings — sanitize lifts it out
+    // (extractTsaByLabel) per manifest so a viewer can show "Timestamped by …".
+    const TSA = "DigiCert SHA256 RSA4096 Timestamp Responder 2025 1";
+    const active = result.sanitizedManifest.active_manifest!;
+    expect(active.signature_info.timestamp_authority).toBe(TSA);
+
+    const stage1 = result.sanitizedManifest.manifests[active.parent_label!];
+    expect(stage1!.signature_info.timestamp_authority).toBe(TSA);
+  });
+
   it("drops re-verification-only assertions and keeps the row a few KB", async () => {
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
 

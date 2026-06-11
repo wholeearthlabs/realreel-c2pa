@@ -210,6 +210,128 @@ describe("sanitizeManifestStore", () => {
     expect(out.active_manifest?.signature_info.alg).toBe("Es256");
   });
 
+  it("lifts the TSA provider name per manifest from validation_results timeStamp.* explanations", () => {
+    // Mirrors the real c2pa-node shape: the active manifest's timestamp entry
+    // is under validation_results.activeManifest; the parent (Stage-1) entry is
+    // under validation_results.ingredientDeltas[]. The name is the substring
+    // after the first ": " in the explanation, keyed by the url's manifest label.
+    const out = sanitizeManifestStore(
+      {
+        active_manifest: "stage2",
+        manifests: {
+          stage1: { label: "stage1" },
+          stage2: { label: "stage2", ingredients: [{ active_manifest: "stage1" }] },
+        },
+        validation_status: [],
+        validation_results: {
+          activeManifest: {
+            success: [
+              {
+                code: "timeStamp.validated",
+                url: "self#jumbf=/c2pa/stage2/c2pa.signature",
+                explanation:
+                  "timestamp message digest matched: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+              },
+            ],
+          },
+          ingredientDeltas: [
+            {
+              validationDeltas: {
+                success: [
+                  {
+                    code: "timeStamp.trusted",
+                    url: "self#jumbf=/c2pa/stage1/c2pa.signature",
+                    explanation:
+                      "timestamp cert trusted: Google Pixel Time Stamping Authority",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      "realreel",
+    );
+    expect(out.active_manifest?.signature_info.timestamp_authority).toBe(
+      "DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+    );
+    expect(out.manifests["stage1"]?.signature_info.timestamp_authority).toBe(
+      "Google Pixel Time Stamping Authority",
+    );
+  });
+
+  it("also resolves a parent TSA from the ingredient-nested validation_results", () => {
+    // c2pa-node surfaces the parent's timeStamp entry both top-level (above) and
+    // nested under the active manifest's ingredient — either source must resolve.
+    const out = sanitizeManifestStore(
+      {
+        active_manifest: "stage2",
+        manifests: {
+          stage1: { label: "stage1" },
+          stage2: {
+            label: "stage2",
+            ingredients: [
+              {
+                active_manifest: "stage1",
+                validation_results: {
+                  activeManifest: {
+                    success: [
+                      {
+                        code: "timeStamp.validated",
+                        url: "self#jumbf=/c2pa/stage1/c2pa.signature",
+                        explanation: "timestamp message digest matched: SSL.com TSA",
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
+        validation_status: [],
+      },
+      "realreel",
+    );
+    expect(out.manifests["stage1"]?.signature_info.timestamp_authority).toBe("SSL.com TSA");
+  });
+
+  it("leaves timestamp_authority null when there is no sigTst2 validation entry", () => {
+    const out = sanitizeManifestStore(
+      { active_manifest: "m1", manifests: { m1: { label: "m1" } }, validation_status: [] },
+      "realreel",
+    );
+    expect(out.active_manifest?.signature_info.timestamp_authority).toBeNull();
+  });
+
+  it("lifts the TSA name from an untrusted (informational) stamp but not from the failure bucket", () => {
+    const store = (activeManifest: unknown) => ({
+      active_manifest: "m1",
+      manifests: { m1: { label: "m1" } },
+      validation_status: [],
+      validation_results: { activeManifest },
+    });
+    // An untrusted-but-present stamp (informational) still names the TSA.
+    const untrusted = sanitizeManifestStore(
+      store({
+        informational: [
+          { code: "timeStamp.untrusted", url: "self#jumbf=/c2pa/m1/c2pa.signature", explanation: "timestamp cert untrusted: SSL.com TSA" },
+        ],
+      }),
+      "realreel",
+    );
+    expect(untrusted.active_manifest?.signature_info.timestamp_authority).toBe("SSL.com TSA");
+    // A timeStamp.* entry in the failure bucket is NOT surfaced as a timestamp.
+    const failed = sanitizeManifestStore(
+      store({
+        failure: [
+          { code: "timeStamp.mismatch", url: "self#jumbf=/c2pa/m1/c2pa.signature", explanation: "timestamp message digest mismatch: Nope TSA" },
+        ],
+      }),
+      "realreel",
+    );
+    expect(failed.active_manifest?.signature_info.timestamp_authority).toBeNull();
+  });
+
   it("preserves ingredient title/format/relationship alongside the parent pointer", () => {
     const out = sanitizeManifestStore(
       {

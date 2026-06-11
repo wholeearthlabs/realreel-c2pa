@@ -110,11 +110,14 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
     expect(update).toBeDefined();
     // The interposed manifest is the timestamped one. Its ~8 KB RFC 3161 token
     // is dropped from the persisted shape (re-verification-only), but the stamp
-    // time a viewer renders survives as signature_info.time.
+    // time a viewer renders survives as signature_info.time — and the TSA
+    // provider name is lifted onto signature_info.timestamp_authority.
     expect(update.assertions.some((a) => a.label === "c2pa.time-stamp")).toBe(false);
     expect(update.signature_info.time).toBeTruthy();
-    // Dropping the token keeps even a drained row a few KB (unfiltered ~13 KB).
-    expect(JSON.stringify(store).length).toBeLessThan(5000);
+    expect(update.signature_info.timestamp_authority).toBeTruthy();
+    // Dropping the token keeps even a drained row a few KB (unfiltered ~13 KB);
+    // the per-manifest timestamp_authority adds only a few tens of bytes each.
+    expect(JSON.stringify(store).length).toBeLessThan(5500);
 
     // Update Manifest → Stage-1 capture
     const captureLabel = update.parent_label!;
