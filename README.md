@@ -100,6 +100,7 @@ compile — they're included for transparency and review, not standalone build.
 
 - Contributions welcome under [Apache-2.0](./LICENSE) — see
   [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+- Releasing any package or service — see [`RELEASING.md`](./RELEASING.md).
 - Report vulnerabilities privately — see [`SECURITY.md`](./SECURITY.md).
 
 ## License

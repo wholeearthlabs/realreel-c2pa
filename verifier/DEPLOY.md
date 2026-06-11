@@ -3,6 +3,9 @@
 Cloud Run microservice. Self-contained; no app-side coupling.
 
 For rollback, diagnostics, rotations, and monitoring, see [OPERATIONS.md](OPERATIONS.md).
+To cut a release (tag → attested GHCR image), see [RELEASING.md](../RELEASING.md);
+this doc covers building and deploying the verifier's Cloud Run image (Artifact
+Registry).
 
 ## Env vars
 

@@ -55,15 +55,20 @@ look like ~130-byte text stubs, run `git lfs pull`.
 
 ## Releasing
 
-The two **published** packages — `@realreel/c2pa-trust-core` (`trust-core/`) and
-`@realreel/photo-attest` (`native/`) — are versioned with
-[Changesets](https://github.com/changesets/changesets). For any change to either
-package's published code, add a changeset and commit the generated file with
-your change:
+See [`RELEASING.md`](./RELEASING.md) for the full release flow of every
+releasable artifact. The one rule to remember while coding: for any change to a
+**workspace** package — `@realreel/c2pa-trust-core` (`trust-core/`),
+`@realreel/photo-attest` (`native/`), or the private `@realreel/verifier`
+(`verifier/`) — add a changeset and commit it alongside your change:
 
 ```bash
 npx changeset                       # pick the package(s) + semver bump + changelog line
 ```
+
+That drives version + changelog for all three. The two public packages publish
+to npm on the "Version Packages" merge; the verifier is versioned but not
+published — it ships as a container cut by a manual `verifier-v<semver>` tag.
+`ca/` isn't a workspace and needs no changeset. Details in `RELEASING.md`.
 
 ## Don't
 
