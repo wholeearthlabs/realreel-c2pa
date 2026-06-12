@@ -305,6 +305,10 @@ export type Stage2Action =
    * c2pa-rs physically zero-fills the redacted assertion's JUMBF Content
    * box (per C2PA §18.x), so the assertion's payload becomes unrecoverable
    * from the uploaded file.
+   *
+   * Redaction is location-only, so native also stamps the action with
+   * `reason: "c2pa.PII.present"` and `description: "GPS"`; callers don't
+   * supply these.
    */
   | { action: 'c2pa.redacted';   parameters: { assertionLabel: string } };
 

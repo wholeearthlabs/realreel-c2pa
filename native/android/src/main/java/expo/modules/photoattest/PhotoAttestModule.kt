@@ -1065,10 +1065,11 @@ class PhotoAttestModule : Module() {
   // { assertionLabel } } entries are split off into the manifest's top-level
   // `redactions` array (URI form expanded via redactionTargetUrn = the CAPTURE
   // manifest's urn), AND emitted into c2pa.actions.v2 as `{ action:
-  // "c2pa.redacted", parameters: { redacted: <uri> } }` so the action list stays
-  // self-describing. c2pa-rs zero-fills the referenced JUMBF Content boxes during
-  // sign — including a grandparent capture's assertion when an interposed
-  // timestamp Update Manifest sits between Stage 2 and the capture.
+  // "c2pa.redacted", reason: "c2pa.PII.present", description: "GPS",
+  // parameters: { redacted: <uri> } }` so the action list stays self-describing.
+  // c2pa-rs zero-fills the referenced JUMBF Content boxes during sign —
+  // including a grandparent capture's assertion when an interposed timestamp
+  // Update Manifest sits between Stage 2 and the capture.
   private fun buildUploadManifestJSON(
     transformedFile: File,
     transformedMime: String,
@@ -1107,6 +1108,8 @@ class PhotoAttestModule : Module() {
         redactionUris.add(uri)
         actionsArray.put(JSONObject().apply {
           put("action", actionName)
+          put("reason", "c2pa.PII.present")
+          put("description", "GPS")
           put("parameters", JSONObject().apply { put("redacted", uri) })
         })
       } else {
