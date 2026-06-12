@@ -5,6 +5,10 @@ name: Publish verifier image (GHCR)
 # published image and how it was built. See verifier/DEPLOY.md
 # § "Transparency: the published GHCR image".
 #
+# It also drafts a GitHub Release for the tag (notes from verifier/CHANGELOG.md)
+# for a maintainer to review and publish — the verifier is private, so Changesets
+# never creates one (only published npm packages get an auto-Release).
+#
 # Mirrors the npm Trusted-Publishing + provenance flow in release.yml: OIDC, no
 # stored registry token, signed provenance generated automatically.
 
@@ -18,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write # create the draft GitHub Release
   packages: write # push to ghcr.io
   id-token: write # OIDC for build-provenance attestation
   attestations: write # actions/attest-build-provenance writes the attestation
@@ -76,3 +80,26 @@ jobs:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+      # Draft (not auto-published).
+      # Only on a tag push — workflow_dispatch has no version to release.
+      - name: Draft GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#verifier-v}"
+          # Body = this version's section of the changelog, between its `## x.y.z`
+          # heading and the next `## ` heading.
+          awk -v hdr="## ${version}" '
+            $0 == hdr {f=1; next}
+            /^## / && f {exit}
+            f
+          ' verifier/CHANGELOG.md > notes.md
+          {
+            echo
+            echo "---"
+            echo "**Image:** \`${IMAGE}:${version}\` @ \`${{ steps.build.outputs.digest }}\` (linux/amd64, SLSA build provenance attested)."
+          } >> notes.md
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+            --title "verifier v${version}" --notes-file notes.md
