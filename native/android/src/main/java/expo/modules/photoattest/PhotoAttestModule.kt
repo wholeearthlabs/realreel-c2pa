@@ -176,8 +176,6 @@ class PhotoAttestModule : Module() {
         ?: throw CodedException("INVALID_CAPTURE_CONTEXT", "missing 'alias'", null)
       val mediaPath = options["mediaPath"] as? String
         ?: throw CodedException("INVALID_CAPTURE_CONTEXT", "missing 'mediaPath'", null)
-      val cameraFacing = options["cameraFacing"] as? String
-        ?: throw CodedException("INVALID_CAPTURE_CONTEXT", "missing 'cameraFacing'", null)
       val certChainPEM = options["certChainPEM"] as? String
         ?: throw CodedException("INVALID_CAPTURE_CONTEXT", "missing 'certChainPEM'", null)
       val capturerUuid = options["capturerUuid"] as? String
@@ -187,7 +185,7 @@ class PhotoAttestModule : Module() {
       val captureTimestampMs = (options["captureTimestampMs"] as? Number)?.toDouble()
       val tsaUrl = options["tsaUrl"] as? String
       signC2PACaptureInternal(
-        alias, mediaPath, cameraFacing, certChainPEM, capturerUuid, gps, captureTimestampMs, tsaUrl,
+        alias, mediaPath, certChainPEM, capturerUuid, gps, captureTimestampMs, tsaUrl,
       )
     }
 
@@ -350,20 +348,12 @@ class PhotoAttestModule : Module() {
   private fun signC2PACaptureInternal(
     alias: String,
     mediaPath: String,
-    cameraFacing: String,
     certChainPEM: String,
     capturerUuid: String,
     gps: Map<String, Any?>?,
     captureTimestampMs: Double?,
     tsaUrl: String?,
   ): Map<String, String> {
-    if (cameraFacing != "front" && cameraFacing != "back") {
-      throw CodedException(
-        "INVALID_CAPTURE_CONTEXT",
-        "cameraFacing must be 'front' or 'back', got '$cameraFacing'",
-        null,
-      )
-    }
     if (capturerUuid.isEmpty()) {
       throw CodedException(
         "INVALID_CAPTURE_CONTEXT",
@@ -427,7 +417,6 @@ class PhotoAttestModule : Module() {
         sourceFile = sourceFile,
         mime = mime,
         isVideo = isVideo,
-        cameraFacing = cameraFacing,
         capturerUuid = capturerUuid,
         alias = alias,
         context = context,
@@ -1014,7 +1003,6 @@ class PhotoAttestModule : Module() {
     sourceFile: File,
     mime: String,
     isVideo: Boolean,
-    cameraFacing: String,
     capturerUuid: String,
     alias: String,
     context: android.content.Context,
@@ -1042,8 +1030,6 @@ class PhotoAttestModule : Module() {
     }
 
     val realreelCapture = JSONObject().apply {
-      put("captureSource", "in-app-camera")
-      put("cameraFacing", cameraFacing)
       put("capturerUuid", capturerUuid)
       put("deviceManufacturer", Build.MANUFACTURER)
       // Build.MODEL is the marketing model (e.g. "Pixel 7"); Build.DEVICE is
@@ -1151,7 +1137,7 @@ class PhotoAttestModule : Module() {
 
     // org.realreel.upload describes the upload-stage processing context
     // (device + app version + trust level of whatever signed THIS manifest).
-    // Capture context (capturerUuid, cameraFacing, captureSource) lives only
+    // Capture context (capturerUuid, capture-side device fields) lives only
     // in the parent ingredient's org.realreel.capture; verifiers walk the
     // parent chain per C2PA §10.3.2.2 + §15.11 rather than expecting derived
     // manifests to re-emit ancestor assertions. This split also accommodates

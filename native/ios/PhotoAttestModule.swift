@@ -105,9 +105,6 @@ public class PhotoAttestModule: Module {
         guard let mediaPath = options["mediaPath"] as? String else {
           throw PhotoAttestError(code: "INVALID_CAPTURE_CONTEXT", message: "missing 'mediaPath'")
         }
-        guard let cameraFacing = options["cameraFacing"] as? String else {
-          throw PhotoAttestError(code: "INVALID_CAPTURE_CONTEXT", message: "missing 'cameraFacing'")
-        }
         guard let certChainPEM = options["certChainPEM"] as? String else {
           throw PhotoAttestError(code: "INVALID_CAPTURE_CONTEXT", message: "missing 'certChainPEM'")
         }
@@ -120,7 +117,6 @@ public class PhotoAttestModule: Module {
         let result = try PhotoAttestModule.signC2PACaptureInternal(
           alias: alias,
           mediaPath: mediaPath,
-          cameraFacing: cameraFacing,
           certChainPEM: certChainPEM,
           capturerUuid: capturerUuid,
           gps: gps,
@@ -627,7 +623,7 @@ public class PhotoAttestModule: Module {
   //       - stds.exif (photos) / stds.iptc (videos) with whatever the file
   //         carried so the verifier can re-anchor against the file's own
   //         metadata after Stage 2 transformations.
-  //       - org.realreel.capture: device identity + cameraFacing. This is the
+  //       - org.realreel.capture: device identity. This is the
   //         single cross-platform slot for "what device made this" because
   //         Android MP4s reliably do NOT carry Make/Model in the file itself.
   //  4. Hands manifest + source file + Secure Enclave-backed signer to c2pa-rs
@@ -685,19 +681,12 @@ public class PhotoAttestModule: Module {
   private static func signC2PACaptureInternal(
     alias: String,
     mediaPath: String,
-    cameraFacing: String,
     certChainPEM: String,
     capturerUuid: String,
     gps: [String: Any]?,
     captureTimestampMs: Double?,
     tsaUrl: String?
   ) throws -> [String: String] {
-    if cameraFacing != "front" && cameraFacing != "back" {
-      throw PhotoAttestError(
-        code: "INVALID_CAPTURE_CONTEXT",
-        message: "cameraFacing must be 'front' or 'back', got '\(cameraFacing)'"
-      )
-    }
     if capturerUuid.isEmpty {
       throw PhotoAttestError(
         code: "INVALID_CAPTURE_CONTEXT",
@@ -756,7 +745,6 @@ public class PhotoAttestModule: Module {
         sourceURL: sourceURL,
         mime: format.mime,
         isVideo: format.isVideo,
-        cameraFacing: cameraFacing,
         capturerUuid: capturerUuid,
         gps: gps,
         title: outputFileName,
@@ -1461,7 +1449,6 @@ public class PhotoAttestModule: Module {
     sourceURL: URL,
     mime: String,
     isVideo: Bool,
-    cameraFacing: String,
     capturerUuid: String,
     gps: [String: Any]?,
     title: String,
@@ -1505,8 +1492,6 @@ public class PhotoAttestModule: Module {
       }
     }
     let realreelCapture: [String: Any] = [
-      "captureSource": "in-app-camera",
-      "cameraFacing": cameraFacing,
       "capturerUuid": capturerUuid,
       "deviceManufacturer": "Apple",
       "deviceModel": hardwareModel.isEmpty ? device.model : hardwareModel,
@@ -1633,7 +1618,7 @@ public class PhotoAttestModule: Module {
     }
     // org.realreel.upload describes the upload-stage processing context
     // (device + app version + trust level of whatever signed THIS manifest).
-    // Capture context (capturerUuid, cameraFacing, captureSource) lives only
+    // Capture context (capturerUuid, capture-side device fields) lives only
     // in the parent ingredient's org.realreel.capture; verifiers walk the
     // parent chain per C2PA §10.3.2.2 + §15.11 rather than expecting derived
     // manifests to re-emit ancestor assertions. This split also accommodates

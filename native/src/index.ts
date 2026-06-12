@@ -146,7 +146,6 @@ export type AttestationEnvelope = AppAttestEnvelope | PlayIntegrityEnvelope;
  * cannot lie about.
  */
 export interface SignC2PACaptureOptions {
-  cameraFacing: 'front' | 'back';
   /**
    * The PEM cert chain returned by `register-signing-key` at enrollment
    * (server-issued: leaf signed by the KMS-resident RealReel intermediate,
@@ -511,7 +510,6 @@ interface NativeModule {
   signC2PACapture(options: {
     alias: string;
     mediaPath: string;
-    cameraFacing: 'front' | 'back';
     certChainPEM: string;
     capturerUuid: string;
     gps: SignC2PACaptureOptions['gps'] | null;
@@ -695,7 +693,7 @@ export const PhotoAttest = {
    *    extracted from the source file at sign time. Includes GPS if the
    *    user granted location permission and the camera wrote it.
    *  - `org.realreel.capture`: device identity (manufacturer, model, OS,
-   *    app version, trust level) + cameraFacing + capturerUuid. This is
+   *    app version, trust level) + capturerUuid. This is
    *    the cross-platform single source of truth for "what device captured
    *    this" — Android MP4s often lack Make/Model in the file itself. The
    *    capturerUuid is `options.capturerUuid` (the signed-in user's id);
@@ -721,7 +719,6 @@ export const PhotoAttest = {
   ) => native.signC2PACapture({
     alias,
     mediaPath,
-    cameraFacing: options.cameraFacing,
     certChainPEM: options.certChainPEM,
     capturerUuid: options.capturerUuid,
     gps: options.gps ?? null,
@@ -745,8 +742,8 @@ export const PhotoAttest = {
    * Assertion shape (Stage 2): `c2pa.actions.v2` (the transformations) plus
    * a small `org.realreel.upload` carrying only the upload-stage processing
    * context — device identity, OS / app version, trust level of THIS sign.
-   * Capture context (capturerUuid, cameraFacing, captureSource, capture-side
-   * device fields) lives only in the parent ingredient's `org.realreel.capture`;
+   * Capture context (capturerUuid, capture-side device fields) lives only in
+   * the parent ingredient's `org.realreel.capture`;
    * verifiers walk the parent chain per C2PA §10.3.2.2 + §15.11 rather than
    * expecting derived manifests to re-emit ancestor assertions. The split
    * also accommodates the future flow where the parent is a third-party
