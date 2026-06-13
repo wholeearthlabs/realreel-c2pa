@@ -321,6 +321,8 @@ function registerRoutes(
     reply.status(200).send({
       verdict: "ok",
       sanitizedManifest: result.sanitizedManifest,
+      // Server-derived displayed metadata (see VerifyResult.derived).
+      derived: result.derived,
     });
   });
 

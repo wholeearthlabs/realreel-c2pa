@@ -47,6 +47,13 @@ jobs:
         run: npx tsc --noEmit
         working-directory: verifier
 
+      # ffprobe (from ffmpeg) is a hard dependency of the verifier: it
+      # byte-probes the technical metadata of video uploads (see
+      # src/derive-metadata.ts), and derive-metadata.test.ts probes a real MP4
+      # fixture. ubuntu-latest doesn't ship ffmpeg by default.
+      - name: Install ffmpeg (ffprobe)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: verifier — vitest
         run: npm test --workspace verifier
 

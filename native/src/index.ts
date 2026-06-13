@@ -345,6 +345,17 @@ export interface SignC2PAUploadOptions {
 
   /** Same shape as Stage 1 — populates the assertion's GPS for the transformed file. */
   gps?: SignC2PACaptureOptions['gps'];
+
+  /**
+   * Reverse-geocoded place label (e.g. "Phoenix, AZ") signed into the
+   * `org.realreel.upload` assertion, for BOTH general and precise location
+   * modes. The display reads this signed label rather than a client-supplied
+   * field, so the shown location is bound to the verified upload. The client
+   * geocodes on-device; we only sign the string. Omitted (none mode) → no
+   * location is shown.
+   */
+  locationLabel?: string;
+
   /**
    * Wall-clock upload time (Unix epoch milliseconds). Distinct from Stage 1's
    * `captureTimestampMs` semantically — at Stage 2 this is "when we re-signed,"
@@ -535,6 +546,7 @@ interface NativeModule {
     certChainPEM: string;
     actions: Stage2Action[];
     gps: SignC2PACaptureOptions['gps'] | null;
+    locationLabel: string | null;
     captureTimestampMs: number | null;
     claimThumbnailPath: string | null;
     attestationEnvelope: AttestationEnvelope | null;
@@ -778,6 +790,7 @@ export const PhotoAttest = {
     certChainPEM: options.certChainPEM,
     actions: options.actions,
     gps: options.gps ?? null,
+    locationLabel: options.locationLabel ?? null,
     captureTimestampMs: options.captureTimestampMs ?? null,
     claimThumbnailPath: options.claimThumbnailPath ?? null,
     attestationEnvelope: options.attestationEnvelope ?? null,

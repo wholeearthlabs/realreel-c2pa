@@ -38,6 +38,7 @@ import {
   DEFAULT_CERT_LIFETIME_MS,
   type Clock,
 } from "./cert-validity.js";
+import { deriveMetadata, type DerivedMetadata } from "./derive-metadata.js";
 
 export interface VerifyArgs {
   assetBytes: Buffer;
@@ -74,6 +75,11 @@ export interface VerifyArgs {
 
 export interface VerifyResult {
   sanitizedManifest: SanitizedManifestStore;
+  /** Displayed metadata derived server-side from the verified upload — the
+   *  single trust boundary for the values media.metadata / media.location /
+   *  media.metadata_type hold. The edge function inserts exactly this, never a
+   *  client-supplied field. See derive-metadata.ts. */
+  derived: DerivedMetadata;
 }
 
 // c2pa settings for Reader.fromAsset. settingsToJson() converts our camelCase to
@@ -214,7 +220,13 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     datastore,
   );
 
-  return { sanitizedManifest: sanitized };
+  // Derive displayed metadata from the now-verified bytes + active manifest.
+  // Runs only after every gate above passed, so the bytes are hash-bound and
+  // the probe is sound. `active` is the Stage-2 RealReel manifest, which
+  // carries stds.exif/stds.iptc even for a wrapped Pixel parent.
+  const derived = await deriveMetadata({ assetBytes, mimeType, active });
+
+  return { sanitizedManifest: sanitized, derived };
 }
 
 // Resolve the active manifest's signature_info.issuer via the shared

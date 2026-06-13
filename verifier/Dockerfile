@@ -11,8 +11,24 @@ WORKDIR /app
 
 # build-essential: fallback if c2pa-node has no prebuilt for this arch/libc.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
+  && apt-get install -y --no-install-recommends python3 make g++ curl xz-utils ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+
+# ffprobe — runtime dependency for video metadata (src/derive-metadata.ts).
+# GPL-licensed (BtbN gpl build); invoked as a separate process, not linked into
+# this Apache-2.0 code. Pinned to an immutable tag + sha256. To bump: new
+# autobuild-* tag, new FFPROBE_ASSET, recompute SHA256.
+ARG FFPROBE_TAG=autobuild-2026-06-12-14-04
+ARG FFPROBE_ASSET=ffmpeg-n7.1.4-39-ga5faeca88f-linux64-gpl-7.1
+ARG FFPROBE_SHA256=009fb761e39112bcaafbb0daa309017791b835c71575646a6b91a5c15e6259a2
+RUN set -eux; \
+  curl -fsSL -o /tmp/ffmpeg.tar.xz \
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFPROBE_TAG}/${FFPROBE_ASSET}.tar.xz"; \
+  echo "${FFPROBE_SHA256}  /tmp/ffmpeg.tar.xz" | sha256sum -c -; \
+  tar -xJf /tmp/ffmpeg.tar.xz -C /tmp "${FFPROBE_ASSET}/bin/ffprobe"; \
+  install -m 0755 "/tmp/${FFPROBE_ASSET}/bin/ffprobe" /usr/local/bin/ffprobe; \
+  rm -rf /tmp/ffmpeg.tar.xz "/tmp/${FFPROBE_ASSET}"; \
+  ffprobe -version
 
 # Skip the native workspace (-w); trust-core is built explicitly below, after its source.
 COPY package.json package-lock.json ./
@@ -31,6 +47,9 @@ RUN npm run build -w verifier
 # ---------- Stage 2: runtime ----------
 FROM --platform=linux/amd64 node:24-bookworm-slim AS runtime
 WORKDIR /app
+
+# ffprobe (fetched + sha-verified in the builder stage).
+COPY --from=builder /usr/local/bin/ffprobe /usr/local/bin/ffprobe
 
 COPY package.json package-lock.json ./
 COPY trust-core/package.json ./trust-core/

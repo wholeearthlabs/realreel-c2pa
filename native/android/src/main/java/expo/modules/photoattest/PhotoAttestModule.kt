@@ -204,6 +204,7 @@ class PhotoAttestModule : Module() {
       val actions = options["actions"] as? List<Map<String, Any?>> ?: emptyList()
       @Suppress("UNCHECKED_CAST")
       val gps = options["gps"] as? Map<String, Any?>
+      val locationLabel = options["locationLabel"] as? String
       val captureTimestampMs = (options["captureTimestampMs"] as? Number)?.toDouble()
       val claimThumbnailPath = options["claimThumbnailPath"] as? String
       @Suppress("UNCHECKED_CAST")
@@ -211,7 +212,7 @@ class PhotoAttestModule : Module() {
       val tsaUrl = options["tsaUrl"] as? String
       signC2PAUploadInternal(
         alias, parentMediaPath, transformedMediaPath, certChainPEM,
-        actions, gps, captureTimestampMs, claimThumbnailPath, attestationEnvelope, tsaUrl,
+        actions, gps, locationLabel, captureTimestampMs, claimThumbnailPath, attestationEnvelope, tsaUrl,
       )
     }
 
@@ -724,6 +725,7 @@ class PhotoAttestModule : Module() {
     certChainPEM: String,
     actions: List<Map<String, Any?>>,
     gps: Map<String, Any?>?,
+    locationLabel: String?,
     captureTimestampMs: Double?,
     claimThumbnailPath: String?,
     attestationEnvelope: Map<String, Any?>?,
@@ -843,6 +845,7 @@ class PhotoAttestModule : Module() {
         alias = alias,
         context = context,
         gps = gps,
+        locationLabel = locationLabel,
         captureTimestampMs = captureTimestampMs,
         title = outputFileName,
         actions = actions,
@@ -1077,6 +1080,7 @@ class PhotoAttestModule : Module() {
     alias: String,
     context: android.content.Context,
     gps: Map<String, Any?>?,
+    locationLabel: String?,
     captureTimestampMs: Double?,
     title: String,
     actions: List<Map<String, Any?>>,
@@ -1152,6 +1156,9 @@ class PhotoAttestModule : Module() {
       put("osVersion", "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
       put("appVersion", appVersion)
       put("deviceTrustLevel", detectKeyTrustLevel(alias))
+      // Signed reverse-geocoded place label (general + precise); the display
+      // reads it from here rather than a client field. Absent for none mode.
+      if (!locationLabel.isNullOrEmpty()) put("locationLabel", locationLabel)
     }
     assertions.put(JSONObject().put("label", "org.realreel.upload").put("data", realreelUpload))
 

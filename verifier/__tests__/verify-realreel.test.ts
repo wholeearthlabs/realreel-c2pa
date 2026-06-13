@@ -141,6 +141,34 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     expect(stage1.signature_info.time).toBeTruthy();
   });
 
+  it("returns derived display metadata from the verified bytes + active manifest", async () => {
+    vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
+
+    const result = await verify({
+      assetBytes: fixtureBytes,
+      mimeType: "image/jpeg",
+      expectedUserId: FIXTURE_CAPTURER_UUID,
+      trustConfig,
+    });
+
+    // The single trust boundary for displayed metadata: the edge function
+    // inserts exactly this. Sourced from the verified JPEG bytes (exifr) + the
+    // Stage-2 active manifest's assertions — never a client field.
+    const { derived } = result;
+    expect(derived.metadataType).toBe("exif");
+    const byKey = new Map(
+      derived.entries.map((e) => [e.label.toLowerCase().replace(/[^a-z0-9]/g, ""), e.value]),
+    );
+    expect(byKey.get("make")).toBe("Google");
+    expect(byKey.get("model")).toBe("Pixel 10");
+    // This fixture is a none/general capture — no signed GPS, no locationLabel.
+    expect(derived.latitude).toBeNull();
+    expect(derived.longitude).toBeNull();
+    expect(derived.location).toBeNull();
+    // GPS never leaks out of the byte probe into entries.
+    expect(derived.entries.some((e) => /location|gps|coordinate/i.test(e.label))).toBe(false);
+  });
+
   it("surfaces the signer common_name + signing alg on both stages", async () => {
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
 

@@ -151,6 +151,7 @@ public class PhotoAttestModule: Module {
         }
         let actions = options["actions"] as? [[String: Any]] ?? []
         let gps = options["gps"] as? [String: Any]
+        let locationLabel = options["locationLabel"] as? String
         let captureTimestampMs = (options["captureTimestampMs"] as? NSNumber)?.doubleValue
         let claimThumbnailPath = options["claimThumbnailPath"] as? String
         let attestationEnvelope = options["attestationEnvelope"] as? [String: Any]
@@ -162,6 +163,7 @@ public class PhotoAttestModule: Module {
           certChainPEM: certChainPEM,
           actions: actions,
           gps: gps,
+          locationLabel: locationLabel,
           captureTimestampMs: captureTimestampMs,
           claimThumbnailPath: claimThumbnailPath,
           attestationEnvelope: attestationEnvelope,
@@ -860,6 +862,7 @@ public class PhotoAttestModule: Module {
     certChainPEM: String,
     actions: [[String: Any]],
     gps: [String: Any]?,
+    locationLabel: String?,
     captureTimestampMs: Double?,
     claimThumbnailPath: String?,
     attestationEnvelope: [String: Any]?,
@@ -972,6 +975,7 @@ public class PhotoAttestModule: Module {
         transformedMime: transformedFormat.mime,
         isVideo: transformedFormat.isVideo,
         gps: gps,
+        locationLabel: locationLabel,
         captureTimestampMs: captureTimestampMs,
         title: outputFileName,
         actions: actions,
@@ -1545,6 +1549,7 @@ public class PhotoAttestModule: Module {
     transformedMime: String,
     isVideo: Bool,
     gps: [String: Any]?,
+    locationLabel: String?,
     captureTimestampMs: Double?,
     title: String,
     actions: [[String: Any]],
@@ -1627,13 +1632,18 @@ public class PhotoAttestModule: Module {
     // manifests to re-emit ancestor assertions. This split also accommodates
     // the future flow where the parent is a third-party capture (Pixel /
     // Leica) and only RealReel's upload-stage processing belongs here.
-    let realreelUpload: [String: Any] = [
+    var realreelUpload: [String: Any] = [
       "deviceManufacturer": "Apple",
       "deviceModel": hardwareModel.isEmpty ? device.model : hardwareModel,
       "osVersion": "\(device.systemName) \(device.systemVersion)",
       "appVersion": appVersion,
       "deviceTrustLevel": "secure-enclave",
     ]
+    // Signed reverse-geocoded place label (general + precise); the display reads
+    // it from here rather than a client field. Absent for none mode.
+    if let locationLabel = locationLabel, !locationLabel.isEmpty {
+      realreelUpload["locationLabel"] = locationLabel
+    }
     assertions.append([
       "label": "org.realreel.upload",
       "data": realreelUpload,
