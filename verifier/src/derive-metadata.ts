@@ -50,6 +50,10 @@ export interface DerivedMetadata {
   location: string | null;
   /** The media.metadata_type column value (display keys off media.is_video). */
   metadataType: "exif" | "video";
+  /** Did the FILE BYTES carry GPS (EXIF / container atom)? Presence only — the
+   *  value is never read (coords come from the assertion). Feeds the
+   *  location-privacy backstop. */
+  bytesHadGps: boolean;
 }
 
 // A byte-probe field whose key matches this is dropped from `entries`: GPS is
@@ -188,9 +192,25 @@ async function derivePhotoMetadata(
     entries.push({ label: key, value });
   }
 
+  // Privacy-backstop probe (location-privacy.ts). Presence only, kept SEPARATE
+  // from the gps:false display parse above so that invariant stays intact.
+  // Require BOTH coords — matching coordPair's both-or-neither on the assertion
+  // side — so a half-pair EXIF can't read as present here while the assertion
+  // reads as absent (that mismatch would false-reject). Unparsable → absent.
+  let bytesHadGps = false;
+  try {
+    const g = (await exifr.gps(assetBytes).catch(() => null)) as
+      | { latitude?: number; longitude?: number }
+      | null;
+    bytesHadGps = !!g && Number.isFinite(g.latitude) && Number.isFinite(g.longitude);
+  } catch {
+    bytesHadGps = false;
+  }
+
   const exif = assertionData(active, "stds.exif");
   return {
     entries,
+    bytesHadGps,
     ...coordPair(toCoord(exif?.["exif:GPSLatitude"], 90), toCoord(exif?.["exif:GPSLongitude"], 180)),
     location: readLocationLabel(active),
     metadataType: "exif",
@@ -251,6 +271,19 @@ function frameRate(r: string | undefined): number | null {
   return num / den;
 }
 
+/** Container location atom present? (ffprobe surfaces the moov-box location as
+ *  a `location`-keyed tag.) Presence only, for the privacy backstop; reuses
+ *  GPS_SCRUB and requires a non-empty value so an empty tag isn't a false leak. */
+function hasLocationTag(probe: FfprobeJson): boolean {
+  const scan = (tags?: Record<string, string>) =>
+    !!tags &&
+    Object.entries(tags).some(
+      ([k, v]) => GPS_SCRUB.test(k) && typeof v === "string" && v.trim() !== "",
+    );
+  if (scan(probe.format?.tags)) return true;
+  return (probe.streams ?? []).some((s) => scan(s.tags));
+}
+
 /**
  * Video: probe the validated MP4 bytes with ffprobe (the technical fields live
  * only in the hash-bound moov boxes, not the manifest), map to the native
@@ -286,6 +319,10 @@ async function deriveVideoMetadata(
   } finally {
     await unlink(tmpPath).catch(() => {});
   }
+
+  // Privacy-backstop input (location-privacy.ts). On a probe failure (probe={})
+  // this is false — an unprobeable video can't be shown to leak.
+  const bytesHadGps = hasLocationTag(probe);
 
   const streams = probe.streams ?? [];
   const video = streams.find((s) => s.codec_type === "video");
@@ -370,6 +407,7 @@ async function deriveVideoMetadata(
     // hardcoded (so a no-op today), but it keeps the scrub a universal backstop
     // if a future field ever sources a label from the probe.
     entries: entries.filter((e) => !GPS_SCRUB.test(e.label)),
+    bytesHadGps,
     ...coordPair(toCoord(loc?.["exif:GPSLatitude"], 90), toCoord(loc?.["exif:GPSLongitude"], 180)),
     location: readLocationLabel(active),
     metadataType: "video",

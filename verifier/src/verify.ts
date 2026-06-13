@@ -39,6 +39,8 @@ import {
   type Clock,
 } from "./cert-validity.js";
 import { deriveMetadata, type DerivedMetadata } from "./derive-metadata.js";
+import { enforceLocationPrivacy } from "./location-privacy.js";
+import { Sentry } from "./observability.js";
 
 export interface VerifyArgs {
   assetBytes: Buffer;
@@ -225,6 +227,20 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   // the probe is sound. `active` is the Stage-2 RealReel manifest, which
   // carries stds.exif/stds.iptc even for a wrapped Pixel parent.
   const derived = await deriveMetadata({ assetBytes, mimeType, active });
+
+  // Location-privacy backstop (see location-privacy.ts): reject a file-byte GPS
+  // leak; signal the lesser reverse case without rejecting.
+  const { displayLeak } = enforceLocationPrivacy(derived);
+  if (displayLeak) {
+    try {
+      Sentry.captureMessage("location_display_leak", {
+        level: "warning",
+        tags: { error_code: "LOCATION_DISPLAY_LEAK" },
+      });
+    } catch {
+      // Telemetry is best-effort — never break the verify path.
+    }
+  }
 
   return { sanitizedManifest: sanitized, derived };
 }

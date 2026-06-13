@@ -84,6 +84,11 @@ export const VerifyErrorCode = {
    *  one wins, the rest raise this code. Single-use nonce burn is the
    *  sole anti-replay primitive. */
   ATTESTATION_REPLAY: "ATTESTATION_REPLAY",
+
+  /** A non-precise upload ("none"/"general") leaked GPS into the file bytes the
+   *  signed manifest doesn't carry — the client strip failed and the verifier's
+   *  privacy backstop rejected it. Recovery: re-upload. */
+  LOCATION_PRIVACY_VIOLATION: "LOCATION_PRIVACY_VIOLATION",
 } as const;
 
 export type VerifyErrorCode = typeof VerifyErrorCode[keyof typeof VerifyErrorCode];

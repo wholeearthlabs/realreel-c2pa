@@ -20,6 +20,8 @@ const fixtures = (name: string) => resolve(import.meta.dirname, "fixtures", name
 const photoBytes = await readFile(fixtures("realreel-uploaded.jpg"));
 const videoBytes = await readFile(fixtures("realreel-capture.mov"));
 const videoGpsBytes = await readFile(fixtures("synthetic-container-gps.mp4"));
+// A GPS-bearing JPEG (raw Pixel capture) — the byte-probe positive case.
+const photoGpsBytes = await readFile(fixtures("pixel-og.jpg"));
 
 /** Any entry whose label looks like it could carry a coordinate. The whole
  *  point of the GPS-from-assertion design is that NONE survive into entries. */
@@ -29,6 +31,36 @@ const hasGeoEntry = (entries: Array<{ label: string }>) =>
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 const byKey = (entries: Array<{ label: string; value: string }>) =>
   new Map(entries.map((e) => [norm(e.label), e.value]));
+
+describe("bytesHadGps — the location-privacy byte probe", () => {
+  it("true for a JPEG carrying GPS in its EXIF bytes", async () => {
+    const d = await deriveMetadata({ assetBytes: photoGpsBytes, mimeType: "image/jpeg", active: undefined });
+    expect(d.bytesHadGps).toBe(true);
+  });
+
+  it("false for a JPEG with no GPS (stripped / none-general capture)", async () => {
+    const d = await deriveMetadata({ assetBytes: photoBytes, mimeType: "image/jpeg", active: undefined });
+    expect(d.bytesHadGps).toBe(false);
+  });
+
+  it("true for a video with a container location atom", async () => {
+    const d = await deriveMetadata({ assetBytes: videoGpsBytes, mimeType: "video/mp4", active: undefined });
+    expect(d.bytesHadGps).toBe(true);
+  });
+
+  it("false for a video with no location atom", async () => {
+    const d = await deriveMetadata({ assetBytes: videoBytes, mimeType: "video/quicktime", active: undefined });
+    expect(d.bytesHadGps).toBe(false);
+  });
+
+  it("does not surface the probed coordinate as a display entry or signed coord", async () => {
+    // Presence-only: the JPEG's coords must NOT leak into entries or lat/lon.
+    const d = await deriveMetadata({ assetBytes: photoGpsBytes, mimeType: "image/jpeg", active: undefined });
+    expect(hasGeoEntry(d.entries)).toBe(false);
+    expect(d.latitude).toBeNull();
+    expect(d.longitude).toBeNull();
+  });
+});
 
 describe("derivePhotoMetadata — real RealReel JPEG (none/general capture)", () => {
   it("derives display-keyed entries from the validated bytes", async () => {
