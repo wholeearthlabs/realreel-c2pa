@@ -17,3 +17,9 @@ export {
   type ParentResolution,
   type ParentResolutionFailure,
 } from "./structure.js";
+
+export {
+  LOCATION_LEVELS,
+  isLocationLevel,
+  type LocationLevel,
+} from "./location.js";

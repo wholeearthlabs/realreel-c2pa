@@ -46,7 +46,10 @@ import { initDb, pingDb } from "./db.js";
 import { loadTrustConfig } from "./trust/loader.js";
 import type { TrustConfig } from "./trust/types.js";
 import { verify } from "./verify.js";
-import type { LocationLevel } from "./location-privacy.js";
+import {
+  isLocationLevel,
+  type LocationLevel,
+} from "@realreel/c2pa-trust-core";
 import { VerifyError, VerifyErrorCode } from "./errors.js";
 
 // 50 MB ceiling on the asset we'll fetch + load into memory.
@@ -184,9 +187,7 @@ function registerRoutes(
       typeof body.expectedEtag !== "string" ||
       typeof body.expectedContentLength !== "number" ||
       typeof body.mimeType !== "string" ||
-      (body.declaredLocation !== "none" &&
-        body.declaredLocation !== "general" &&
-        body.declaredLocation !== "precise")
+      !isLocationLevel(body.declaredLocation)
     ) {
       reply.status(400).send({
         verdict: "reject",

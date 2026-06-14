@@ -39,10 +39,8 @@ import {
   type Clock,
 } from "./cert-validity.js";
 import { deriveMetadata, type DerivedMetadata } from "./derive-metadata.js";
-import {
-  enforceLocationPrivacy,
-  type LocationLevel,
-} from "./location-privacy.js";
+import { enforceLocationPrivacy } from "./location-privacy.js";
+import type { LocationLevel } from "@realreel/c2pa-trust-core";
 import { Sentry } from "./observability.js";
 
 export interface VerifyArgs {

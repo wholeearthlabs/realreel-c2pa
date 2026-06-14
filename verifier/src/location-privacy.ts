@@ -33,9 +33,7 @@
 
 import { VerifyError, VerifyErrorCode } from "./errors.js";
 import type { DerivedMetadata } from "./derive-metadata.js";
-
-/** The uploader's declared location choice, threaded from the request. */
-export type LocationLevel = "none" | "general" | "precise";
+import type { LocationLevel } from "@realreel/c2pa-trust-core";
 
 export interface LocationPrivacyResult {
   /** Direction 2 (see header): the caller signals telemetry, not a reject. */
