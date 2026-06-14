@@ -167,6 +167,7 @@ async function main(): Promise<void> {
       assetBytes,
       mimeType: "image/jpeg",
       expectedUserId: SAMPLE_CAPTURER_UUID,
+      declaredLocation: "precise",
       trustConfig,
       datastore: inMemoryDatastore,
       // attestationRequired left false + no playIntegrityConfig → lenient mode.

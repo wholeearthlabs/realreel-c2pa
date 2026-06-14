@@ -39,7 +39,10 @@ import {
   type Clock,
 } from "./cert-validity.js";
 import { deriveMetadata, type DerivedMetadata } from "./derive-metadata.js";
-import { enforceLocationPrivacy } from "./location-privacy.js";
+import {
+  enforceLocationPrivacy,
+  type LocationLevel,
+} from "./location-privacy.js";
 import { Sentry } from "./observability.js";
 
 export interface VerifyArgs {
@@ -51,6 +54,12 @@ export interface VerifyArgs {
    *  forces own-key signing; the enrollment-time user_id↔key_id link is the
    *  revocation handle, not an upload-time check. Retained for telemetry. */
   expectedUserId: string;
+  /** The uploader's declared location choice, forwarded UNSIGNED from the
+   *  request (server.ts validates it). Drives the location-privacy gate: a
+   *  non-precise level forbids any GPS in the bytes or the signed assertion.
+   *  Required — no default — so a caller can't silently skip the check. See
+   *  location-privacy.ts. */
+  declaredLocation: LocationLevel;
   trustConfig: TrustConfig;
   /** Optional Play Integrity config threaded through to the realreel profile
    *  for Android manifest validation. Lenient when undefined (profile accepts
@@ -113,6 +122,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   const {
     assetBytes,
     mimeType,
+    declaredLocation,
     trustConfig,
     playIntegrityConfig,
     attestationRequired = false,
@@ -228,9 +238,10 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   // carries stds.exif/stds.iptc even for a wrapped Pixel parent.
   const derived = await deriveMetadata({ assetBytes, mimeType, active });
 
-  // Location-privacy backstop (see location-privacy.ts): reject a file-byte GPS
-  // leak; signal the lesser reverse case without rejecting.
-  const { displayLeak } = enforceLocationPrivacy(derived);
+  // Location-privacy backstop (see location-privacy.ts): reject a declared-level
+  // violation (non-precise upload carrying GPS) or a file-byte GPS leak; signal
+  // the lesser reverse case without rejecting.
+  const { displayLeak } = enforceLocationPrivacy(derived, declaredLocation);
   if (displayLeak) {
     try {
       Sentry.captureMessage("location_display_leak", {

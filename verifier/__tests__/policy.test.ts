@@ -98,6 +98,7 @@ describe("Defense-layer smoke test — real edited Pixel JPEG", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_USER_ID,
         trustConfig,
+        declaredLocation: "precise",
       });
     } catch (e) {
       caught = e;

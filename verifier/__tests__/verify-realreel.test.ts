@@ -108,6 +108,7 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      declaredLocation: "precise",
     });
 
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
@@ -149,6 +150,7 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      declaredLocation: "precise",
     });
 
     // The single trust boundary for displayed metadata: the edge function
@@ -177,6 +179,7 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      declaredLocation: "precise",
     });
 
     // The enrichment a manifest viewer reads: the leaf cert's common_name
@@ -199,6 +202,7 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      declaredLocation: "precise",
     });
 
     // Both stages of this fixture carry a DigiCert sigTst2 (capture at
@@ -221,6 +225,7 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      declaredLocation: "precise",
     });
 
     const labels = Object.values(result.sanitizedManifest.manifests).flatMap(
@@ -246,6 +251,7 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      declaredLocation: "precise",
     });
 
     // Dual-stage revocation: Stage 1 is now consulted for the
@@ -268,6 +274,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
+        declaredLocation: "precise",
       }),
     ).rejects.toMatchObject({ code: VerifyErrorCode.KEY_NOT_FOUND });
   });
@@ -285,6 +292,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
+        declaredLocation: "precise",
       }),
     ).rejects.toMatchObject({ code: VerifyErrorCode.KEY_REVOKED });
   });
@@ -303,6 +311,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
+        declaredLocation: "precise",
       }),
     ).rejects.toMatchObject({ code: VerifyErrorCode.KEY_REVOKED });
   });
@@ -326,6 +335,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      declaredLocation: "precise",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
   });
@@ -344,6 +354,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID, // differs from the row's user_id
       trustConfig,
+      declaredLocation: "precise",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
   });
@@ -364,6 +375,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
       mimeType: "image/jpeg",
       expectedUserId: saraId,
       trustConfig,
+      declaredLocation: "precise",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
     // Both stages consulted: Stage 1 (revocation denylist) + Stage 2 (gate).
@@ -384,6 +396,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
       mimeType: "image/jpeg",
       expectedUserId: aliceId,
       trustConfig,
+      declaredLocation: "precise",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
   });
@@ -396,6 +409,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
+        declaredLocation: "precise",
       }),
     ).rejects.toMatchObject({ code: VerifyErrorCode.MANIFEST_MALFORMED });
   });
@@ -503,6 +517,7 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig: noTsaTrust,
+        declaredLocation: "precise",
       }),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
@@ -521,6 +536,7 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
         clock: { now: () => new Date("2026-05-28T18:00:00Z") },
+        declaredLocation: "precise",
       }),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
@@ -546,6 +562,7 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
       trustConfig,
       clock: { now: () => new Date("2026-05-28T20:16:00Z") },
       certLifetimeMs: 1,
+      declaredLocation: "precise",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
   });

@@ -153,6 +153,7 @@ describe.skipIf(!fixtureExists)(
         mimeType: "image/jpeg",
         expectedUserId: STAGE2_USER,
         trustConfig,
+        declaredLocation: "precise",
       });
 
       // Active manifest is RealReel-signed → dispatcher routes to the
@@ -174,6 +175,7 @@ describe.skipIf(!fixtureExists)(
         mimeType: "image/jpeg",
         expectedUserId: STAGE2_USER,
         trustConfig,
+        declaredLocation: "precise",
       });
 
       // Dual-stage revocation: both the Stage-1 (Pixel) and
@@ -195,6 +197,7 @@ describe.skipIf(!fixtureExists)(
         mimeType: "image/jpeg",
         expectedUserId: STAGE2_USER,
         trustConfig,
+        declaredLocation: "precise",
       });
 
       const parentLabel = result.sanitizedManifest.active_manifest!.parent_label!;
@@ -219,6 +222,7 @@ describe.skipIf(!fixtureExists)(
         mimeType: "image/jpeg",
         expectedUserId: STAGE2_USER,
         trustConfig,
+        declaredLocation: "precise",
       });
 
       const labels = Object.values(result.sanitizedManifest.manifests).flatMap(
@@ -281,6 +285,7 @@ describe.skipIf(!fixtureExists)(
           mimeType: "image/jpeg",
           expectedUserId: STAGE2_USER,
           trustConfig,
+          declaredLocation: "precise",
         }),
       ).rejects.toMatchObject({ code: VerifyErrorCode.KEY_NOT_FOUND });
 
@@ -300,6 +305,7 @@ describe.skipIf(!fixtureExists)(
           mimeType: "image/jpeg",
           expectedUserId: STAGE2_USER,
           trustConfig,
+          declaredLocation: "precise",
         }),
       ).rejects.toMatchObject({ code: VerifyErrorCode.KEY_REVOKED });
 
@@ -317,6 +323,7 @@ describe.skipIf(!fixtureExists)(
         mimeType: "image/jpeg",
         expectedUserId: STAGE2_USER, // differs from the row's user_id
         trustConfig,
+        declaredLocation: "precise",
       });
       expect(result.sanitizedManifest.validation_state).toBe("trusted");
     });

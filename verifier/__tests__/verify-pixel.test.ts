@@ -82,6 +82,7 @@ describe("verify() force-wrap — raw single-stage Pixel rejected", () => {
         mimeType: "image/jpeg",
         expectedUserId: EXPECTED_USER,
         trustConfig,
+        declaredLocation: "precise",
       }),
     ).rejects.toMatchObject({ code: VerifyErrorCode.UNTRUSTED_ISSUER });
   });
@@ -93,6 +94,7 @@ describe("verify() force-wrap — raw single-stage Pixel rejected", () => {
         mimeType: "image/jpeg",
         expectedUserId: EXPECTED_USER,
         trustConfig,
+        declaredLocation: "precise",
       }),
     ).rejects.toBeDefined();
     // Force-wrap fires in verify.ts before the realreel profile runs, so the
@@ -108,6 +110,7 @@ describe("verify() force-wrap — raw single-stage Pixel rejected", () => {
         mimeType: "image/jpeg",
         expectedUserId: EXPECTED_USER,
         trustConfig,
+        declaredLocation: "precise",
       }),
     ).rejects.toMatchObject({ code: VerifyErrorCode.MANIFEST_MALFORMED });
   });
@@ -139,6 +142,7 @@ describe("Cross-source routing — realreel still accepted", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      declaredLocation: "precise",
     });
     expect(result.sanitizedManifest.trust_source).toBe("realreel");
   });

@@ -8,7 +8,8 @@
 //       spends zero CPU on JSON parse, even at the 64 KB body cap.
 //   /verify handler:
 //     - Parse body { signedUrl, expectedUserId, expectedEtag,
-//       expectedContentLength, mimeType }.
+//       expectedContentLength, mimeType, declaredLocation }. declaredLocation
+//       must be one of none|general|precise (strict — invalid/missing → 400).
 //     - Validate signedUrl against ASSET_STORAGE_HOST_REGEX (Layer 2
 //       SSRF defense). Reject 400 + Sentry-tag ssrf_attempt if off-host.
 //     - GET signedUrl with `redirect: 'error'` + `If-Match: <etag>`.
@@ -45,6 +46,7 @@ import { initDb, pingDb } from "./db.js";
 import { loadTrustConfig } from "./trust/loader.js";
 import type { TrustConfig } from "./trust/types.js";
 import { verify } from "./verify.js";
+import type { LocationLevel } from "./location-privacy.js";
 import { VerifyError, VerifyErrorCode } from "./errors.js";
 
 // 50 MB ceiling on the asset we'll fetch + load into memory.
@@ -64,6 +66,7 @@ interface VerifyRequestBody {
   expectedEtag: string;
   expectedContentLength: number;
   mimeType: string;
+  declaredLocation: LocationLevel;
 }
 
 /**
@@ -180,7 +183,10 @@ function registerRoutes(
       typeof body.expectedUserId !== "string" ||
       typeof body.expectedEtag !== "string" ||
       typeof body.expectedContentLength !== "number" ||
-      typeof body.mimeType !== "string"
+      typeof body.mimeType !== "string" ||
+      (body.declaredLocation !== "none" &&
+        body.declaredLocation !== "general" &&
+        body.declaredLocation !== "precise")
     ) {
       reply.status(400).send({
         verdict: "reject",
@@ -190,7 +196,14 @@ function registerRoutes(
       return;
     }
 
-    const { signedUrl, expectedUserId, expectedEtag, expectedContentLength, mimeType } = body;
+    const {
+      signedUrl,
+      expectedUserId,
+      expectedEtag,
+      expectedContentLength,
+      mimeType,
+      declaredLocation,
+    } = body;
 
     // ----- Layer 2: SSRF defense, two-step -----
     //
@@ -312,6 +325,7 @@ function registerRoutes(
       assetBytes,
       mimeType,
       expectedUserId,
+      declaredLocation,
       trustConfig,
       playIntegrityConfig: config.playIntegrity,
       attestationRequired: config.attestationRequired,

@@ -94,6 +94,9 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      // Location-REMOVED fixture: 'none' drives the non-precise path through the
+      // real pipeline — it must still pass and not mis-fire on a clean strip.
+      declaredLocation: "none",
     });
 
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
@@ -142,6 +145,9 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      // Location-REMOVED fixture: 'none' drives the non-precise path through the
+      // real pipeline — it must still pass and not mis-fire on a clean strip.
+      declaredLocation: "none",
     });
     // Two lookups: the capture's serial (Stage-1 denylist, post-walk) and the
     // Stage-2 serial — NOT the Update Manifest (the walk doesn't look it up).
@@ -156,6 +162,9 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
+      // Location-REMOVED fixture: 'none' drives the non-precise path through the
+      // real pipeline — it must still pass and not mis-fire on a clean strip.
+      declaredLocation: "none",
     });
 
     const store = result.sanitizedManifest;
