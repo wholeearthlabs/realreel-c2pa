@@ -1,5 +1,24 @@
 # @realreel/verifier
 
+## 0.5.0
+
+### Minor Changes
+
+- [`5c25737`](https://github.com/wholeearthlabs/realreel-c2pa/commit/5c257376b314bd2fdecc94be464cdfeb8e1562a1) Thanks [@boojamya](https://github.com/boojamya)! - Add a server-side location-privacy backstop.
+
+  The verifier now cross-checks GPS presence in the validated file bytes against
+  the signed manifest and rejects an upload (with `LOCATION_PRIVACY_VIOLATION`)
+  whose bytes carry coordinates the manifest doesn't — closing the gap where a
+  client-side GPS strip on a non-precise ("none"/"general") upload could silently
+  publish exact coordinates if it ever regressed. The reverse mismatch (manifest
+  carries coordinates the bytes don't) is reported to telemetry rather than
+  rejected.
+
+### Patch Changes
+
+- Updated dependencies [[`5c25737`](https://github.com/wholeearthlabs/realreel-c2pa/commit/5c257376b314bd2fdecc94be464cdfeb8e1562a1)]:
+  - @realreel/c2pa-trust-core@0.1.2
+
 ## 0.4.0
 
 ### Minor Changes

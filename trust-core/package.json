@@ -1,6 +1,6 @@
 {
   "name": "@realreel/c2pa-trust-core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Part of the open-source RealReel C2PA signing/verification stack — shapes, trust list, action allowlists, and pure policy functions (no I/O, no native deps, no crypto). Shared between the RealReel client preflight gate and the Cloud Run verifier.",
   "keywords": [
     "c2pa",
@@ -30,24 +30,54 @@
   "exports": {
     "./package.json": "./package.json",
     ".": {
-      "import": { "types": "./dist/esm/index.d.ts", "default": "./dist/esm/index.js" },
-      "require": { "types": "./dist/commonjs/index.d.ts", "default": "./dist/commonjs/index.js" }
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/index.d.ts",
+        "default": "./dist/commonjs/index.js"
+      }
     },
     "./shapes": {
-      "import": { "types": "./dist/esm/shapes/index.d.ts", "default": "./dist/esm/shapes/index.js" },
-      "require": { "types": "./dist/commonjs/shapes/index.d.ts", "default": "./dist/commonjs/shapes/index.js" }
+      "import": {
+        "types": "./dist/esm/shapes/index.d.ts",
+        "default": "./dist/esm/shapes/index.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/shapes/index.d.ts",
+        "default": "./dist/commonjs/shapes/index.js"
+      }
     },
     "./errors": {
-      "import": { "types": "./dist/esm/errors/index.d.ts", "default": "./dist/esm/errors/index.js" },
-      "require": { "types": "./dist/commonjs/errors/index.d.ts", "default": "./dist/commonjs/errors/index.js" }
+      "import": {
+        "types": "./dist/esm/errors/index.d.ts",
+        "default": "./dist/esm/errors/index.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/errors/index.d.ts",
+        "default": "./dist/commonjs/errors/index.js"
+      }
     },
     "./policies": {
-      "import": { "types": "./dist/esm/policies/index.d.ts", "default": "./dist/esm/policies/index.js" },
-      "require": { "types": "./dist/commonjs/policies/index.d.ts", "default": "./dist/commonjs/policies/index.js" }
+      "import": {
+        "types": "./dist/esm/policies/index.d.ts",
+        "default": "./dist/esm/policies/index.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/policies/index.d.ts",
+        "default": "./dist/commonjs/policies/index.js"
+      }
     },
     "./trust-list": {
-      "import": { "types": "./dist/esm/trust-list/index.d.ts", "default": "./dist/esm/trust-list/index.js" },
-      "require": { "types": "./dist/commonjs/trust-list/index.d.ts", "default": "./dist/commonjs/trust-list/index.js" }
+      "import": {
+        "types": "./dist/esm/trust-list/index.d.ts",
+        "default": "./dist/esm/trust-list/index.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/trust-list/index.d.ts",
+        "default": "./dist/commonjs/trust-list/index.js"
+      }
     }
   },
   "files": [
