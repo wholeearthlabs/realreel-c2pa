@@ -1,5 +1,28 @@
 # @realreel/verifier
 
+## 0.6.0
+
+### Minor Changes
+
+- [`fba91ab`](https://github.com/wholeearthlabs/realreel-c2pa/commit/fba91abc08666c5063b1e86469fa471db899aa90) Thanks [@boojamya](https://github.com/boojamya)! - Location-privacy gate: enforce the uploader's declared location level. The
+  `/verify` request now carries a required `declaredLocation` field (`none` |
+  `general` | `precise`, forwarded unsigned). A non-precise level rejects any GPS
+  present in either the validated file bytes or the signed assertion with
+  `LOCATION_PRIVACY_VIOLATION`. This is additive to the existing bytes-vs-assertion
+  spine (kept as the arg-independent backstop) and closes its two blind spots when
+  the level is known: a correlated double-regression, and the Direction-2
+  assertion-only leak the spine could previously only signal. Strict — a request
+  missing or carrying an invalid level is a 400.
+
+### Patch Changes
+
+- [`7e8806d`](https://github.com/wholeearthlabs/realreel-c2pa/commit/7e8806da4195fb24b11e7dbf0acf5e25bf9227d4) Thanks [@boojamya](https://github.com/boojamya)! - Move the declared location level into trust-core as the single source of truth:
+  add `LocationLevel`, `LOCATION_LEVELS`, and the `isLocationLevel` guard. The
+  verifier's location-privacy gate and POST /verify validation now consume them
+  instead of a local copy, so the client and verifier can't drift on the level set.
+- Updated dependencies [[`7e8806d`](https://github.com/wholeearthlabs/realreel-c2pa/commit/7e8806da4195fb24b11e7dbf0acf5e25bf9227d4)]:
+  - @realreel/c2pa-trust-core@0.2.0
+
 ## 0.5.0
 
 ### Minor Changes
