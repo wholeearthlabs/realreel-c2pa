@@ -38,3 +38,6 @@ native/ios/build/
 .env
 .env.local
 .env.*.local
+
+# Verifier deploy config (non-secret env-specific values; copy from deploy.env.example)
+verifier/deploy.env

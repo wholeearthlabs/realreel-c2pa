@@ -4,7 +4,7 @@
 # there's one entry point across the Node workspaces (trust-core, verifier,
 # native) and the Deno workspace (ca).
 
-.PHONY: test test-trust-core test-verifier test-ca typecheck verify-trust-anchors verifier-dev
+.PHONY: test test-trust-core test-verifier test-ca typecheck verify-trust-anchors verifier-dev deploy-verifier rollback-verifier
 
 # Run every test suite (trust-core + verifier + ca).
 test:
@@ -39,3 +39,18 @@ verifier-dev:
 		ASSET_STORAGE_HOST_ALLOWLIST="127.0.0.1:54321,localhost:54321" \
 		PORT=8787 \
 		npm run dev
+
+# Promote an already-published, attested verifier image (GHCR) to Artifact
+# Registry and deploy it to Cloud Run. Image-only — env/secrets are preserved
+# from the current revision. Config lives in verifier/deploy.env (copy from
+# verifier/deploy.env.example). Pass YES=1 to skip the confirmation prompt.
+#   make deploy-verifier TAG=verifier-v0.5.0
+deploy-verifier:
+	@test -n "$(TAG)" || { echo "usage: make deploy-verifier TAG=<verifier-tag>   e.g. verifier-v0.5.0"; exit 1; }
+	verifier/scripts/deploy.sh "$(TAG)" $(if $(YES),-y,)
+
+# Roll Cloud Run traffic back to a known-good revision. No REV lists revisions.
+#   make rollback-verifier                                   # list
+#   make rollback-verifier REV=realreel-verifier-00007-abc   # shift traffic
+rollback-verifier:
+	verifier/scripts/rollback.sh $(REV)
