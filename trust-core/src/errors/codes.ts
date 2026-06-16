@@ -66,6 +66,15 @@ export const VerifyErrorCode = {
    * Typical causes: RLS regression, unique-violation, schema drift. */
   INSERT_FAILED: "INSERT_FAILED",
 
+  /** The verified capture is already on this user's profile — a unique
+   * violation on media (user_id, content_hash). Emitted only by the
+   * verify-and-create-media edge function after the verifier said OK; the
+   * verifier-computed content_hash is anchored to the capture (+ video trim),
+   * so the same capture re-posted collides while a different trim does not.
+   * Same capture on a DIFFERENT profile is allowed. Not retryable — the user
+   * already shared this. */
+  DUPLICATE_CONTENT: "DUPLICATE_CONTENT",
+
   /** Manifest lacks the expected `org.realreel.app_attest` (iOS) or
    * `org.realreel.play_integrity` (Android) envelope, OR the envelope
    * fields are missing/malformed. Closes the rooted-device arbitrary-

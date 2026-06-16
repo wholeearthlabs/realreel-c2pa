@@ -25,6 +25,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { createHash } from "node:crypto";
 
 // Mock the db module BEFORE importing the modules that depend on it.
 // Tests inject the result via `mockResolvedValue`.
@@ -140,6 +141,23 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     // overall validation_state asserted above stays 'trusted', so the parent's
     // timestamp validates cleanly under verifyTimestampTrust.
     expect(stage1.signature_info.time).toBeTruthy();
+
+    // Per-profile dedup key. A photo has no published-extent action (no trim/
+    // crop), so the identity is the capture label alone — which equals the
+    // sanitized parent_label. Pins both the format and the photo anchor.
+    expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/);
+    const expectedHash = createHash("sha256")
+      .update(`rrc1:${stage1Label}`)
+      .digest("hex");
+    expect(result.contentHash).toBe(expectedHash);
+  });
+
+  it("derives a deterministic content hash across repeated verifies of the same bytes", async () => {
+    vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
+    const base = { assetBytes: fixtureBytes, mimeType: "image/jpeg", expectedUserId: FIXTURE_CAPTURER_UUID, trustConfig, declaredLocation: "precise" as const };
+    const a = await verify(base);
+    const b = await verify(base);
+    expect(a.contentHash).toBe(b.contentHash);
   });
 
   it("returns derived display metadata from the verified bytes + active manifest", async () => {

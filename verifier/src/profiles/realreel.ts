@@ -67,6 +67,16 @@ import {
   validatePlayIntegrityStructure,
 } from "../attestation/play_integrity.js";
 import type { PlayIntegrityConfig } from "../config.js";
+import { buildContentIdentity } from "@realreel/c2pa-trust-core";
+import { createHash } from "node:crypto";
+
+/** Result of the realreel profile: the persisted sanitized store plus the
+ *  per-profile dedup key derived from the verified capture + upload extent. */
+export interface RealReelVerifyResult {
+  sanitized: SanitizedManifestStore;
+  /** sha256hex of the content identity — see contentHash derivation below. */
+  contentHash: string;
+}
 
 /**
  * @param sourceId The trust-source id resolved by identifyTrustSource()
@@ -97,7 +107,7 @@ export async function verifyRealReel(
   playIntegrityConfig?: PlayIntegrityConfig,
   attestationRequired: boolean = false,
   datastore: VerifierDatastore = postgresAdapter,
-): Promise<SanitizedManifestStore> {
+): Promise<RealReelVerifyResult> {
   const store = storeUnknown as ManifestStoreShape;
 
   // Surface c2pa-node validation issues as hard rejects. The codes c2pa-rs
@@ -230,7 +240,30 @@ export async function verifyRealReel(
     );
   }
 
-  return sanitizeManifestStore(storeUnknown, sourceId);
+  // Derive the per-profile dedup key from the resolved capture + the signed
+  // upload extent. Anchored to the CAPTURE (capture.label, walked past any TSA
+  // Update Manifests above), not the uploaded bytes — so re-uploading the same
+  // capture with any transform collides, while two different video trims don't.
+  // The DB's UNIQUE(user_id, content_hash) turns a collision into the edge
+  // function's DUPLICATE_CONTENT reject. "rrc1" = scheme version, so the hash
+  // input can evolve without silently aliasing old rows.
+  const identity = buildContentIdentity(capture, active);
+  if (identity === null) {
+    // A validated store always labels its manifests; absence is anomalous and
+    // must NOT silently yield a null hash that would bypass dedup.
+    throw new VerifyError(
+      VerifyErrorCode.MANIFEST_MALFORMED,
+      "capture manifest has no label; cannot derive content hash",
+    );
+  }
+  const contentHash = createHash("sha256")
+    .update(`rrc1:${identity}`)
+    .digest("hex");
+
+  return {
+    sanitized: sanitizeManifestStore(storeUnknown, sourceId),
+    contentHash,
+  };
 }
 
 /**

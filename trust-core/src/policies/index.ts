@@ -23,3 +23,8 @@ export {
   isLocationLevel,
   type LocationLevel,
 } from "./location.js";
+
+export {
+  buildContentIdentity,
+  extractContentExtent,
+} from "./content-hash.js";

@@ -330,6 +330,10 @@ function registerRoutes(
       sanitizedManifest: result.sanitizedManifest,
       // Server-derived displayed metadata (see VerifyResult.derived).
       derived: result.derived,
+      // Per-profile dedup key (see VerifyResult.contentHash). The edge function
+      // writes it to media.content_hash; UNIQUE(user_id, content_hash) rejects
+      // a re-post of the same capture to the same profile.
+      contentHash: result.contentHash,
     });
   });
 

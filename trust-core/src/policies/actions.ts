@@ -64,15 +64,25 @@ export const REALREEL_UPLOAD_ALLOWED_ACTIONS: ReadonlySet<string> = new Set([
   "c2pa.redacted", // user-requested location redaction
 ]);
 
-/**
- * Extract the union of action names from EVERY c2pa.actions / .v2 assertion
- * on the manifest (multiple actions assertions are spec-discouraged but
- * possible; collecting all avoids silently dropping one). Array.isArray-
- * guarded against a malformed `actions: "string"` shape. Returns empty when
- * no well-formed actions assertion is present.
+/** A single well-formed action entry: the action name plus its raw, opaque
+ *  parameters (shape varies per action — e.g. c2pa.trimmed carries {start,end}).
  */
-export function extractManifestActions(manifest: ManifestShape): string[] {
-  const out: string[] = [];
+export interface ActionEntry {
+  action: string;
+  parameters?: unknown;
+}
+
+/**
+ * Walk EVERY c2pa.actions / .v2 assertion on the manifest and return each
+ * well-formed action entry (name + raw parameters), in document order across
+ * all such assertions (multiple are spec-discouraged but possible; collecting
+ * all avoids silently dropping one). Array.isArray-guarded against a malformed
+ * `actions: "string"` shape; entries without a non-empty string `action` are
+ * skipped. The single source of the actions-iteration logic — extractManifestActions
+ * (names only) and content-hash's extractContentExtent (names + params) both build on it.
+ */
+export function extractActionEntries(manifest: ManifestShape): ActionEntry[] {
+  const out: ActionEntry[] = [];
   for (const assertion of manifest.assertions ?? []) {
     if (
       assertion.label !== "c2pa.actions.v2" &&
@@ -85,11 +95,20 @@ export function extractManifestActions(manifest: ManifestShape): string[] {
     for (const a of data.actions) {
       const action = (a as { action?: unknown })?.action;
       if (typeof action === "string" && action.length > 0) {
-        out.push(action);
+        out.push({ action, parameters: (a as { parameters?: unknown })?.parameters });
       }
     }
   }
   return out;
+}
+
+/**
+ * Extract the union of action names from EVERY c2pa.actions / .v2 assertion
+ * on the manifest. Returns empty when no well-formed actions assertion is
+ * present. (Names only — see extractActionEntries for names + parameters.)
+ */
+export function extractManifestActions(manifest: ManifestShape): string[] {
+  return extractActionEntries(manifest).map((e) => e.action);
 }
 
 /**

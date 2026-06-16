@@ -89,6 +89,11 @@ export interface VerifyResult {
    *  media.metadata_type hold. The edge function inserts exactly this, never a
    *  client-supplied field. See derive-metadata.ts. */
   derived: DerivedMetadata;
+  /** Per-profile dedup key derived from the verified capture + signed upload
+   *  extent. The edge function writes it to media.content_hash, whose
+   *  UNIQUE(user_id, content_hash) index rejects a re-post to the same profile.
+   *  See verifyRealReel / @realreel/c2pa-trust-core buildContentIdentity. */
+  contentHash: string;
 }
 
 // c2pa settings for Reader.fromAsset. settingsToJson() converts our camelCase to
@@ -222,7 +227,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     certLifetimeMs,
   });
 
-  const sanitized = await verifyRealReel(
+  const { sanitized, contentHash } = await verifyRealReel(
     store,
     source.id,
     playIntegrityConfig,
@@ -251,7 +256,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     }
   }
 
-  return { sanitizedManifest: sanitized, derived };
+  return { sanitizedManifest: sanitized, derived, contentHash };
 }
 
 // Resolve the active manifest's signature_info.issuer via the shared

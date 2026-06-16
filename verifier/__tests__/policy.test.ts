@@ -189,12 +189,16 @@ function makeRealReelStore(opts: {
   return {
     active_manifest: "urn:test:stage2",
     manifests: {
+      // `label` mirrors c2pa-node, which always echoes the store key onto the
+      // manifest object; the content-hash anchor (buildContentIdentity) reads it.
       "urn:test:stage1": {
+        label: "urn:test:stage1",
         signature_info: { cert_serial_number: STAGE_1_SERIAL },
         ingredients: opts.stage1?.ingredients ?? [],
         assertions: stage1Assertions,
       },
       "urn:test:stage2": {
+        label: "urn:test:stage2",
         signature_info: { cert_serial_number: STAGE_2_SERIAL },
         ingredients: stage2Ingredients,
         assertions: stage2Assertions,
@@ -252,7 +256,7 @@ describe("Policy — RealReel Stage 1 (parent / capture)", () => {
     stubBothKeysValid();
     const store = makeRealReelStore({});
     const result = await verifyRealReel(store, "realreel");
-    expect(result.validation_state).toBe("trusted");
+    expect(result.sanitized.validation_state).toBe("trusted");
   });
 
   it("rejects: Stage 1 has ingredients (claims to be derived)", async () => {
@@ -392,7 +396,7 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
       stage2: { actions: ["c2pa.opened", "c2pa.resized", "c2pa.transcoded"] },
     });
     const result = await verifyRealReel(store, "realreel");
-    expect(result.validation_state).toBe("trusted");
+    expect(result.sanitized.validation_state).toBe("trusted");
   });
 
   // ---- Roundtrip: every Stage2Action variant must be accepted ----
@@ -424,7 +428,7 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
           stage2: { actions: ["c2pa.opened", action] },
         });
         const result = await verifyRealReel(store, "realreel");
-        expect(result.validation_state).toBe("trusted");
+        expect(result.sanitized.validation_state).toBe("trusted");
       });
     }
   });
@@ -722,6 +726,7 @@ function makeDrainedStore(opts?: {
     active_manifest: "urn:test:stage2",
     manifests: {
       "urn:test:stage1": {
+        label: "urn:test:stage1",
         signature_info: { cert_serial_number: STAGE_1_SERIAL },
         ingredients: opts?.captureIngredients ?? [],
         assertions: [
@@ -736,6 +741,7 @@ function makeDrainedStore(opts?: {
         ],
       },
       "urn:test:update": {
+        label: "urn:test:update",
         signature_info: { cert_serial_number: UPDATE_SERIAL },
         ingredients: [
           {
@@ -746,6 +752,7 @@ function makeDrainedStore(opts?: {
         assertions: updateAssertions,
       },
       "urn:test:stage2": {
+        label: "urn:test:stage2",
         signature_info: { cert_serial_number: STAGE_2_SERIAL },
         ingredients: [
           { active_manifest: "urn:test:update", relationship: "parentOf" },
@@ -764,6 +771,49 @@ function makeDrainedStore(opts?: {
   };
 }
 
+describe("Policy — content hash (per-profile dedup key)", () => {
+  it("returns a 64-hex content hash for a valid upload", async () => {
+    stubBothKeysValid();
+    const result = await verifyRealReel(makeRealReelStore({}), "realreel");
+    expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("anchors on the TRUE capture: a drained chain hashes identically to the un-drained capture", async () => {
+    // makeDrainedStore interposes a timestamp Update Manifest (Stage-2 → Update
+    // → Stage-1); makeRealReelStore points Stage-2 straight at Stage-1. Both
+    // resolve to capture label urn:test:stage1 with no trim, so the dedup key
+    // is invariant to offline-TSA drain state — the same capture uploaded
+    // before vs after a drain collides.
+    stubBothKeysValid();
+    stubBothKeysValid();
+    const undrained = await verifyRealReel(makeRealReelStore({}), "realreel");
+    const drained = await verifyRealReel(makeDrainedStore(), "realreel");
+    expect(drained.contentHash).toBe(undrained.contentHash);
+  });
+
+  it("a trim on the upload changes the content hash (different section = different post)", async () => {
+    stubBothKeysValid();
+    stubBothKeysValid();
+    const whole = await verifyRealReel(makeRealReelStore({}), "realreel");
+    const trimmed = await verifyRealReel(
+      makeRealReelStore({ stage2: { actions: ["c2pa.opened", "c2pa.trimmed"] } }),
+      "realreel",
+    );
+    expect(trimmed.contentHash).not.toBe(whole.contentHash);
+  });
+
+  it("rejects MANIFEST_MALFORMED when the capture manifest has no label", async () => {
+    stubBothKeysValid();
+    const store = makeRealReelStore({}) as {
+      manifests: Record<string, { label?: string }>;
+    };
+    delete store.manifests["urn:test:stage1"].label;
+    await expect(verifyRealReel(store, "realreel")).rejects.toMatchObject({
+      code: VerifyErrorCode.MANIFEST_MALFORMED,
+    });
+  });
+});
+
 describe("Policy — TSA Update Manifest walk-through", () => {
   it("happy path: a drained Stage-2 → Update → Stage-1 chain verifies trusted", async () => {
     // Only the capture + Stage-2 keys are looked up (the walk is purely
@@ -771,9 +821,9 @@ describe("Policy — TSA Update Manifest walk-through", () => {
     stubBothKeysValid();
     const store = makeDrainedStore();
     const result = await verifyRealReel(store, "realreel");
-    expect(result.validation_state).toBe("trusted");
+    expect(result.sanitized.validation_state).toBe("trusted");
     // The Update Manifest is preserved in the sanitized store (the UI walks it).
-    expect(result.manifests["urn:test:update"]).toBeDefined();
+    expect(result.sanitized.manifests["urn:test:update"]).toBeDefined();
   });
 
   it("does NOT walk past a genuine edited parent (no timestamp) — rejects it as the capture", async () => {
@@ -840,7 +890,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
     stubBothKeysValid();
     const store = makeDrainedStore({ updateActions: ["c2pa.opened"] });
     const result = await verifyRealReel(store, "realreel");
-    expect(result.validation_state).toBe("trusted");
+    expect(result.sanitized.validation_state).toBe("trusted");
   });
 
   it("rejects an Update Manifest carrying an editorial action (no edit smuggling)", async () => {
