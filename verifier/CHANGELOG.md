@@ -1,5 +1,36 @@
 # @realreel/verifier
 
+## 0.6.1
+
+### Patch Changes
+
+- [`53a1d8a`](https://github.com/wholeearthlabs/realreel-c2pa/commit/53a1d8afcd9a3c84c752e20724ed082c9aea4432) Thanks [@boojamya](https://github.com/boojamya)! - Make the `/verify` asset fetch/buffer ceiling configurable. The size gate
+  previously hard-coded a 50 MiB limit (`MAX_ASSET_BYTES`); it now reads
+  `config.maxAssetBytes`, overridable via the optional `MAX_ASSET_MIB` env var
+  and defaulting to 50 (so default behavior is unchanged). Set it to match the
+  asset-storage bucket's `file_size_limit` when that exceeds 50 MiB — otherwise
+  an upload whose size lands in the gap band passes Storage and then fails
+  verification as oversize. Validated at startup: non-positive or above a 512 MiB
+  sanity ceiling throws.
+
+- [`a7bb35d`](https://github.com/wholeearthlabs/realreel-c2pa/commit/a7bb35d606965ec75f88afd27f3aaf6c896586a4) Thanks [@boojamya](https://github.com/boojamya)! - Add a per-upload content hash so a consumer can block re-posting the same
+  capture to one profile. The verifier now derives `contentHash` and returns it
+  in the `/verify` 200 response: `sha256("rrc1:" + identity)`, where `identity`
+  is the resolved Stage-1 capture manifest label (walked past any interposed TSA
+  Update Manifests) plus, for video, the signed `c2pa.trimmed`/`c2pa.cropped`
+  parameters (canonicalized). Anchored to the capture, not the bytes — so the same
+  capture re-uploaded with any transform collides, while two different video trims
+  do not. The verifier is stateless about dedup; enforcing uniqueness (e.g. a
+  `UNIQUE(user_id, content_hash)` index) is the consumer's job.
+
+  trust-core gains `buildContentIdentity` and `extractContentExtent` (new
+  `policies/content-hash`), a shared `extractActionEntries` walk now backing
+  `extractManifestActions`, and a `DUPLICATE_CONTENT` error code for consumers
+  that map a uniqueness violation to a user-facing reject.
+
+- Updated dependencies [[`a7bb35d`](https://github.com/wholeearthlabs/realreel-c2pa/commit/a7bb35d606965ec75f88afd27f3aaf6c896586a4)]:
+  - @realreel/c2pa-trust-core@0.3.0
+
 ## 0.6.0
 
 ### Minor Changes
