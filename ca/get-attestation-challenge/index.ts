@@ -12,8 +12,8 @@
 // then includes (challenge, keyVersion) in its register-signing-key
 // request body. register-signing-key calls consume_enrollment_challenge
 // which atomically burns the row (UPDATE WHERE consumed_at IS NULL AND
-// expires_at > now()), so replays / cross-session reuse / forged-token
-// attempts all fail at the SQL layer regardless of HMAC posture.
+// expires_at > now()), so replays / cross-session reuse / forged-challenge
+// attempts all fail at the SQL layer.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors.ts";

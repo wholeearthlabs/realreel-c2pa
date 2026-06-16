@@ -10,9 +10,7 @@ These files are intentionally committed to the repo (private). They contain:
   enrollment ceremony** that has already completed and whose challenge has
   been burned at the database layer.
 - The corresponding base64 public key.
-- The `keyId`, `keyVersion`, and `challenge` from that ceremony. (Older
-  fixtures may also carry `exp` and `challengeToken` left over from the
-  legacy HMAC-gated flow — those fields are no longer read by tests.)
+- The `keyId`, `keyVersion`, and `challenge` from that ceremony.
 
 They are not secrets — the attestation only proves a key was generated on a
 device by our app at a moment in time. They cannot be replayed against the

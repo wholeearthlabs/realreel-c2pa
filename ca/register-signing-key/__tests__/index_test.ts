@@ -912,9 +912,7 @@ Deno.test(
   "register-signing-key — happy path passes burn RPC the correct (challenge, user_id) args",
   async () => {
     // Defense-in-depth: confirm the burn is keyed by the user from the
-    // JWT, not by anything client-supplied. Pre-chunk-A this was an HMAC
-    // check; chunk A introduced the DB-burn, and this test pins the
-    // wiring.
+    // JWT, not by anything client-supplied. This test pins the wiring.
     const { deps, mockClient } = buildDeps({ userId: testUserId("alice") });
 
     await handleRegister(
