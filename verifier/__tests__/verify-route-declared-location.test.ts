@@ -33,6 +33,7 @@ const config: Config = {
   // layer (distinct errorCode), so we can assert a valid level is accepted.
   assetStorageHostRegex: /^https:\/\//,
   assetStorageHostAllowlist: new Set(["abc.supabase.co"]),
+  maxAssetBytes: 50 * 1024 * 1024,
   sentryDsn: undefined,
   isProduction: true,
   playIntegrity: undefined,

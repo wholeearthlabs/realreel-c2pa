@@ -17,6 +17,7 @@ Registry).
 | `DATABASE_URL` | Supabase → Connect → **Shared Pooler** (Supavisor), Transaction mode, port 6543, `verifier_readonly` role. Username is **tenant-qualified** (`<role>.<project-ref>`). **Cloud Run egress is IPv4-only — see the warning below.** | `postgresql://verifier_readonly.<project-ref>:<pw>@aws-0-<region>.pooler.supabase.com:6543/postgres` |
 | `ASSET_STORAGE_HOST_REGEX` | URL shape match; first SSRF layer (asset storage, typically Supabase Storage) | `^https://<project-ref>\.supabase\.co/storage/v1/object/sign/` |
 | `ASSET_STORAGE_HOST_ALLOWLIST` | Authoritative host allowlist; comma-separated, lowercase | `<project-ref>.supabase.co` |
+| `MAX_ASSET_MIB` | Optional (default `50`). Max asset (MiB) fetched + buffered for `/verify`; checked against content-length before the body is read. **Set to match the app `media` bucket `file_size_limit`** (app repo `supabase/config.toml`, 75MiB) — a smaller value rejects legit uploads in the gap band as oversize. No cross-repo drift check; bump both together. >512 / non-positive → startup error. | `75` |
 | `SENTRY_DSN` | Optional; skip for dry-run | `https://...@...ingest.sentry.io/...` |
 | `TRUST_SOURCES_PATH` | Image default; rarely overridden | `/app/trust-sources.yaml` |
 | `PLAY_INTEGRITY_PACKAGE_NAME` | Android package name, matches Play Console listing | `com.realreel.app` |
@@ -223,7 +224,7 @@ Once these are in hand, you're ready for the **Deploy** flow below.
      --region=<region> --project=<verifier-project> \
      --service-account=realreel-verifier@<verifier-project>.iam.gserviceaccount.com \
      --set-secrets="DATABASE_URL=verifier-database-url:latest,VERIFIER_SHARED_SECRET=verifier-shared-secret:latest,SENTRY_DSN=verifier-sentry-dsn:latest" \
-     --set-env-vars="^@^ATTESTATION_REQUIRED=true@PLAY_INTEGRITY_PACKAGE_NAME=com.realreel.app@PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER=<numeric>@ASSET_STORAGE_HOST_ALLOWLIST=<project-ref>.supabase.co@ASSET_STORAGE_HOST_REGEX=^https://<project-ref>\.supabase\.co/storage/v1/object/sign/" \
+     --set-env-vars="^@^ATTESTATION_REQUIRED=true@PLAY_INTEGRITY_PACKAGE_NAME=com.realreel.app@PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER=<numeric>@ASSET_STORAGE_HOST_ALLOWLIST=<project-ref>.supabase.co@ASSET_STORAGE_HOST_REGEX=^https://<project-ref>\.supabase\.co/storage/v1/object/sign/@MAX_ASSET_MIB=75" \
      --startup-probe=httpGet.path=/healthz/ready,httpGet.port=8080,failureThreshold=6,periodSeconds=5,timeoutSeconds=4
    ```
 

@@ -29,6 +29,7 @@ const TOUCHED_ENV_VARS = [
   "PLAY_INTEGRITY_PACKAGE_NAME",
   "PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER",
   "ATTESTATION_REQUIRED",
+  "MAX_ASSET_MIB",
 ] as const;
 
 let savedEnv: Record<string, string | undefined>;
@@ -369,6 +370,56 @@ describe("loadConfig — certLifetimeMs", () => {
     const config = loadConfig();
     expect(config.certLifetimeMs).toBe(DEFAULT_CERT_LIFETIME_MS);
     expect(config.certLifetimeMs).toBe(180 * 24 * 60 * 60 * 1000);
+  });
+});
+
+// ---------------------------------------------------------------
+// maxAssetBytes — fetch/buffer ceiling (env MAX_ASSET_MIB)
+// ---------------------------------------------------------------
+
+describe("loadConfig — maxAssetBytes / MAX_ASSET_MIB", () => {
+  it("defaults to 50 MiB when MAX_ASSET_MIB unset", () => {
+    withMinimumValidEnv();
+    const config = loadConfig();
+    expect(config.maxAssetBytes).toBe(50 * 1024 * 1024);
+  });
+
+  it("honors an explicit MAX_ASSET_MIB override", () => {
+    withMinimumValidEnv();
+    process.env.MAX_ASSET_MIB = "120";
+    const config = loadConfig();
+    expect(config.maxAssetBytes).toBe(120 * 1024 * 1024);
+  });
+
+  it("treats an empty MAX_ASSET_MIB as unset → default", () => {
+    withMinimumValidEnv();
+    process.env.MAX_ASSET_MIB = "";
+    const config = loadConfig();
+    expect(config.maxAssetBytes).toBe(50 * 1024 * 1024);
+  });
+
+  it("throws on a non-numeric MAX_ASSET_MIB", () => {
+    withMinimumValidEnv();
+    process.env.MAX_ASSET_MIB = "not-a-number";
+    expect(() => loadConfig()).toThrow(/Invalid MAX_ASSET_MIB/);
+  });
+
+  it("throws on MAX_ASSET_MIB=0", () => {
+    withMinimumValidEnv();
+    process.env.MAX_ASSET_MIB = "0";
+    expect(() => loadConfig()).toThrow(/Invalid MAX_ASSET_MIB/);
+  });
+
+  it("throws on a negative MAX_ASSET_MIB", () => {
+    withMinimumValidEnv();
+    process.env.MAX_ASSET_MIB = "-10";
+    expect(() => loadConfig()).toThrow(/Invalid MAX_ASSET_MIB/);
+  });
+
+  it("throws above the sanity ceiling (OOM foot-gun guard)", () => {
+    withMinimumValidEnv();
+    process.env.MAX_ASSET_MIB = "100000";
+    expect(() => loadConfig()).toThrow(/Invalid MAX_ASSET_MIB/);
   });
 });
 

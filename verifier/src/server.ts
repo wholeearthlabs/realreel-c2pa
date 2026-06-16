@@ -14,8 +14,8 @@
 //       SSRF defense). Reject 400 + Sentry-tag ssrf_attempt if off-host.
 //     - GET signedUrl with `redirect: 'error'` + `If-Match: <etag>`.
 //       If 412 → TOCTOU detected. If non-2xx → STORAGE_FETCH_FAILED.
-//     - Confirm content-length matches expectedContentLength and the
-//       full stream stays under MAX_ASSET_BYTES.
+//     - Confirm content-length matches expectedContentLength and stays
+//       under the configured max asset size.
 //     - Call verify({ assetBytes, ... }). Throws VerifyError on rejection.
 //     - On success: respond 200 + { verdict: 'ok', sanitizedManifest }.
 //   errorHandler:
@@ -52,15 +52,6 @@ import {
 } from "@realreel/c2pa-trust-core";
 import { VerifyError, VerifyErrorCode } from "./errors.js";
 
-// 50 MB ceiling on the asset we'll fetch + load into memory.
-//
-// NOT a streaming cap in the strict sense: response.arrayBuffer() below
-// buffers the whole body before we check the byte count. Today this is
-// safe because (a) Supabase Storage returns honest content-length and
-// we early-reject on mismatch, and (b) the host-allowlist limits where
-// we'll fetch from. If the allowlist ever loosens, swap to a chunked
-// reader with early-abort to make this truly streaming.
-const MAX_ASSET_BYTES = 50 * 1024 * 1024;
 const SIGNED_URL_FETCH_TIMEOUT_MS = 15_000;
 
 interface VerifyRequestBody {
@@ -294,15 +285,16 @@ function registerRoutes(
       return;
     }
 
-    // Stream size sanity. content-length-vs-expected catches truncation /
-    // tampering; the >MAX_ASSET_BYTES guard caps memory pressure from a
-    // hostile signed URL claiming a small length and streaming forever.
+    // Size gate off the content-length header, before we buffer: reject
+    // truncation/tamper and honest oversize. A lying length still buffers
+    // below — bounded by the allowlist + bearer, not here; go streaming
+    // (chunked read + early-abort) if the allowlist ever loosens.
     const contentLengthHeader = response.headers.get("content-length");
     const contentLength = contentLengthHeader ? Number(contentLengthHeader) : NaN;
     if (
       !Number.isFinite(contentLength) ||
       contentLength !== expectedContentLength ||
-      contentLength > MAX_ASSET_BYTES
+      contentLength > config.maxAssetBytes
     ) {
       reply.status(422).send({
         verdict: "reject",

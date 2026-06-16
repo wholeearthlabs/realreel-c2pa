@@ -22,6 +22,21 @@ function compileHostRegex(pattern: string): RegExp {
   }
 }
 
+const DEFAULT_MAX_ASSET_MIB = 50;
+// Sanity ceiling — above this a fat-fingered value would OOM the instance.
+const MAX_ASSET_MIB_CEILING = 512;
+
+function parseMaxAssetBytes(raw: string | undefined): number {
+  if (!raw?.trim()) return DEFAULT_MAX_ASSET_MIB * 1024 * 1024;
+  const mib = Number(raw);
+  if (!Number.isFinite(mib) || mib <= 0 || mib > MAX_ASSET_MIB_CEILING) {
+    throw new Error(
+      `Invalid MAX_ASSET_MIB: ${raw} (must be a positive number of MiB ≤ ${MAX_ASSET_MIB_CEILING})`,
+    );
+  }
+  return Math.floor(mib * 1024 * 1024);
+}
+
 function parseHostAllowlist(raw: string | undefined): Set<string> {
   if (!raw || raw.trim().length === 0) {
     throw new Error(
@@ -66,6 +81,13 @@ export interface Config {
    * regex catches gross shape problems; this set is the authoritative
    * "may fetch from this host" decision. */
   assetStorageHostAllowlist: Set<string>;
+
+  /** Max asset size (bytes) the verifier will fetch + buffer for a /verify
+   *  call; content-length is checked against it before the body is read.
+   *  Env-overridable via `MAX_ASSET_MIB` (MiB), default 50. Keep >= the app
+   *  `media` bucket's file_size_limit, else legit uploads in the gap band are
+   *  rejected here as oversize. */
+  maxAssetBytes: number;
 
   /** Optional Sentry DSN. If unset, Sentry init is skipped (local dev). */
   sentryDsn: string | undefined;
@@ -146,6 +168,7 @@ export function loadConfig(): Config {
     assetStorageHostAllowlist: parseHostAllowlist(
       process.env.ASSET_STORAGE_HOST_ALLOWLIST,
     ),
+    maxAssetBytes: parseMaxAssetBytes(process.env.MAX_ASSET_MIB),
     sentryDsn: process.env.SENTRY_DSN,
     isProduction,
     playIntegrity,
