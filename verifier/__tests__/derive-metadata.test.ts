@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { deriveMetadata } from "../src/derive-metadata.js";
+import { deriveMetadata, stripExifCommentPrefix, formatExifValue } from "../src/derive-metadata.js";
 import type { ManifestShape } from "../src/c2pa-shape.js";
 
 const fixtures = (name: string) => resolve(import.meta.dirname, "fixtures", name);
@@ -22,15 +22,68 @@ const videoBytes = await readFile(fixtures("realreel-capture.mov"));
 const videoGpsBytes = await readFile(fixtures("synthetic-container-gps.mp4"));
 // A GPS-bearing JPEG (raw Pixel capture) — the byte-probe positive case.
 const photoGpsBytes = await readFile(fixtures("pixel-og.jpg"));
+// Tiny synthetic JPEG whose UserComment carries the 8-byte EXIF charset prefix
+// (exiftool-written, UNDEFINED type → exifr returns it as bytes, not a string).
+const userCommentBytes = await readFile(fixtures("synthetic-usercomment.jpg"));
 
 /** Any entry whose label looks like it could carry a coordinate. The whole
- *  point of the GPS-from-assertion design is that NONE survive into entries. */
+ *  point of the GPS-from-assertion design is that NONE survive into entries.
+ *  latitude|longitude|altitude included — exifr emits those despite gps:false. */
 const hasGeoEntry = (entries: Array<{ label: string }>) =>
-  entries.some((e) => /location|gps|coordinate|iso6709|xyz|geo/i.test(e.label));
+  entries.some((e) =>
+    /location|gps|coordinate|iso6709|xyz|geo|latitude|longitude|altitude/i.test(e.label),
+  );
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 const byKey = (entries: Array<{ label: string; value: string }>) =>
   new Map(entries.map((e) => [norm(e.label), e.value]));
+
+describe("UserComment EXIF charset prefix (strip + integration)", () => {
+  // exifr returns UserComment with the 8-byte charset prefix intact; its NULs
+  // would otherwise trip the CONTROL_BYTES guard and drop the comment.
+  const json = '{"realreel":{"version":"v0.0.1","platform":"iPhone SE (2nd generation)"}}';
+
+  it("strips an ASCII\\0\\0\\0 prefix (iOS ImageIO / native capture)", () => {
+    expect(stripExifCommentPrefix("ASCII\0\0\0" + json)).toBe(json);
+  });
+
+  it("strips UNICODE\\0, JIS, and all-NUL prefixes", () => {
+    expect(stripExifCommentPrefix("UNICODE\0" + json)).toBe(json);
+    expect(stripExifCommentPrefix("JIS\0\0\0\0\0" + json)).toBe(json);
+    expect(stripExifCommentPrefix("\0\0\0\0\0\0\0\0" + json)).toBe(json);
+  });
+
+  it("passes a value with no recognised prefix through unchanged", () => {
+    expect(stripExifCommentPrefix(json)).toBe(json);
+  });
+
+  it("leaves the stripped value free of control bytes and JSON-parseable", () => {
+    const stripped = stripExifCommentPrefix("ASCII\0\0\0" + json);
+    // eslint-disable-next-line no-control-regex
+    expect(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(stripped)).toBe(false);
+    expect(() => JSON.parse(stripped)).not.toThrow();
+  });
+
+  // Integration: exifr returns this fixture's UNDEFINED-type UserComment as
+  // bytes; derivePhotoMetadata must coerce to a string, strip the prefix, and
+  // emit a clean entry (the path the pure-helper tests above can't exercise).
+  it("emits a clean UserComment entry end-to-end", async () => {
+    const d = await deriveMetadata({ assetBytes: userCommentBytes, mimeType: "image/jpeg", active: undefined });
+    expect(byKey(d.entries).get("usercomment")).toBe(
+      '{"realreel":{"version":"v0.0.1","platform":"synthetic-fixture"}}',
+    );
+  });
+});
+
+describe("formatExifValue — guards", () => {
+  it("clamps long values; drops blank, control-byte, and non-scalar", () => {
+    expect(formatExifValue("x".repeat(1000))?.length).toBe(512);
+    expect(formatExifValue("  ")).toBeNull();
+    expect(formatExifValue("a" + String.fromCharCode(0) + "b")).toBeNull();
+    expect(formatExifValue(42)).toBe("42");
+    expect(formatExifValue(new Uint8Array([1, 2, 3]))).toBeNull();
+  });
+});
 
 describe("bytesHadGps — the location-privacy byte probe", () => {
   it("true for a JPEG carrying GPS in its EXIF bytes", async () => {
@@ -57,6 +110,11 @@ describe("bytesHadGps — the location-privacy byte probe", () => {
     // Presence-only: the JPEG's coords must NOT leak into entries or lat/lon.
     const d = await deriveMetadata({ assetBytes: photoGpsBytes, mimeType: "image/jpeg", active: undefined });
     expect(hasGeoEntry(d.entries)).toBe(false);
+    // Explicit: exifr emits latitude/longitude despite gps:false — they must be
+    // scrubbed from entries, not merely absent.
+    const m = byKey(d.entries);
+    expect(m.get("latitude")).toBeUndefined();
+    expect(m.get("longitude")).toBeUndefined();
     expect(d.latitude).toBeNull();
     expect(d.longitude).toBeNull();
   });

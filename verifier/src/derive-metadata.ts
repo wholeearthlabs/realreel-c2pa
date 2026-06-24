@@ -60,12 +60,15 @@ export interface DerivedMetadata {
 // authoritative from the signed assertion only (see module header). Tested
 // against the raw probe key, case-insensitive. "iso6709" (not bare "iso") so the
 // EXIF "ISO" sensitivity tag is NOT scrubbed.
-const GPS_SCRUB = /location|gps|coordinate|iso6709|xyz|geo/i;
+// latitude/longitude/altitude (\b-anchored): exifr emits these bare decimal-
+// degree keys even with gps:false, and they match none of the tokens above. The
+// anchors keep us from scrubbing the EXIF ISO-sensitivity tags
+// ISOSpeedLatitudeyyy/zzz (which embed "Latitude") — same care as iso6709.
+const GPS_SCRUB = /location|gps|coordinate|iso6709|xyz|geo|\blatitude\b|\blongitude\b|\baltitude\b/i;
 
 // Some camera pipelines (e.g. Pixel HDR+) stash binary blobs under string-typed
 // EXIF tags; control bytes (bar tab/LF/CR) make postgres jsonb reject the INSERT
-// and render as garbage, so such a string is dropped whole (mirrors
-// utils/exifFormat.ts formatValue).
+// and render as garbage, so such a string is dropped whole.
 // eslint-disable-next-line no-control-regex
 const CONTROL_BYTES = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
 
@@ -110,6 +113,10 @@ function coordPair(lat: number | null, lon: number | null): {
 // real "City, Region, Country" is well under this; longer is pathological.
 const MAX_LOCATION_LABEL = 120;
 
+// Cap every derived entry value — keeps a pathological comment/tag out of the
+// media.metadata jsonb. No legit display value approaches this.
+const MAX_ENTRY_VALUE = 512;
+
 /** The signed city/state label from org.realreel.upload, or null. Sanitized to
  *  the same bar as every other displayed value (the verifier is the single
  *  trust boundary): a control-byte-bearing label — only reachable via a
@@ -124,16 +131,16 @@ function readLocationLabel(active: ManifestShape | undefined): string | null {
   return trimmed.slice(0, MAX_LOCATION_LABEL);
 }
 
-/** Format a raw exifr value to a display string, or null to drop the entry.
- *  Mirrors utils/exifFormat.ts formatValue: numbers stringified, blank/binary
- *  strings dropped, non-scalar (byte maps like ExifVersion) dropped. */
-function formatExifValue(v: unknown): string | null {
+/** Format a raw exifr value to a display string, or null to drop the entry:
+ *  numbers stringified, blank/control-byte/non-scalar dropped, output clamped.
+ *  @internal exported for tests */
+export function formatExifValue(v: unknown): string | null {
   if (v === null || v === undefined) return null;
   if (typeof v === "number") return Number.isFinite(v) ? String(v) : null;
   if (typeof v === "string") {
     const t = v.trim();
     if (t.length === 0 || CONTROL_BYTES.test(t)) return null;
-    return t;
+    return t.slice(0, MAX_ENTRY_VALUE);
   }
   // exifr with reviveValues:false keeps EXIF dates as "YYYY:MM:DD HH:MM:SS"
   // strings; this guards an unexpected Date all the same.
@@ -146,6 +153,21 @@ function formatExifValue(v: unknown): string | null {
   }
   // Arrays / byte-maps (e.g. ExifVersion) / objects — nothing a viewer renders.
   return null;
+}
+
+/**
+ * Strip the 8-byte EXIF UserComment character-code prefix — "ASCII\0\0\0",
+ * "UNICODE\0", "JIS\0\0\0\0\0", or 8 NULs. exifr leaves it on the value, where
+ * its NULs would trip formatExifValue's CONTROL_BYTES guard and drop the
+ * comment. No-op when no recognised prefix is present.
+ * @internal exported for tests
+ */
+export function stripExifCommentPrefix(v: string): string {
+  const PREFIXES = ["ASCII\0\0\0", "UNICODE\0", "JIS\0\0\0\0\0", "\0\0\0\0\0\0\0\0"];
+  for (const prefix of PREFIXES) {
+    if (v.startsWith(prefix)) return v.slice(prefix.length);
+  }
+  return v;
 }
 
 /**
@@ -168,6 +190,7 @@ async function derivePhotoMetadata(
     gps: false, // coordinates come from the signed assertion, never here
     makerNote: false, // raw firmware binary
     userComment: true,
+    sanitize: true, // pinned (its default): drops translated/pointer dup keys
     mergeOutput: true,
     translateKeys: true,
     translateValues: true,
@@ -185,7 +208,15 @@ async function derivePhotoMetadata(
   const entries: DerivedEntry[] = [];
   for (const [key, raw] of Object.entries(parsed)) {
     if (GPS_SCRUB.test(key)) continue;
-    let value = formatExifValue(raw);
+    // exifr returns UserComment as a string or Uint8Array, keeping its 8-byte
+    // charset prefix (NULs trip CONTROL_BYTES) — normalise + strip. UNICODE/JIS
+    // payloads aren't decoded; no current source writes them.
+    let rawValue: unknown = raw;
+    if (key === "userComment") {
+      const s = raw instanceof Uint8Array ? Buffer.from(raw).toString("latin1") : raw;
+      if (typeof s === "string") rawValue = stripExifCommentPrefix(s);
+    }
+    let value = formatExifValue(rawValue);
     if (value === null) continue;
     // Focal length carries a unit (matches the old client extractor's "4.5 mm").
     if (key === "FocalLength" || key === "FocalLengthIn35mmFormat") value = `${value} mm`;
@@ -374,10 +405,9 @@ async function deriveVideoMetadata(
   const creation = fmt.tags?.["creation_time"];
   if (creation) {
     const m = creation.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
-    entries.push({
-      label: "Creation Time (MP4)",
-      value: m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` : creation,
-    });
+    // Non-ISO fallback routed through formatExifValue for the same guard.
+    const value = m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` : formatExifValue(creation);
+    if (value !== null) entries.push({ label: "Creation Time (MP4)", value });
   }
 
   const size = Number(fmt.size);
