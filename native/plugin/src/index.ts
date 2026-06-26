@@ -1,16 +1,19 @@
-import { ConfigPlugin, withDangerousMod } from '@expo/config-plugins';
+import { ConfigPlugin, withDangerousMod, withXcodeProject } from '@expo/config-plugins';
 import * as fs from 'fs';
 import * as path from 'path';
 
 // Expo config plugin for @realreel/photo-attest.
 //
-// Injects the two Swift Package Manager dependencies that PhotoAttest's iOS
-// code needs — c2pa-ios (product `C2PA`) and Apple's swift-certificates
-// (product `X509`) — into the Podfile `post_install` on every `pod install`
-// (which runs after `npx expo prebuild`). c2pa-ios is distributed exclusively
-// as a Swift Package, so there is no CocoaPods path; this plugin is how a
-// consumer wires it in. Apply by adding "@realreel/photo-attest" to the
-// `plugins` array in app.json / app.config.js.
+// Two iOS build fixups, both needed to build the C2PAC.xcframework that c2pa-ios
+// ships:
+//   1. Injects c2pa-ios (product `C2PA`) and Apple's swift-certificates (`X509`)
+//      as SPM deps via the Podfile `post_install` — c2pa-ios has no CocoaPods
+//      path, so this is how a consumer wires it in (see withC2PAiOS).
+//   2. Deletes a duplicate xcframework signature so a production archive
+//      succeeds (see withRemoveC2PACSignature).
+//
+// Apply by adding "@realreel/photo-attest" to the `plugins` array in
+// app.json / app.config.js.
 //
 // NOTE (reference implementation): this is the Podfile/CocoaPods integration
 // that ships in RealReel production today. The declarative alternative is the
@@ -175,4 +178,59 @@ const withC2PAiOS: ConfigPlugin = (config) => {
   ]);
 };
 
-export default withC2PAiOS;
+// Xcode archive workaround for the C2PAC.xcframework SwiftPM binary target.
+//
+// Xcode (15+, still on 26) copies a per-framework
+// "<fw>.xcframework-<platform>.signature" into the archive's Signatures/ folder
+// for every binary SwiftPM artifact, and c2pa-ios's static C2PAC.xcframework
+// emits its signature into CONFIGURATION_BUILD_DIR more than once — so a
+// production archive dies with "…couldn't be copied to Signatures because an
+// item with the same name already exists". Deleting the stray copy as the app
+// target's final build phase clears the collision (a harmless no-op on
+// non-archive builds, which have no such file). maplibre-react-native ships the
+// same remedy.
+const SIGNATURE_PHASE_NAME = 'Remove duplicate C2PAC.xcframework signature (Xcode archive fix)';
+// Substring of the phase name; the guard matches on it so a phase from an
+// earlier prebuild (or a consumer's own copy of this workaround) isn't re-added.
+const SIGNATURE_PHASE_KEY = 'C2PAC.xcframework signature';
+
+const withRemoveC2PACSignature: ConfigPlugin = (config) =>
+  withXcodeProject(config, (cfg) => {
+    const project = cfg.modResults;
+
+    // Idempotent across re-runs of `expo prebuild` against an existing ios/.
+    // (The phase map also holds `<uuid>_comment` strings, hence the typeof check.)
+    const shellPhases = project.hash.project.objects.PBXShellScriptBuildPhase || {};
+    const alreadyAdded = Object.values(shellPhases).some((phase) => {
+      const name = (phase as { name?: unknown }).name;
+      return typeof name === 'string' && name.includes(SIGNATURE_PHASE_KEY);
+    });
+
+    if (!alreadyAdded) {
+      const { uuid: targetUuid } = project.getFirstTarget();
+      const { buildPhase } = project.addBuildPhase(
+        [],
+        'PBXShellScriptBuildPhase',
+        SIGNATURE_PHASE_NAME,
+        targetUuid,
+        {
+          shellPath: '/bin/sh',
+          shellScript: 'rm -rf "$CONFIGURATION_BUILD_DIR/C2PAC.xcframework-ios.signature"',
+        },
+        undefined
+      );
+      // `alwaysOutOfDate` isn't in xcode's typed phase shape; set it directly so
+      // the phase runs every build (it has no inputs/outputs) and Xcode doesn't warn.
+      (buildPhase as Record<string, unknown>).alwaysOutOfDate = 1;
+    }
+
+    return cfg;
+  });
+
+const withPhotoAttestIos: ConfigPlugin = (config) => {
+  config = withC2PAiOS(config);
+  config = withRemoveC2PACSignature(config);
+  return config;
+};
+
+export default withPhotoAttestIos;
