@@ -13,6 +13,7 @@ import {
   bytesToBase64,
   concat,
   ctEqual,
+  describeCertChain,
   extractSubjectPublicKeyBytes,
   findExtensionByOid,
   parseCertFromDer,
@@ -92,6 +93,9 @@ export interface ValidateAppleAttestationOpts {
   appId: string;
   // If true, reject the development environment AAGUID. Set true in prod.
   requireProduction: boolean;
+  // TEST-ONLY override for the chain validity-window checks (fixture certs
+  // age out). See verifyChainToTrustedRoots. Production omits.
+  validationTime?: Date;
 }
 
 interface AuthData {
@@ -177,12 +181,15 @@ export async function validateAppleAttestation(
       e instanceof Error ? e.message : String(e),
     );
   }
-  await verifyChainToTrustedRoots(chain, [appleRoot()]).catch((e) => {
-    throw new AttestationError(
-      "CHAIN_INVALID",
-      e instanceof Error ? e.message : String(e),
-    );
-  });
+  await verifyChainToTrustedRoots(chain, [appleRoot()], opts.validationTime)
+    .catch((e) => {
+      throw new AttestationError(
+        "CHAIN_INVALID",
+        `${e instanceof Error ? e.message : String(e)}; presented chain: ${
+          describeCertChain(chain)
+        }`,
+      );
+    });
 
   const credCert = chain[0];
 

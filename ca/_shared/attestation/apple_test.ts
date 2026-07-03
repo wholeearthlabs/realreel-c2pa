@@ -46,6 +46,13 @@ async function loadFixture(): Promise<Fixture | null> {
   }
 }
 
+// App Attest credCerts are valid for only ~3 days, so the committed fixture's
+// chain ages out almost immediately. Pin validation to a moment inside the
+// fixture's capture window (credCert valid 2026-05-04..2026-05-07) — this is
+// the test-only escape hatch validateAppleAttestation exposes; production
+// callers validate at "now" against a freshly minted attestation.
+const FIXTURE_VALIDATION_TIME = new Date("2026-05-05T12:00:00Z");
+
 Deno.test("Apple attestation — happy path", async () => {
   const fix = await loadFixture();
   if (!fix) {
@@ -61,6 +68,7 @@ Deno.test("Apple attestation — happy path", async () => {
     sePublicKey: base64ToBytes(fix.publicKey),
     appId: APPLE_APP_ID,
     requireProduction: true,
+    validationTime: FIXTURE_VALIDATION_TIME,
   });
 });
 
@@ -78,6 +86,7 @@ Deno.test("Apple attestation — rejects wrong challenge", async () => {
         sePublicKey: base64ToBytes(fix.publicKey),
         appId: APPLE_APP_ID,
         requireProduction: true,
+        validationTime: FIXTURE_VALIDATION_TIME,
       }),
     AttestationError,
   );
@@ -102,6 +111,7 @@ Deno.test("Apple attestation — rejects tampered attestation bytes", async () =
         sePublicKey: base64ToBytes(fix.publicKey),
         appId: APPLE_APP_ID,
         requireProduction: true,
+        validationTime: FIXTURE_VALIDATION_TIME,
       }),
     AttestationError,
   );
@@ -121,6 +131,7 @@ Deno.test("Apple attestation — rejects wrong public key", async () => {
         sePublicKey: wrongKey,
         appId: APPLE_APP_ID,
         requireProduction: true,
+        validationTime: FIXTURE_VALIDATION_TIME,
       }),
     AttestationError,
   );
@@ -138,6 +149,7 @@ Deno.test("Apple attestation — rejects wrong appId", async () => {
         sePublicKey: base64ToBytes(fix.publicKey),
         appId: "ATTACKER123.com.attacker.app",
         requireProduction: true,
+        validationTime: FIXTURE_VALIDATION_TIME,
       }),
     AttestationError,
   );
@@ -155,6 +167,7 @@ Deno.test("Apple attestation — rejects wrong keyId", async () => {
         sePublicKey: base64ToBytes(fix.publicKey),
         appId: APPLE_APP_ID,
         requireProduction: true,
+        validationTime: FIXTURE_VALIDATION_TIME,
       }),
     AttestationError,
   );

@@ -20,6 +20,7 @@ import {
   buildLeafCertificate,
   bytesToBase64,
   ctEqual,
+  describeCertChain,
   encodeTBS,
   extractCSRSpkiDer,
   extractSpkiDer,
@@ -33,6 +34,7 @@ import {
   pkijs,
   sha256,
   verifyChainToRealReelRoot,
+  verifyChainToTrustedRoots,
   verifyCSRSignature,
 } from "./pki.ts";
 
@@ -762,4 +764,139 @@ Deno.test("verifyChainToRealReelRoot — rejects tampered intermediate signature
     () => verifyChainToRealReelRoot(chainPem, rootPem),
     Error,
   );
+});
+
+Deno.test("verifyChainToRealReelRoot — rejects tampered LEAF signature (chain-order regression)", async () => {
+  // Companion to the tampered-intermediate test above, guarding the pkijs
+  // ordering bug: the engine validates certs[LAST] and builds the path upward,
+  // so when chains were passed leaf-first only the top link was ever
+  // signature-checked and a leaf with a garbage signature validated cleanly.
+  const pem = await loadCSRFixture();
+  const csr = parseCSRFromPem(pem);
+
+  const root = await buildTestCA("Test Root CA");
+  const intermediate = await buildTestCA("Test Issuing CA", root);
+
+  const leaf = await buildLeafCertificate({
+    csr,
+    intermediate: intermediate.cert,
+    validityDays: 180,
+    serialNumber: new Uint8Array(20),
+  });
+  const tbs = encodeTBS(leaf);
+  const sig = new Uint8Array(
+    await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      intermediate.privateKey,
+      tbs as BufferSource,
+    ),
+  );
+  // Corrupt the leaf's signature (not its TBS): the cert still parses and
+  // every field reads back correctly; only real chain verification of the
+  // leaf→intermediate link can catch it.
+  const badSig = p1363ToDer(sig);
+  badSig[badSig.length - 1] ^= 0xff;
+  const leafPEM = finalizeLeafPEM(leaf, badSig);
+
+  const chainPem = leafPEM + certToPem(intermediate.cert);
+  const rootPem = certToPem(root.cert);
+
+  await assertRejects(
+    () => verifyChainToRealReelRoot(chainPem, rootPem),
+    Error,
+  );
+});
+
+Deno.test(
+  "verifyChainToTrustedRoots — validates when the device ships an EXPIRED self-signed root twin of the pinned anchor (root-rotation regression)",
+  async () => {
+    // Reproduces the Google RSA-root rotation failure mode. Google re-issues a
+    // hardware-attestation root with the SAME subject + key but a fresh
+    // validity window; a device keeps shipping the OLD (now-expired)
+    // self-signed root as the last cert in its attestation chain. We pin the
+    // fresh re-issue as the trust anchor. The chain must validate: an expired
+    // self-signed root the device appended must not fail the whole chain when
+    // a valid pinned anchor exists. (Pinning the re-issue is the primary fix;
+    // the trailing-self-signed strip in verifyChainToTrustedRoots additionally
+    // keeps the expired copy out of the validated path so the result doesn't
+    // hinge on pkijs's internal path-preference order.)
+    const root = await buildTestCA("Rotated Attestation Root");
+    const intermediate = await buildTestCA("Issuing CA", root);
+
+    // Build an EXPIRED self-signed twin: identical subject + identical key as
+    // `root` (so it's the "same" anchor by subject/key), different serial, and
+    // a validity window entirely in the past.
+    const twin = new pkijs.Certificate();
+    twin.version = 2;
+    twin.serialNumber = new asn1js.Integer({
+      valueHex: new Uint8Array([0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07])
+        .buffer,
+    });
+    twin.subject = root.cert.subject;
+    twin.issuer = root.cert.subject; // self-signed
+    twin.notBefore = new pkijs.Time({
+      type: 0,
+      value: new Date("2000-01-01T00:00:00Z"),
+    });
+    twin.notAfter = new pkijs.Time({
+      type: 0,
+      value: new Date("2001-01-01T00:00:00Z"), // long expired
+    });
+    twin.subjectPublicKeyInfo = root.cert.subjectPublicKeyInfo; // same key
+    twin.extensions = root.cert.extensions; // CA basicConstraints etc.
+    await twin.sign(root.privateKey, "SHA-256");
+
+    // Real RealReel-style leaf signed by the intermediate.
+    const csr = parseCSRFromPem(await loadCSRFixture());
+    const leaf = await buildLeafCertificate({
+      csr,
+      intermediate: intermediate.cert,
+      validityDays: 180,
+      serialNumber: new Uint8Array(20),
+    });
+    const tbs = encodeTBS(leaf);
+    const sig = new Uint8Array(
+      await crypto.subtle.sign(
+        { name: "ECDSA", hash: "SHA-256" },
+        intermediate.privateKey,
+        tbs as BufferSource,
+      ),
+    );
+    const leafCert = parseCertFromPem(finalizeLeafPEM(leaf, p1363ToDer(sig)));
+
+    // Device-presented chain, leaf-first, terminating in the expired twin.
+    const chain = [leafCert, intermediate.cert, twin];
+
+    // Trust ONLY the valid re-issued root. Must resolve without throwing.
+    await verifyChainToTrustedRoots(chain, [root.cert]);
+  },
+);
+
+
+Deno.test("describeCertChain — strips line-break vectors from a crafted DN so it cannot forge log lines", async () => {
+  // describeCertChain feeds an operator log; a device could present a cert
+  // whose CN carries line-break chars to inject fake log entries. Output must
+  // stay single-line across ASCII + non-ASCII vectors, and the printable
+  // remainder must survive.
+  const evil = await buildTestCA("Evil\r\n\u2028\u0085CN=injected");
+  const out = describeCertChain([evil.cert]);
+  for (const c of ["\n", "\r", "\u2028", "\u0085"]) {
+    assertEquals(out.includes(c), false);
+  }
+  assertStringIncludes(out, "EvilCN=injected");
+});
+
+Deno.test("describeCertChain — degrades gracefully on a cert with an unparseable date (no throw → no 500)", () => {
+  // Runs inside the CHAIN_INVALID path: a malformed-but-parseable cert (here an
+  // Invalid Date pkijs would surface) must render "invalid", not throw and
+  // escalate the 400 rejection into a 500.
+  const fakeCert = {
+    serialNumber: { valueBlock: { valueHexView: new Uint8Array([0x01, 0x02]) } },
+    subject: { typesAndValues: [] },
+    issuer: { typesAndValues: [] },
+    notBefore: { value: new Date("2026-01-01T00:00:00Z") },
+    notAfter: { value: new Date("nonsense") },
+  } as unknown as pkijs.Certificate;
+  const out = describeCertChain([fakeCert]);
+  assertStringIncludes(out, "invalid");
 });

@@ -34,23 +34,35 @@ oyFraWVIyd/dganmrduC1bmTBGwD
 -----END CERTIFICATE-----
 `;
 
-// Google Hardware Attestation Roots — extracted from the test fixture cert
-// chains in https://github.com/google/android-key-attestation, which is
-// Google's reference validation library. These are the self-signed roots
-// that real-device attestation chains terminate at.
+// Google Hardware Attestation Roots — the self-signed roots that real-device
+// attestation chains terminate at. Google publishes the authoritative current
+// set at https://android.googleapis.com/attestation/root (a JSON array of
+// PEMs); cross-check against that endpoint when a CHAIN_INVALID spike
+// suggests a rotation we haven't picked up.
 //
-// Two distinct roots are currently active. Google has rotated these in the
-// past and may again — when they do, add the new root to this array; do not
-// remove old ones until the corresponding device population is fully
-// retired (the certs in this list are valid for ~10 years from issuance).
+// Google has rotated these in the past and may again — when they do, add the
+// new root to this array; do not remove old ones until the corresponding
+// device population is fully retired, EXCEPT when the rotation is a re-issue
+// of the same subject+key with a fresh validity window (see Root #2): then
+// REPLACE the expired cert, because pkijs can pick the expired anchor's path
+// over the fresh one and reject chains that should validate.
 //
 // Root #1 — serialNumber=e35d38c6897d47e8 (RSA 4096, EC-issued strongbox + tee chains)
 //   SHA-256: 19:DE:1C:3E:1D:A7:E0:6F:3C:27:12:30:13:42:C1:79:41:B1:EC:90:BA:5E:E3:96:A8:EC:2E:E4:F4:6D:FA:D2
 //   Valid:   2018-03-21 → 2028-03-18
 //
-// Root #2 — serialNumber=f92009e853b6b045 (RSA 4096)
-//   SHA-256: C1:98:4A:3E:F4:5C:1E:2A:91:85:51:DE:10:60:3C:86:F7:05:1B:22:49:C4:89:1C:AE:32:30:EA:BD:0C:97:D5
-//   Valid:   2016-05-26 → 2026-05-24
+// Root #2 — serialNumber=f92009e853b6b045 (RSA 4096), 2022 RE-ISSUE
+//   SHA-256: CE:DB:1C:B6:DC:89:6A:E5:EC:79:73:48:BC:E9:28:67:53:C2:B3:8E:E7:1C:E0:FB:E3:4A:9A:12:48:80:0D:FC
+//   Valid:   2022-03-20 → 2042-03-15 (cert serial f1c172a699eaf51d)
+//   Same subject + same RSA key as the ORIGINAL 2016 self-signed cert
+//   (cert serial e8fa196314d2fa18), which expired 2026-05-24 and briefly
+//   took down enrollment for devices anchored at this key. Google publishes
+//   this re-issue at https://android.googleapis.com/attestation/root; device
+//   chains still present the old expired self-signed cert as their top
+//   element, but path building matches the trust anchor by subject/key, so
+//   they validate against this one. Do NOT keep the expired original
+//   alongside: pkijs may pick the expired anchor's path and reject a chain
+//   the fresh anchor would accept.
 //
 // Root #3 — CN="Key Attestation CA1", O="Google LLC" (ECDSA P-384, deployed July 2025)
 //   SHA-256: 6D:9D:B4:CE:6C:5C:0B:29:31:66:D0:89:86:E0:57:74:A8:77:6C:EB:52:5D:9E:43:29:52:0D:E1:2B:A4:BC:C0
@@ -93,12 +105,12 @@ H7wbqidMm2ODRL5FaqWbb2pfW0vbpCyGfyw0RQGTJAE7xVdvzfdun9HATDm6TbJF
 cejBdJImfwpZmDOBtDPIbsg5+QVE3lLF6Licq13i5tIg5yQ=
 -----END CERTIFICATE-----
 `,
-  // Root #2 — f92009e853b6b045
+  // Root #2 — f92009e853b6b045 (2022 re-issue, serial f1c172a699eaf51d)
   `\
 -----BEGIN CERTIFICATE-----
-MIIFYDCCA0igAwIBAgIJAOj6GWMU0voYMA0GCSqGSIb3DQEBCwUAMBsxGTAXBgNV
-BAUTEGY5MjAwOWU4NTNiNmIwNDUwHhcNMTYwNTI2MTYyODUyWhcNMjYwNTI0MTYy
-ODUyWjAbMRkwFwYDVQQFExBmOTIwMDllODUzYjZiMDQ1MIICIjANBgkqhkiG9w0B
+MIIFHDCCAwSgAwIBAgIJAPHBcqaZ6vUdMA0GCSqGSIb3DQEBCwUAMBsxGTAXBgNV
+BAUTEGY5MjAwOWU4NTNiNmIwNDUwHhcNMjIwMzIwMTgwNzQ4WhcNNDIwMzE1MTgw
+NzQ4WjAbMRkwFwYDVQQFExBmOTIwMDllODUzYjZiMDQ1MIICIjANBgkqhkiG9w0B
 AQEFAAOCAg8AMIICCgKCAgEAr7bHgiuxpwHsK7Qui8xUFmOr75gvMsd/dTEDDJdS
 Sxtf6An7xyqpRR90PL2abxM1dEqlXnf2tqw1Ne4Xwl5jlRfdnJLmN0pTy/4lj4/7
 tv0Sk3iiKkypnEUtR6WfMgH0QZfKHM1+di+y9TFRtv6y//0rb+T+W8a9nsNL/ggj
@@ -110,21 +122,20 @@ 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
-AGMCAwEAAaOBpjCBozAdBgNVHQ4EFgQUNmHhAHyIBQlRi0RsR/8aTMnqTxIwHwYD
-VR0jBBgwFoAUNmHhAHyIBQlRi0RsR/8aTMnqTxIwDwYDVR0TAQH/BAUwAwEB/zAO
-BgNVHQ8BAf8EBAMCAYYwQAYDVR0fBDkwNzA1oDOgMYYvaHR0cHM6Ly9hbmRyb2lk
-Lmdvb2dsZWFwaXMuY29tL2F0dGVzdGF0aW9uL2NybC8wDQYJKoZIhvcNAQELBQAD
-ggIBACDIw41L3KlXG0aMiS//cqrG+EShHUGo8HNsw30W1kJtjn6UBwRM6jnmiwfB
-Pb8VA91chb2vssAtX2zbTvqBJ9+LBPGCdw/E53Rbf86qhxKaiAHOjpvAy5Y3m00m
-qC0w/Zwvju1twb4vhLaJ5NkUJYsUS7rmJKHHBnETLi8GFqiEsqTWpG/6ibYCv7rY
-DBJDcR9W62BW9jfIoBQcxUCUJouMPH25lLNcDc1ssqvC2v7iUgI9LeoM1sNovqPm
-QUiG9rHli1vXxzCyaMTjwftkJLkf6724DFhuKug2jITV0QkXvaJWF4nUaHOTNA4u
-JU9WDvZLI1j83A+/xnAJUucIv/zGJ1AMH2boHqF8CY16LpsYgBt6tKxxWH00XcyD
-CdW2KlBCeqbQPcsFmWyWugxdcekhYsAWyoSf818NUsZdBWBaR/OukXrNLfkQ79Iy
-ZohZbvabO/X+MVT3rriAoKc8oE2Uws6DF+60PV7/WIPjNvXySdqspImSN78mflxD
-qwLqRBYkA3I75qppLGG9rp7UCdRjxMl8ZDBld+7yvHVgt1cVzJx9xnyGCC23Uaic
-MDSXYrB4I4WHXPGjxhZuCuPBLTdOLU8YRvMYdEvYebWHMpvwGCF6bAx3JBpIeOQ1
-wDB5y0USicV3YgYGmi+NZfhA4URSh77Yd6uuJOJENRaNVTzk
+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
+w1IdYIg2Wxg7yHcQZemFQg==
 -----END CERTIFICATE-----
 `,
   // Root #3 — Key Attestation CA1 (ECDSA P-384, valid 2025-07-17 → 2035-07-15)
@@ -172,10 +183,10 @@ const EXPECTED_FINGERPRINTS: Array<
       "19DE1C3E1DA7E06F3C2712301342C17941B1EC90BA5EE396A8EC2EE4F46DFAD2",
   },
   {
-    name: "Google HW Attestation Root #2 (f92009e853b6b045)",
+    name: "Google HW Attestation Root #2 (f92009e853b6b045, 2022 re-issue)",
     pem: GOOGLE_HW_ATTESTATION_ROOT_PEMS[1],
     fingerprint:
-      "C1984A3EF45C1E2A918551DE10603C86F7051B2249C4891CAE3230EABD0C97D5",
+      "CEDB1CB6DC896AE5EC797348BCE9286753C2B38EE71CE0FBE34A9A1248800DFC",
   },
   {
     name: "Google HW Attestation Root #3 (Key Attestation CA1)",

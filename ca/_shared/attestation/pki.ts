@@ -124,16 +124,38 @@ export function parseCertFromPem(pem: string): pkijs.Certificate {
 //     keystore cert chain are both ordered).
 //   * We pass `findIssuer` undefined → pkijs builds the chain from the supplied
 //     certs and trusted roots automatically.
+//   * `validationTime` overrides "now" for the validity-window checks.
+//     TEST-ONLY: committed fixtures carry short-lived RKP intermediates that
+//     expire weeks after capture, so fixture tests pin this to the capture
+//     date. Production callers must omit it.
 export async function verifyChainToTrustedRoots(
   chain: pkijs.Certificate[],
   trustedRoots: pkijs.Certificate[],
+  validationTime?: Date,
 ): Promise<void> {
   if (chain.length === 0) throw new Error("empty cert chain");
   if (trustedRoots.length === 0) throw new Error("no trusted roots configured");
 
+  // Drop a device-presented self-signed root before validating: Android RKP
+  // chains append the Google root, but the trust anchor must come from our
+  // pinned store. Under root rotation (Google re-issues the same subject+key
+  // with a fresh window) a device still ships the OLD expired copy, which would
+  // date-fail the path if left in. Safe to drop: it was never in trustedCerts,
+  // and every leaf→intermediate link is still checked against the pinned anchor.
+  const presented = [...chain];
+  const top = presented[presented.length - 1];
+  if (presented.length > 1 && isSelfSigned(top)) {
+    presented.pop();
+  }
+
+  // The engine validates certs[LAST] and builds upward, so it needs target-last
+  // order — reverse our leaf-first input. Passing leaf-first made it treat the
+  // presented ROOT as the target, so only the top link was ever verified and a
+  // forged leaf sailed through.
   const engine = new pkijs.CertificateChainValidationEngine({
-    certs: [...chain],
+    certs: presented.reverse(),
     trustedCerts: [...trustedRoots],
+    ...(validationTime ? { checkDate: validationTime } : {}),
   });
 
   const result = await engine.verify();
@@ -142,6 +164,89 @@ export async function verifyChainToTrustedRoots(
       `chain validation failed: ${result.resultMessage || "unknown"}`,
     );
   }
+}
+
+// Self-signed = issuer DN equals subject DN. A name-only (not cryptographic)
+// test, enough to spot a root the device appended so we can drop it.
+function isSelfSigned(cert: pkijs.Certificate): boolean {
+  return cert.issuer.isEqual(cert.subject);
+}
+
+// Compact one-line description of a parsed chain for rejection logs — one
+// segment per cert: subject, issuer, cert serial (hex), validity window.
+// Attestation certs carry no user PII, so this is safe to log; it's what lets
+// an operator identify an unknown device hierarchy from the edge-function log
+// alone (e.g. an OEM root we haven't pinned).
+export function describeCertChain(chain: pkijs.Certificate[]): string {
+  return chain
+    .map((cert, i) => {
+      // Runs inside the CHAIN_INVALID error path, so it must never throw on a
+      // malformed-but-parseable cert (e.g. an out-of-range date) and escalate a
+      // clean 400 rejection into an uncaught 500.
+      try {
+        const serial = hex(
+          new Uint8Array(cert.serialNumber.valueBlock.valueHexView),
+        );
+        return `[${i}] subj="${rdnToString(cert.subject)}" issuer="${
+          rdnToString(cert.issuer)
+        }" serial=${serial} valid=${isoDay(cert.notBefore.value)}..${
+          isoDay(cert.notAfter.value)
+        }`;
+      } catch {
+        return `[${i}] <undescribable cert>`;
+      }
+    })
+    .join(" | ");
+}
+
+// YYYY-MM-DD, or "invalid" for a date pkijs couldn't parse — toISOString()
+// throws RangeError on an Invalid Date.
+function isoDay(d: Date): string {
+  const t = d?.getTime?.();
+  return typeof t === "number" && Number.isFinite(t)
+    ? d.toISOString().slice(0, 10)
+    : "invalid";
+}
+
+// OID → short attribute names for the DN types that actually appear in
+// attestation chains; anything else falls back to the dotted OID.
+const DN_OID_NAMES: Record<string, string> = {
+  "2.5.4.3": "CN",
+  "2.5.4.5": "SERIALNUMBER",
+  "2.5.4.6": "C",
+  "2.5.4.10": "O",
+  "2.5.4.11": "OU",
+};
+
+function rdnToString(rdn: pkijs.RelativeDistinguishedNames): string {
+  return rdn.typesAndValues
+    .map((tv) => {
+      const name = DN_OID_NAMES[tv.type] ?? tv.type;
+      return `${name}=${sanitizeDnValue(tv.value.valueBlock.value)}`;
+    })
+    .join(",");
+}
+
+// DN values come from the device-presented cert and land in an operator log
+// line, so strip anything a log viewer might render as a line break — C0
+// controls, DEL, the C1 block (incl. NEL U+0085), and the Unicode line/
+// paragraph separators — and cap the length so a giant CN can't flood a line.
+function sanitizeDnValue(value: unknown): string {
+  let out = "";
+  for (const ch of String(value)) {
+    const c = ch.codePointAt(0)!;
+    const isBreak = c <= 0x1f || c === 0x7f || (c >= 0x80 && c <= 0x9f) ||
+      c === 0x2028 || c === 0x2029;
+    if (!isBreak) out += ch;
+    if (out.length >= 128) break;
+  }
+  return out;
+}
+
+function hex(bytes: Uint8Array): string {
+  let out = "";
+  for (const b of bytes) out += b.toString(16).padStart(2, "0");
+  return out;
 }
 
 // --- Extension lookup --------------------------------------------------

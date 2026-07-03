@@ -14,6 +14,7 @@ import {
   AttestationError,
   base64ToBytes,
   ctEqual,
+  describeCertChain,
   extractSpkiDer,
   findExtensionByOid,
   parseCertFromDer,
@@ -75,6 +76,9 @@ export interface ValidateAndroidAttestationOpts {
   // Optional so existing callers (verifier suite) keep building unchanged;
   // register-signing-key passes a computed rolling-window value.
   minOsPatchLevel?: number;
+  // TEST-ONLY override for the chain validity-window checks (fixtures carry
+  // short-lived RKP certs). See verifyChainToTrustedRoots. Production omits.
+  validationTime?: Date;
 }
 
 export interface ValidateAndroidAttestationResult {
@@ -126,12 +130,19 @@ export async function validateAndroidAttestation(
   }
 
   // === Step 2: verify chain to one of Google's hardware attestation roots ===
-  await verifyChainToTrustedRoots(chain, googleRoots()).catch((e) => {
-    throw new AttestationError(
-      "CHAIN_INVALID",
-      e instanceof Error ? e.message : String(e),
-    );
-  });
+  // On failure, append a per-cert summary of what the device presented —
+  // that's the only way to identify an unpinned hierarchy (new Google root,
+  // OEM quirk, truncated chain) from the edge-function log, since a rejected
+  // chain is never persisted.
+  await verifyChainToTrustedRoots(chain, googleRoots(), opts.validationTime)
+    .catch((e) => {
+      throw new AttestationError(
+        "CHAIN_INVALID",
+        `${e instanceof Error ? e.message : String(e)}; presented chain: ${
+          describeCertChain(chain)
+        }`,
+      );
+    });
 
   const leaf = chain[0];
 

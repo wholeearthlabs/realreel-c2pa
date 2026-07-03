@@ -50,6 +50,14 @@ function expectedSecurityLevel(p: Fixture["platform"]) {
   return p === "android-strongbox" ? "strongbox" : "tee";
 }
 
+// RKP-provisioned chains carry ~2-week batch certs (the committed strongbox
+// fixture's batch cert is valid 2026-04-30..2026-05-13), so the fixture ages
+// out of its own validity window almost immediately. Pin validation to a
+// moment inside the capture window — this is the test-only escape hatch
+// validateAndroidAttestation exposes; production callers validate at "now"
+// against the freshly provisioned chain the device presents at enrollment.
+const FIXTURE_VALIDATION_TIME = new Date("2026-05-05T12:00:00Z");
+
 for (const name of ["android_strongbox", "android_tee"] as const) {
   Deno.test(`Android attestation (${name}) — happy path`, async () => {
     const fix = await loadFixture(name);
@@ -59,6 +67,7 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
     }
     await validateAndroidAttestation({
       certChainBase64: JSON.parse(fix.attestation),
+      validationTime: FIXTURE_VALIDATION_TIME,
       challenge: base64ToBytes(fix.challenge),
       sePublicKey: base64ToBytes(fix.publicKey),
       packageName: ANDROID_PACKAGE_NAME,
@@ -75,6 +84,7 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
       () =>
         validateAndroidAttestation({
           certChainBase64: JSON.parse(fix.attestation),
+          validationTime: FIXTURE_VALIDATION_TIME,
           challenge: wrongChallenge,
           sePublicKey: base64ToBytes(fix.publicKey),
           packageName: ANDROID_PACKAGE_NAME,
@@ -93,6 +103,7 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
       () =>
         validateAndroidAttestation({
           certChainBase64: JSON.parse(fix.attestation),
+          validationTime: FIXTURE_VALIDATION_TIME,
           challenge: base64ToBytes(fix.challenge),
           sePublicKey: wrongKey,
           packageName: ANDROID_PACKAGE_NAME,
@@ -109,6 +120,7 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
       () =>
         validateAndroidAttestation({
           certChainBase64: JSON.parse(fix.attestation),
+          validationTime: FIXTURE_VALIDATION_TIME,
           challenge: base64ToBytes(fix.challenge),
           sePublicKey: base64ToBytes(fix.publicKey),
           packageName: "com.attacker.app",
@@ -135,6 +147,7 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
       () =>
         validateAndroidAttestation({
           certChainBase64: JSON.parse(fix.attestation),
+          validationTime: FIXTURE_VALIDATION_TIME,
           challenge: base64ToBytes(fix.challenge),
           sePublicKey: base64ToBytes(fix.publicKey),
           packageName: ANDROID_PACKAGE_NAME,
@@ -156,6 +169,7 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
       () =>
         validateAndroidAttestation({
           certChainBase64: chain,
+          validationTime: FIXTURE_VALIDATION_TIME,
           challenge: base64ToBytes(fix.challenge),
           sePublicKey: base64ToBytes(fix.publicKey),
           packageName: ANDROID_PACKAGE_NAME,
@@ -165,6 +179,42 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
     );
   });
 }
+
+Deno.test(
+  "Android attestation — rejects leaf with forged signature (chain-order regression)",
+  async () => {
+    // Regression guard for the pkijs ordering bug: the engine treats
+    // certs[LAST] as the validation target, so passing the chain leaf-first
+    // meant only the top link was ever signature-checked — a leaf with a
+    // garbage signature but an intact TBS (correct challenge, package name,
+    // and attacker-chosen public key) grafted onto a real device's
+    // intermediates enrolled successfully. Corrupt ONLY the trailing
+    // signature bytes so every post-chain validation step still passes;
+    // link-by-link chain verification is the only check that can reject it.
+    const fix = await loadFixture("android_strongbox");
+    if (!fix) return;
+    const chain = JSON.parse(fix.attestation) as string[];
+    const leaf = base64ToBytes(chain[0]);
+    // Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm,
+    // signatureValue BIT STRING } — the signature is the last field, so
+    // flipping the final byte corrupts it without touching the TBS.
+    leaf[leaf.length - 1] ^= 0xff;
+    chain[0] = btoa(String.fromCharCode(...leaf));
+    const err = await assertRejects(
+      () =>
+        validateAndroidAttestation({
+          certChainBase64: chain,
+          validationTime: FIXTURE_VALIDATION_TIME,
+          challenge: base64ToBytes(fix.challenge),
+          sePublicKey: base64ToBytes(fix.publicKey),
+          packageName: ANDROID_PACKAGE_NAME,
+          expectedSecurityLevel: "strongbox",
+        }),
+      AttestationError,
+    );
+    assertEquals((err as AttestationError).code, "CHAIN_INVALID");
+  },
+);
 
 Deno.test("Android attestation — constants", () => {
   assertEquals(typeof ANDROID_PACKAGE_NAME, "string");
@@ -324,6 +374,7 @@ Deno.test(
     if (!fix) return; // fixture absent → not a regression
     await validateAndroidAttestation({
       certChainBase64: JSON.parse(fix.attestation),
+      validationTime: FIXTURE_VALIDATION_TIME,
       challenge: base64ToBytes(fix.challenge),
       sePublicKey: base64ToBytes(fix.publicKey),
       packageName: ANDROID_PACKAGE_NAME,
