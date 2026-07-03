@@ -63,11 +63,11 @@
     "react-native": "*"
   },
   "devDependencies": {
-    "@expo/config-plugins": "~56.0.0",
+    "@expo/config-plugins": "~57.0.1",
     "@realreel/c2pa-trust-core": "*",
     "@types/node": "^22.19.0",
     "expo-module-scripts": "~56.0.0",
-    "expo-modules-core": "~56.0.14",
+    "expo-modules-core": "~57.0.1",
     "typescript": "~5.9.2"
   }
 }
