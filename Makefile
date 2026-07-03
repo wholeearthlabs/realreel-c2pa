@@ -4,7 +4,7 @@
 # there's one entry point across the Node workspaces (trust-core, verifier,
 # native) and the Deno workspace (ca).
 
-.PHONY: test test-trust-core test-verifier test-ca typecheck verify-trust-anchors verifier-dev deploy-verifier rollback-verifier
+.PHONY: test test-trust-core test-verifier test-ca typecheck verify-trust-anchors verify-attestation-roots verifier-dev deploy-verifier rollback-verifier
 
 # Run every test suite (trust-core + verifier + ca).
 test:
@@ -27,6 +27,10 @@ typecheck:
 # Validate the vendored trust-anchor PEM chains.
 verify-trust-anchors:
 	cd verifier && npx tsx scripts/audit-trust-anchors.ts
+
+# Watch the pinned enrollment attestation roots (Google + Apple) for expiry.
+verify-attestation-roots:
+	cd ca && deno run --quiet --allow-read --allow-env --allow-net scripts/audit-attestation-roots.ts
 
 # Run the verifier locally. Expects a local Postgres reachable at the URL below
 # with the verifier schema applied. For anything real, copy verifier/.env.example
