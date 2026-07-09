@@ -5,6 +5,7 @@
 // deno-lint-ignore-file no-explicit-any
 import * as pkijs from "npm:pkijs@3.2.4";
 import * as asn1js from "npm:asn1js@3.0.5";
+import { p256, p384, p521 } from "npm:@noble/curves@1.9.7/nist.js";
 
 // Defensive: this module mutates `globalThis.process` to work around a pkijs +
 // Supabase-Edge-Runtime quirk (see below). That mutation is only safe in Deno;
@@ -16,6 +17,184 @@ if (typeof Deno === "undefined") {
   throw new Error(
     "ca/_shared/attestation/pki.ts is Deno-only. Do not import from React Native or other non-Deno runtimes.",
   );
+}
+
+// --- ECDSA curve/hash fallback -----------------------------------------
+//
+// Supabase Edge Runtime's WebCrypto only implements ECDSA verify for the
+// "natural" curve/hash pairing (P-256+SHA-256, P-384+SHA-384, P-521+SHA-512);
+// anything else throws `Not implemented`. Apple's App Attest credCert is signed
+// by the P-384 "Apple App Attestation CA 1" key using SHA-256, so the
+// leaf→intermediate link hits that gap. pkijs's `findIssuer` swallows the throw
+// and drops the issuer candidate, surfacing only as the misleading
+// "No valid certificate paths found". Deno CLI implements the mismatched pairs,
+// so this reproduces on the edge runtime alone (ecdsa_fallback_test.ts
+// simulates it). Verify those pairs with @noble/curves instead.
+//
+// The fallback must accept exactly what the WebCrypto path accepts — neither
+// laxer (this is the attestation trust boundary) nor stricter (a link must not
+// verify or fail depending on which engine path handled it). Retire it once
+// the edge runtime's `crypto.subtle.verify` stops throwing on mismatched pairs.
+
+// All curve×SHA-2 cross pairings, not just Apple's P-384+SHA-256: a narrower
+// table would make CI (Deno CLI verifies all pairs natively) silently diverge
+// from the edge runtime again.
+const EC_CURVE_BY_OID: Record<string, { curve: any; naturalHash: string }> = {
+  "1.2.840.10045.3.1.7": { curve: p256, naturalHash: "SHA-256" }, // secp256r1
+  "1.3.132.0.34": { curve: p384, naturalHash: "SHA-384" }, // secp384r1
+  "1.3.132.0.35": { curve: p521, naturalHash: "SHA-512" }, // secp521r1
+};
+
+// Deliberately omits ecdsa-with-SHA1 and -SHA224: the fallback must not widen
+// the set of signature algorithms this trust boundary accepts. WebCrypto here
+// rejects both, and a hash absent from this table keeps that rejection.
+const ECDSA_SIG_HASH_BY_OID: Record<string, string> = {
+  "1.2.840.10045.4.3.2": "SHA-256",
+  "1.2.840.10045.4.3.3": "SHA-384",
+  "1.2.840.10045.4.3.4": "SHA-512",
+};
+
+// Applied to the caller-supplied `shaAlgorithm` too, which otherwise reaches
+// the fallback without passing the OID table above.
+const FALLBACK_HASHES = new Set(Object.values(ECDSA_SIG_HASH_BY_OID));
+
+const OID_EC_PUBLIC_KEY = "1.2.840.10045.2.1";
+const OID_RSA_PSS = "1.2.840.113549.1.1.10";
+
+// Returns the noble curve + hash name when this verification is an ECDSA
+// signature whose hash is not the curve's natural pairing, else null.
+function ecdsaFallbackParams(
+  publicKeyInfo: any,
+  signatureAlgorithm: any,
+  shaAlgorithm?: string,
+): { curve: any; hash: string } | null {
+  if (publicKeyInfo?.algorithm?.algorithmId !== OID_EC_PUBLIC_KEY) return null;
+
+  // pkijs keys the import off a declared RSA-PSS OID (only that one) and fails
+  // for an EC key; decline rather than re-interpret the mislabel as ECDSA.
+  if (signatureAlgorithm?.algorithmId === OID_RSA_PSS) return null;
+
+  // pkijs rejects namedCurve params that aren't an OBJECT IDENTIFIER; a
+  // mistyped node must keep failing closed, not string-match to a curve.
+  const params = publicKeyInfo.algorithm.algorithmParams;
+  if (!(params instanceof asn1js.ObjectIdentifier)) return null;
+  const entry = EC_CURVE_BY_OID[params.valueBlock.toString()];
+  if (!entry) return null;
+
+  const hash = shaAlgorithm ??
+    ECDSA_SIG_HASH_BY_OID[signatureAlgorithm?.algorithmId];
+  if (!hash || !FALLBACK_HASHES.has(hash)) return null;
+  if (hash === entry.naturalHash) return null; // WebCrypto handles this pair
+
+  return { curve: entry.curve, hash };
+}
+
+// Parse an X.509 ECDSA signature (`SEQUENCE { r INTEGER, s INTEGER }`) into a
+// noble Signature, or null if unparseable/out-of-range. Uses the same lenient
+// asn1js parser as the WebCrypto path — noble's strict-DER Signature.fromDER
+// would reject BER-ish encodings that natural-pair links accept.
+function ecdsaSigFromBer(curve: any, sigDer: Uint8Array): any | null {
+  const asn1 = asn1js.fromBER(
+    sigDer.buffer.slice(
+      sigDer.byteOffset,
+      sigDer.byteOffset + sigDer.byteLength,
+    ) as ArrayBuffer,
+  );
+  if (asn1.offset === -1 || !(asn1.result instanceof asn1js.Sequence)) {
+    return null;
+  }
+  const parts = (asn1.result.valueBlock as any).value;
+  if (
+    parts?.length !== 2 ||
+    !(parts[0] instanceof asn1js.Integer) ||
+    !(parts[1] instanceof asn1js.Integer)
+  ) {
+    return null;
+  }
+  try {
+    return new curve.Signature(
+      bytesToBigInt(parts[0].valueBlock.valueHexView),
+      bytesToBigInt(parts[1].valueBlock.valueHexView),
+    );
+  } catch {
+    return null; // r or s out of range for the curve
+  }
+}
+
+function bytesToBigInt(bytes: Uint8Array): bigint {
+  let hex = "0";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return BigInt("0x" + hex);
+}
+
+class EcdsaFallbackCryptoEngine extends pkijs.CryptoEngine {
+  override async verifyWithPublicKey(
+    data: any,
+    signature: any,
+    publicKeyInfo: any,
+    signatureAlgorithm: any,
+    shaAlgorithm?: string,
+  ): Promise<boolean> {
+    const fallback = ecdsaFallbackParams(
+      publicKeyInfo,
+      signatureAlgorithm,
+      shaAlgorithm,
+    );
+    if (!fallback) {
+      try {
+        return await super.verifyWithPublicKey(
+          data,
+          signature,
+          publicKeyInfo,
+          signatureAlgorithm,
+          shaAlgorithm as any,
+        );
+      } catch (e) {
+        // pkijs swallows engine throws into "No valid certificate paths
+        // found"; name the algorithm WebCrypto couldn't handle first so the
+        // next runtime gap is a one-line diagnosis.
+        console.warn(
+          `[pki] WebCrypto verify threw for sigAlg=${signatureAlgorithm?.algorithmId} ` +
+            `keyAlg=${publicKeyInfo?.algorithm?.algorithmId}` +
+            (shaAlgorithm ? ` sha=${shaAlgorithm}` : "") +
+            `: ${(e as Error).message}`,
+        );
+        throw e;
+      }
+    }
+
+    // WebCrypto's SPKI import accepts only the uncompressed point
+    // (0x04 || X || Y); noble would also decompress 0x02/0x03. Enforce the
+    // same shape so both paths accept identical key encodings.
+    const publicKey = publicKeyInfo.subjectPublicKey.valueBlock.valueHexView;
+    if (publicKey?.[0] !== 0x04) return false;
+
+    const sig = ecdsaSigFromBer(
+      fallback.curve,
+      signature.valueBlock.valueHexView,
+    );
+    if (sig === null) return false; // malformed signature: "does not verify"
+
+    const digest = new Uint8Array(
+      await crypto.subtle.digest(fallback.hash, data),
+    );
+
+    try {
+      // lowS:false — X.509 signers may emit high-S values, and WebCrypto
+      // accepts them; rejecting here would fail valid certificates.
+      return fallback.curve.verify(sig, digest, publicKey, { lowS: false });
+    } catch (e) {
+      // Inputs are vetted above, so this is an off-curve key or an
+      // infrastructure failure (e.g. a noble API change). Log before failing
+      // closed so an outage can't masquerade as "does not verify".
+      console.warn(
+        `[pki] ECDSA fallback verify threw (curve+${fallback.hash}): ${
+          (e as Error).message
+        }`,
+      );
+      return false;
+    }
+  }
 }
 
 // pkijs needs a CryptoEngine registered before any cert signature work.
@@ -63,7 +242,7 @@ if (typeof Deno === "undefined") {
 
   pkijs.setEngine(
     "deno-webcrypto",
-    new pkijs.CryptoEngine({
+    new EcdsaFallbackCryptoEngine({
       name: "deno-webcrypto",
       crypto: globalThis.crypto,
       subtle: globalThis.crypto.subtle,
@@ -468,10 +647,26 @@ function realReelLeafSubject(): pkijs.RelativeDistinguishedNames {
     value: string;
     stringClass: typeof asn1js.PrintableString | typeof asn1js.Utf8String;
   }> = [
-    { type: OID.countryName, value: Deno.env.get("LEAF_SUBJECT_COUNTRY") ?? "US", stringClass: asn1js.PrintableString },
-    { type: OID.organizationName, value: Deno.env.get("LEAF_SUBJECT_ORG") ?? "RealReel", stringClass: asn1js.Utf8String },
-    { type: OID.organizationalUnitName, value: Deno.env.get("LEAF_SUBJECT_OU") ?? "Production", stringClass: asn1js.Utf8String },
-    { type: OID.commonName, value: Deno.env.get("LEAF_SUBJECT_CN") ?? "RealReel-Device-Key", stringClass: asn1js.Utf8String },
+    {
+      type: OID.countryName,
+      value: Deno.env.get("LEAF_SUBJECT_COUNTRY") ?? "US",
+      stringClass: asn1js.PrintableString,
+    },
+    {
+      type: OID.organizationName,
+      value: Deno.env.get("LEAF_SUBJECT_ORG") ?? "RealReel",
+      stringClass: asn1js.Utf8String,
+    },
+    {
+      type: OID.organizationalUnitName,
+      value: Deno.env.get("LEAF_SUBJECT_OU") ?? "Production",
+      stringClass: asn1js.Utf8String,
+    },
+    {
+      type: OID.commonName,
+      value: Deno.env.get("LEAF_SUBJECT_CN") ?? "RealReel-Device-Key",
+      stringClass: asn1js.Utf8String,
+    },
   ];
 
   const dn = new pkijs.RelativeDistinguishedNames({

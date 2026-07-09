@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "npm:@noble/curves@1.9.7": "1.9.7",
     "npm:asn1js@3.0.5": "3.0.5",
     "npm:cbor-x@1.5.9": "1.5.9",
     "npm:pkijs@3.2.4": "3.2.4"
@@ -35,6 +36,12 @@
       "integrity": "sha512-dI+9P7cfWxkTQ+oE+7Aa6onEn92PHgfWXZivjNheCRmTBDBf2fx6RyTi0cmgpYLnD1KLZK9ZYrMxaPZ4oiXhGA==",
       "os": ["win32"],
       "cpu": ["x64"]
+    },
+    "@noble/curves@1.9.7": {
+      "integrity": "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==",
+      "dependencies": [
+        "@noble/hashes"
+      ]
     },
     "@noble/hashes@1.8.0": {
       "integrity": "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="
