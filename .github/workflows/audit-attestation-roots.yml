@@ -1,10 +1,16 @@
 name: Audit attestation roots
 
-# Expiry watch for the pinned hardware-attestation roots in
+# Expiry + rotation watch for the pinned hardware-attestation roots in
 # ca/_shared/attestation/roots.ts (Google Key Attestation + Apple App Attest).
 # A pinned root silently expiring broke Samsung enrollment in 2026; this gives
-# ~180 days of runway to rotate. Companion to audit-trust-anchors.yml, which
-# watches the verifier's C2PA trust sources (a different subsystem).
+# ~180 days of runway to rotate. It also fails when our pinned Google set drifts
+# from the set Google publishes, which is the earlier signal of the same class of
+# break. Companion to audit-trust-anchors.yml, which watches the verifier's C2PA
+# trust sources (a different subsystem).
+#
+# Script exit codes: 1 = WARN window, 2 = CRIT/expired/unparseable,
+# 3 = unacknowledged drift, 4 = drift check could not run. Any non-zero opens or
+# comments on the tracking issue.
 
 on:
   schedule:
@@ -77,14 +83,25 @@ jobs:
             const today = new Date().toISOString().slice(0, 10);
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
-              'The attestation-root expiry audit reported a non-zero exit.',
+              'The attestation-root audit reported a non-zero exit. Enrollment depends on these pins.',
               '', '```', output.trim(), '```', '',
               `Run: ${runUrl}`, '',
-              'Rotate the affected pin in `ca/_shared/attestation/roots.ts`:',
+              '**If a root is expiring (WARN / CRIT)** — rotate the pin in `ca/_shared/attestation/roots.ts`:',
               '- Google roots: pull the current set from https://android.googleapis.com/attestation/root',
               '- Apple App Attest root: https://www.apple.com/certificateauthority/',
               'Update the PEM **and** its EXPECTED_FINGERPRINTS entry, then redeploy register-signing-key.',
-              'Close this issue once the pin has been rotated and deployed.',
+              '',
+              '**If this is DRIFT** — our pinned Google set no longer matches what Google publishes:',
+              '- Google publishes a root we do not pin: a rotation is under way. Devices chaining to it',
+              '  will fail enrollment, so add it to `GOOGLE_HW_ATTESTATION_ROOT_PEMS` and redeploy.',
+              '- We pin a root Google dropped: keep it while field devices still chain to it, then retire it.',
+              '- Either way, record the decision in the `ACKNOWLEDGED_*` map in',
+              '  `ca/scripts/audit-attestation-roots.ts` so the audit goes quiet for the *expected* case only.',
+              '',
+              '**If this is BLIND** — the drift check could not reach Google after retries. The rotation',
+              'watch is down: fix the check first, because a real rotation would now go unnoticed.',
+              '',
+              'Close this issue once the pin has been rotated and deployed, or the drift acknowledged.',
             ].join('\n');
             const { data: existing } = await github.rest.issues.listForRepo({
               owner: context.repo.owner, repo: context.repo.repo, labels: 'attestation-roots', state: 'open',
