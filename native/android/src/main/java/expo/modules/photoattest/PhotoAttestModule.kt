@@ -1732,8 +1732,9 @@ class PhotoAttestModule : Module() {
     //   2. In Play Console → App integrity → Play Integrity API → link the
     //      project. Copy the project number Google shows.
     //   3. Replace 0L below with that number.
-    //   4. Grant the verifier's runtime service account the
-    //      `roles/playintegrity.user` IAM role on this same project.
+    //   4. Run the verifier with a runtime service account in this same
+    //      project — Play Integrity has no IAM role to grant (see
+    //      verifier/DEPLOY.md, Deploy step 3).
     //
     // The 0L sentinel below trips a hard "INVALID_CAPTURE_CONTEXT" error
     // at first capture attempt — surfaces as a permanent failure toast,

@@ -29,7 +29,7 @@ The new revision stays deployed but receives 0% traffic. Once the issue is under
 | Symptom | Likely cause | Rollback fixes it? | Action |
 |---|---|---|---|
 | `/healthz/ready` returning 503 immediately after deploy | `DATABASE_URL` typo, `verifier_readonly` password rotated mid-deploy, or `lookup_signing_key_revocation` schema drift | Yes (env state is per-revision) | Roll back revision; fix env on next deploy |
-| `VERIFIER_UNAVAILABLE` spike with `category:play-integrity` tag | IAM grant lost on the runtime SA, or `PLAY_INTEGRITY_*` env mistyped | Sometimes (rollback restores env values) | Roll back revision FIRST to stop the spike; then check IAM bindings + env values for the next attempt |
+| `VERIFIER_UNAVAILABLE` spike with `category:play-integrity` tag | Runtime SA no longer belongs to / can authenticate against the linked project (e.g. SA swapped for one in a different project), or `PLAY_INTEGRITY_*` env mistyped | Sometimes (rollback restores env + SA) | Roll back revision FIRST to stop the spike; then check the runtime SA's project + Play Console link + env values for the next attempt |
 | `UNTRUSTED_ISSUER` for previously-accepted manifests | Image-baked trust anchor changed (someone rotated `verifier/trust-sources/<id>/root.pem` mid-deploy and bundled it into the new revision) | Yes (PEMs travel with the image) | Roll back revision — anchors revert with the image |
 | Schema drift between verifier expectations and `media` table / `c2pa_manifest` column | Migration applied AFTER verifier read its types at build time | **No** (image-baked types vs DB-current state can't coexist) | Don't roll back — fix-forward by deploying a verifier matched to current DB state |
 | `consume_and_record_attestation` RPC signature changed | Migration replaced RPC; verifier code expects old shape | **No** | Same — fix-forward only |
@@ -77,7 +77,7 @@ When the verifier rejects an Android upload with a Play-Integrity-related error 
 | 200 OK | (success) | — | — |
 | 400 Bad Request | `ATTESTATION_INVALID` | Token is malformed, expired beyond ~24h, or doesn't match the package name in the path. User-side issue (tampered build, stale token, or someone forwarding a token from a different app). | The token's `requestDetails.timestampMillis` and `requestPackageName` once decoded |
 | 401 Unauthorized | `VERIFIER_UNAVAILABLE` | Bearer token in the request is invalid / expired. A service-account credentials problem. | `GoogleAuth` initialization, runtime SA on Cloud Run |
-| 403 Forbidden | `VERIFIER_UNAVAILABLE` | SA exists but lacks `roles/playintegrity.user` on the Play Integrity project. Most common after a new deploy with no IAM grant, or after switching service accounts. | IAM bindings on the project specified by `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` (Deploy step 3 in [DEPLOY.md](DEPLOY.md)) |
+| 403 Forbidden | `VERIFIER_UNAVAILABLE` | Runtime SA doesn't belong to the project linked in Play Console (there is no IAM role — authorization is SA-in-linked-project). Most common after switching the runtime SA to one in a different project. | Runtime SA's project vs the Play Console link on `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` (Deploy step 3 in [DEPLOY.md](DEPLOY.md)) |
 | 404 Not Found | `VERIFIER_UNAVAILABLE` | Two flavors. (a) Wrong URL — `PLAY_INTEGRITY_PACKAGE_NAME` env doesn't match a real Play Console listing. (b) Project never got linked to the Play Console app (Play Console → App integrity → Play Integrity API). Both are setup bugs. | Env var value matches Play Console listing; project link is in place |
 | 422 / other 4xx | `ATTESTATION_INVALID` | Token format issue. Sometimes seen if the token is decoded with mismatched cloud project (client and verifier disagree on `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER`). | Both sides agree on the project number; Android module's `CLOUD_PROJECT_NUMBER` const matches the verifier's env var |
 | 5xx | `VERIFIER_UNAVAILABLE` | Google's side. Retryable. | Google's status page; should clear on its own |
@@ -86,15 +86,16 @@ When the verifier rejects an Android upload with a Play-Integrity-related error 
 
 **Quick triage rule of thumb:**
 - `ATTESTATION_INVALID` on Android uploads → user-side issue, look at the token / device.
-- `VERIFIER_UNAVAILABLE` from Android uploads → a server-side issue: look at IAM grants, env vars, or Google's status page.
+- `VERIFIER_UNAVAILABLE` from Android uploads → a server-side issue: look at the runtime SA's project + Play Console link, env vars, or Google's status page.
 
 ## Monitoring + alerts
 
 Wire alerts through your own tooling — there's no in-code alert config. At minimum,
 watch for sustained spikes in these structured `error_code`s:
 
-- **`VERIFIER_UNAVAILABLE`** — a server-side problem (lost IAM grant, bad/expired SA
-  credentials, `PLAY_INTEGRITY_*` typo) *or* a Google API outage. The Diagnostics
+- **`VERIFIER_UNAVAILABLE`** — a server-side problem (runtime SA not authorized against
+  the linked project, bad/expired SA credentials, `PLAY_INTEGRITY_*` typo) *or* a Google
+  API outage. The Diagnostics
   table above maps the underlying Google HTTP status to the cause.
 - **`ATTESTATION_INVALID`** (Android) — a client-side problem (tampered/stale token,
   mismatched cloud project). A low baseline is normal; a spike usually means a client
@@ -132,6 +133,6 @@ Note: `trust-sources.yaml` no longer carries an `issuer_match` field. The cross-
 - **`VERIFIER_SHARED_SECRET`**: update Cloud Run env + Supabase Edge secret to the same new value; rolling restart.
 - **`verifier_readonly` password**: `ALTER USER` in Supabase, update `DATABASE_URL` on Cloud Run, restart.
 - **`CRON_SECRET`** (orphan sweeper): update both Vault entries + the sweep-orphan-storage function secret to the same new value.
-- **Play Integrity SA**: if rotating the Cloud Run runtime SA (e.g., switching from default Compute SA to a custom one), grant `roles/playintegrity.user` to the new SA on `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` BEFORE updating the Cloud Run service-account, then revoke from the old SA AFTER traffic shifts.
+- **Play Integrity SA**: if rotating the Cloud Run runtime SA (e.g., switching from the default Compute SA to a custom one), make sure the new SA **belongs to the project linked in Play Console** (`PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER`) — there is no IAM role to move. Confirm with a real Android upload AFTER traffic shifts.
 
 Same caveat as trust-anchor rotation — first execution rewrites the relevant entry.

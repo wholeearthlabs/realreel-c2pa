@@ -55,9 +55,9 @@ PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER=<numeric, from Google Cloud console>
 ATTESTATION_REQUIRED=true
 ```
 
-The Cloud Run runtime service account also needs `roles/playintegrity.user` on the Google Cloud project named above. See **Deploy step 3** below for the grant command + service-account choice.
+The Cloud Run runtime service account must **belong to that same Google Cloud project** — there is **no IAM role to grant**. See **Deploy step 3** below.
 
-> **Attestation status:** `ATTESTATION_REQUIRED` stays **off** in production until the upload-time (Stage 2) attestation path is required on both platforms. The verifier wiring + config are in place and exercised by the test suite. (Per-capture Stage-1 device-health attestation was dropped — enrollment-only trust.)
+> **Attestation status:** run production with `ATTESTATION_REQUIRED=true` once the Play Console track is fully configured (project link + **both** response-settings opt-ins — see First-time bootstrap step 3) and a Play-Store-delivered build passes `/verify` end-to-end. A useful de-risking sequence: set `PLAY_INTEGRITY_*` first while leaving `ATTESTATION_REQUIRED=false` ("lenient-decode" — validates the whole Google decode path without locking anyone out), then flip `=true` as a trivial env-only change. (Per-capture Stage-1 device-health attestation was dropped — enrollment-only trust.)
 
 ### What each combination means
 
@@ -137,11 +137,12 @@ Done once per app + Play Integrity project pair, via Play Console UI:
 1. Play Console → your app → **App integrity** → **Play Integrity API** → **Link project**.
 2. Pick the GCP project whose number you'll set as `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER`. Most teams use the verifier-hosting project here — having Play Integrity colocate with Cloud Run keeps IAM in one place.
 3. Confirm the project number matches the `CLOUD_PROJECT_NUMBER` hardcoded in `native/android/.../PhotoAttestModule.kt` (and in your Cloud Run env). Mismatch = 422 from `decodeIntegrityToken`. See the Diagnostics table in [OPERATIONS.md](OPERATIONS.md#diagnostics-play-integrity-decode-failures).
-4. **Enable Optional device labels (sdkVersion) in the response settings.** Play Console → App integrity → Play Integrity API → Response settings → enable the **Device information** block (specifically the `sdkVersion` field under `deviceAttributes`). The verifier requires this for the Android-12 sdkVersion gate at `play_integrity.ts` `enforceVerdicts` — STRONG on Android ≤12 carries no patch-currency signal ([Google Play Integrity verdicts](https://developer.android.com/google/play/integrity/verdicts)), so the verifier refuses to honor STRONG without `sdkVersion >= 33`. The gate fails closed when `deviceAttributes.sdkVersion` is absent: every Android upload returns `ATTESTATION_INVALID` with the message `Play Integrity deviceAttributes.sdkVersion missing or non-numeric — Play Console Optional device labels must be enabled`.
+4. **Enable the conditional Device integrity labels in the response settings.** By default `deviceRecognitionVerdict` carries ONLY `MEETS_DEVICE_INTEGRITY` — `MEETS_STRONG_INTEGRITY` and `MEETS_BASIC_INTEGRITY` are opt-in ([Play Integrity setup](https://developer.android.com/google/play/integrity/setup)). Play Console → your app → **App integrity** → **Play Integrity API** → **Response settings** → **Device integrity** → enable all three labels. Without this, every Android upload is rejected with `deviceRecognitionVerdict lacks MEETS_STRONG_INTEGRITY (got [MEETS_DEVICE_INTEGRITY])` — a healthy, locked-bootloader flagship fails identically, so check this opt-in before concluding a device genuinely lacks STRONG.
+5. **Enable Optional device labels (sdkVersion) in the response settings.** Same screen → the **Device attributes** section (a *separate* toggle from Device integrity — enabling one does not enable the other) → enable `sdkVersion` under `deviceAttributes`. The verifier requires this for the Android-12 sdkVersion gate at `play_integrity.ts` `enforceVerdicts` — STRONG on Android ≤12 carries no patch-currency signal ([Google Play Integrity verdicts](https://developer.android.com/google/play/integrity/verdicts)), so the verifier refuses to honor STRONG without `sdkVersion >= 33`. The gate fails closed when `deviceAttributes.sdkVersion` is absent: every Android upload returns `ATTESTATION_INVALID` with the message `Play Integrity deviceAttributes.sdkVersion missing or non-numeric — Play Console Optional device labels must be enabled`.
 
 **Verifying the link worked:** without the link, `decodeIntegrityToken` returns HTTP 404 for any token from this app. Re-check Play Console → App integrity if you see those.
 
-**Verifying step 4 worked:** after enabling Optional device labels, run a fresh upload from a real Play-Store-installed device. The verifier should accept it. If every Android upload still fails with `sdkVersion missing`, double-check the Response settings toggle — the change can take a few minutes to propagate.
+**Verifying steps 4–5 worked:** run a fresh upload from a real Play-Store-installed device; the verifier should accept it. Changes take effect immediately (no new app build needed), though allow a few minutes if one doesn't seem to land. The two failure modes map 1:1 to the toggles: `lacks MEETS_STRONG_INTEGRITY` → step 4's Device integrity labels; `sdkVersion missing or non-numeric` → step 5's Device attributes.
 
 ### 4. Provision Supabase secrets the verifier image expects
 
@@ -168,40 +169,19 @@ Once these are in hand, you're ready for the **Deploy** flow below.
 
    (Cloud Build: keep the context at the repo root, pointing at `verifier/Dockerfile`.)
 
-3. **Play Integrity IAM grant.** The verifier calls Google's `decodeIntegrityToken` API on every Android upload; it needs the `roles/playintegrity.user` role on the Google Cloud project that issues your Play Integrity tokens (same project as `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` above). Application Default Credentials picks up the Cloud Run runtime SA automatically — no credential file needed.
+3. **Play Integrity service-account setup.** The verifier calls Google's `decodeIntegrityToken` API on every Android upload, authenticating with Application Default Credentials (the Cloud Run runtime SA) and the `https://www.googleapis.com/auth/playintegrity` OAuth scope. **There is no IAM role to grant** — Play Integrity has no predefined role (`roles/playintegrity.user` does not exist). Per [Google's setup docs](https://developer.android.com/google/play/integrity/standard), the calling service account must live **in the Google Cloud project linked to your app in Play Console** (the `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` project). With the API enabled there (bootstrap step 1) and the Play Console link in place (bootstrap step 3), that's the whole authorization story.
 
-   The grant goes on the **Play Integrity project** (where tokens are issued). The SA that receives the grant lives in the **verifier-hosting project** (where Cloud Run runs). These two projects can be the same or different; the grant works either way.
+   **Recommended: a dedicated runtime SA** (auditable, stable identity, one per service) rather than the Compute Engine default:
 
-   **Service-account choice:**
+   ```bash
+   gcloud iam service-accounts create realreel-verifier \
+     --display-name="RealReel verifier (Cloud Run runtime)" \
+     --project=<linked-project>
+   ```
 
-   - **Dedicated runtime SA (recommended, even for the first deploy):** create one SA per service so the `roles/playintegrity.user` grant — and every other runtime permission — is auditable and attached to a stable identity. This is the SA the grant lands on at go-strict, so standing it up now avoids re-pointing IAM later:
+   Then deploy Cloud Run with `--service-account=realreel-verifier@<linked-project>.iam.gserviceaccount.com` in step 4 so the runtime uses it. (The Compute Engine default SA at `<project-number>-compute@developer.gserviceaccount.com` also works, but it's coarse-grained and doesn't exist on a fresh project until `compute.googleapis.com` has been enabled once.)
 
-     ```bash
-     gcloud iam service-accounts create realreel-verifier \
-       --display-name="RealReel verifier (Cloud Run runtime)" \
-       --project=<verifier-project>
-
-     # <play-integrity-project-number> = PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER.
-     gcloud projects add-iam-policy-binding <play-integrity-project-number> \
-       --member="serviceAccount:realreel-verifier@<verifier-project>.iam.gserviceaccount.com" \
-       --role="roles/playintegrity.user"
-     ```
-
-     Then deploy Cloud Run with `--service-account=realreel-verifier@<verifier-project>.iam.gserviceaccount.com` in step 4 so the runtime actually uses this SA.
-
-   - **Compute Engine default SA (quick path):** Cloud Run otherwise falls back to the Compute Engine default SA at `<verifier-project-number>-compute@developer.gserviceaccount.com`. Convenient, but coarse-grained (shared by every Compute/Cloud Run workload in the project) and — the gotcha on a **fresh** project — it **does not exist until the Compute Engine API has been enabled at least once**. A brand-new verifier-hosting project that only enabled `run`/`artifactregistry`/`playintegrity` (per **First-time bootstrap step 1**) won't have it, and the grant below fails with `service account ... does not exist`. Enable `compute.googleapis.com` first, or just use the dedicated SA above. Grant:
-
-     ```bash
-     # <play-integrity-project-number> is PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER —
-     #   the project that ISSUES the tokens; the binding goes here.
-     # <verifier-project-number> is the project hosting the Cloud Run service,
-     #   where the runtime SA lives (often the same project).
-     gcloud projects add-iam-policy-binding <play-integrity-project-number> \
-       --member="serviceAccount:<verifier-project-number>-compute@developer.gserviceaccount.com" \
-       --role="roles/playintegrity.user"
-     ```
-
-   **Verifying the grant worked:** after deploy, hit `/verify` with any Android-signed manifest. If you see HTTP 503 logs with `Play Integrity decode rejected (HTTP 401)` or `(HTTP 403)`, the SA grant is missing or scoped to the wrong project.
+   **Verifying it works:** after deploy, do a real Android upload from a **Play-Store-delivered** build. `Play Integrity decode rejected (HTTP 401)` or `(HTTP 403)` in the logs means the runtime SA isn't authorized — re-check the API enablement, the Play Console link, and the SA's project.
 
 4. **Deploy** the pushed image to Cloud Run with the env vars above, the dedicated runtime SA from step 3, and a startup probe on `GET /healthz/ready`. Readiness round-trips `lookup_signing_key_revocation` — a misconfigured `DATABASE_URL` or revoked grant fails the probe instead of letting bad instances serve `/verify`.
 
