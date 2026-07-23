@@ -739,10 +739,15 @@ export async function buildLeafCertificate(
   const cert = new pkijs.Certificate();
   cert.version = 2; // v3
 
-  // Mask the high bit to keep the INTEGER positive; X.509 requires
-  // non-negative serial numbers.
+  // Mask the high bit to keep the INTEGER positive (X.509 requires
+  // non-negative serials), then force byte0 nonzero: asn1js emits valueHex
+  // verbatim, and a leading 0x00 followed by a byte <0x80 is non-minimal DER
+  // that strict parsers (openssl) reject as a bad INTEGER. Without the bump,
+  // ~1/256 issued certs were malformed. Mirrored in issueLeafChainFromCSR's
+  // canonicalSerial derivation — keep the two transforms identical.
   const serialCopy = new Uint8Array(template.serialNumber);
   serialCopy[0] = serialCopy[0] & 0x7f;
+  if (serialCopy[0] === 0x00) serialCopy[0] = 0x01;
   cert.serialNumber = new asn1js.Integer({
     valueHex: serialCopy.buffer.slice(
       serialCopy.byteOffset,
@@ -1088,12 +1093,13 @@ export async function issueLeafChainFromCSR(
     : opts.intermediatePem + "\n";
 
   // Derive the canonical-decimal form of the serial. buildLeafCertificate
-  // clears the first byte's high bit for X.509-positive encoding
-  // (`serialCopy[0] & 0x7f`); we mirror that here so the returned value
-  // matches what got written into the cert, and matches c2pa-node's
-  // signature_info.cert_serial_number byte-for-byte.
+  // clears the first byte's high bit for X.509-positive encoding and bumps a
+  // zero byte0 to 0x01 for DER-minimal encoding; we mirror both transforms
+  // here so the returned value matches what got written into the cert, and
+  // matches c2pa-node's signature_info.cert_serial_number byte-for-byte.
   const canonicalSerial = new Uint8Array(serialNumber);
   canonicalSerial[0] = canonicalSerial[0] & 0x7f;
+  if (canonicalSerial[0] === 0x00) canonicalSerial[0] = 0x01;
   const serialDecimal = bytesToBigIntDecimal(canonicalSerial);
 
   // Read notAfter off the issued cert rather than recomputing
