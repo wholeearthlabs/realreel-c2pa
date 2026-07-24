@@ -1,0 +1,17 @@
+# realreel-pki Worker config. See README.md for deploy / verify / rotation.
+name = "realreel-pki"
+main = "index.ts"
+compatibility_date = "2025-01-16"
+workers_dev = false
+
+# custom_domain = true auto-provisions DNS + edge TLS for pki.realreel.xyz on
+# first deploy (the realreel.xyz zone must already be on this Cloudflare account).
+routes = [
+  { pattern = "pki.realreel.xyz", custom_domain = true }
+]
+
+# Bundle the trust-source PEMs as string modules (imported by index.ts).
+[[rules]]
+type = "Text"
+globs = ["**/*.pem"]
+fallthrough = true
