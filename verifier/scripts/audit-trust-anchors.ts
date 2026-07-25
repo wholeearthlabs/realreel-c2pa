@@ -1,8 +1,9 @@
 // Trust-anchor expiry audit.
 //
 // Reads verifier/trust-sources.yaml, inspects each anchor's root.pem
-// via openssl, and reports days-until-expiry against WARN/CRIT
-// thresholds. The pure auditAnchors() function is exported so vitest
+// via openssl — plus the OPERATIONAL_CERTS list (the RealReel ICA and
+// OCSP responder cert, which are not yaml anchors) — and reports
+// days-until-expiry against WARN/CRIT thresholds. The pure auditAnchors() function is exported so vitest
 // can stub openssl + clock; the CLI wrapper at the bottom shells out
 // to /usr/bin/openssl for real.
 //
@@ -46,8 +47,40 @@ const MS_PER_DAY = 86_400_000;
 
 export interface TrustSource {
   id: string;
+  // Path to the PEM, relative to verifier/. Named after the trust-sources.yaml
+  // key; the OPERATIONAL_CERTS entries below reuse it for non-root certs.
   root_cert: string;
+  // Per-source threshold overrides; the global WARN/CRIT defaults apply when
+  // absent. Short-lived operational certs need tighter windows than 50-year
+  // roots or they'd WARN for their entire life.
+  warnDays?: number;
+  critDays?: number;
+  // Root anchors must be self-signed (default true); operational certs
+  // (intermediates, the OCSP responder) are root-issued and set this false.
+  selfSigned?: boolean;
 }
+
+// RealReel CA operational certs that are NOT trust-sources.yaml anchors but
+// whose silent expiry would break issuance or revocation checking. The OCSP
+// responder cert is ocsp-nocheck (unrevocable) and re-issued annually via a
+// root mini-ceremony (app repo: docs/runbooks/c2pa-ca-key-ceremony-design.md),
+// so a lapse takes http://ocsp.realreel.xyz down with no other warning.
+export const OPERATIONAL_CERTS: TrustSource[] = [
+  {
+    id: "realreel-ica",
+    root_cert: "trust-sources/realreel/realreel-claim-signing-ca.pem",
+    selfSigned: false,
+  },
+  {
+    id: "realreel-ocsp-responder",
+    root_cert: "trust-sources/realreel/realreel-ocsp-responder-1.pem",
+    selfSigned: false,
+    // 366-day cert: WARN two months out (schedule the mini-ceremony), CRIT
+    // three weeks out (run it now).
+    warnDays: 60,
+    critDays: 21,
+  },
+];
 
 export interface CertInfo {
   subjectCn: string;
@@ -63,6 +96,9 @@ export interface AuditRow {
   days: number | null;
   status: Status;
   error?: string;
+  // Present only when this row used per-source threshold overrides.
+  warnDays?: number;
+  critDays?: number;
 }
 
 export interface AuditResult {
@@ -92,12 +128,14 @@ export async function auditAnchors(opts: {
   const rows: AuditRow[] = [];
 
   for (const src of sources) {
+    const warn = src.warnDays ?? warnDays;
+    const crit = src.critDays ?? critDays;
     try {
       const info = await getCertInfo(src);
       const days = Math.floor((info.notAfter.getTime() - now.getTime()) / MS_PER_DAY);
       let status: Status;
-      if (days < critDays) status = "CRIT";
-      else if (days < warnDays) status = "WARN";
+      if (days < crit) status = "CRIT";
+      else if (days < warn) status = "WARN";
       else status = "OK";
       rows.push({
         id: src.id,
@@ -105,6 +143,9 @@ export async function auditAnchors(opts: {
         notAfter: info.notAfter,
         days,
         status,
+        ...(src.warnDays !== undefined || src.critDays !== undefined
+          ? { warnDays: warn, critDays: crit }
+          : {}),
       });
     } catch (err) {
       rows.push({
@@ -156,7 +197,12 @@ export function renderAudit(result: AuditResult): string {
   for (const r of rows) {
     const na = r.notAfter ? r.notAfter.toISOString().replace(/\.\d+Z$/, "Z") : "(n/a)";
     const days = r.days != null ? String(r.days) : "n/a";
-    lines.push(fmt(r.id, r.subjectCn, na, days, r.status));
+    // Call out per-source overrides so a row can't look mis-thresholded
+    // against the header's global defaults.
+    const status = r.warnDays !== undefined
+      ? `${r.status} (warn <${r.warnDays}d, crit <${r.critDays}d)`
+      : r.status;
+    lines.push(fmt(r.id, r.subjectCn, na, days, status));
   }
   lines.push("");
 
@@ -224,7 +270,7 @@ export function makeOpensslCertReader(baseDir: string) {
 
     const subjectDn = subjectMatch[1]!.trim();
     const issuerDn = issuerMatch[1]!.trim();
-    if (subjectDn !== issuerDn) {
+    if ((src.selfSigned ?? true) && subjectDn !== issuerDn) {
       throw new Error(
         `${src.id} is not a self-signed root cert (subject="${subjectDn}" issuer="${issuerDn}")`,
       );
@@ -297,8 +343,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const sources = (parsed.sources ?? []) as TrustSource[];
-  for (const s of sources) {
+  const yamlSources = (parsed.sources ?? []) as TrustSource[];
+  for (const s of yamlSources) {
     // Audit-time strictness: a malformed entry is a deploy bug, not a
     // skip-able anomaly (the runtime loader is more lenient because
     // it tolerates a partially-provisioned fresh-environment deploy).
@@ -309,8 +355,15 @@ async function main(): Promise<void> {
     }
   }
 
+  // yaml anchors are always audited as self-signed roots with the global
+  // thresholds: keep only the two known fields, so a stray selfSigned/warnDays
+  // key in trust-sources.yaml can't switch off the wrong-cert-in-root.pem
+  // guard or quiet the expiry alerts. The per-source overrides are reserved
+  // for the hardcoded OPERATIONAL_CERTS list.
+  const anchors: TrustSource[] = yamlSources.map((s) => ({ id: s.id, root_cert: s.root_cert }));
+
   const result = await auditAnchors({
-    sources,
+    sources: [...anchors, ...OPERATIONAL_CERTS],
     warnDays,
     critDays,
     now: new Date(),

@@ -9,6 +9,7 @@
 import { describe, it, expect } from "vitest";
 import {
   auditAnchors,
+  OPERATIONAL_CERTS,
   renderAudit,
   type TrustSource,
   type CertInfo,
@@ -124,6 +125,76 @@ describe("auditAnchors", () => {
     expect(result.exitCode).toBe(1);
     expect(result.rows[0]!.status).toBe("WARN");
     expect(result.rows[0]!.days).toBe(90);
+  });
+
+  // Per-source overrides: the annually re-issued OCSP responder cert audits
+  // against its own tight thresholds, not the 365/90 root defaults (under
+  // which a 366-day cert would WARN from the day it was issued).
+  it("applies per-source warn/crit overrides instead of the global defaults", async () => {
+    const responder: TrustSource = {
+      id: "realreel-ocsp-responder",
+      root_cert: "trust-sources/realreel/realreel-ocsp-responder-1.pem",
+      selfSigned: false,
+      warnDays: 60,
+      critDays: 21,
+    };
+    const reader = (days: number) =>
+      stubReader({
+        "realreel-ocsp-responder": {
+          subjectCn: "RealReel OCSP Responder 1",
+          notAfter: new Date(NOW.getTime() + days * MS_PER_DAY),
+        },
+      });
+    const common = { sources: [responder], warnDays: 365, critDays: 90, now: NOW };
+
+    // 200 days out: WARN under the global 365 default, OK under the override.
+    const ok = await auditAnchors({ ...common, getCertInfo: reader(200) });
+    expect(ok.exitCode).toBe(0);
+    expect(ok.rows[0]!.status).toBe("OK");
+
+    const warn = await auditAnchors({ ...common, getCertInfo: reader(50) });
+    expect(warn.rows[0]!.status).toBe("WARN");
+
+    const crit = await auditAnchors({ ...common, getCertInfo: reader(10) });
+    expect(crit.rows[0]!.status).toBe("CRIT");
+  });
+
+  it("renders the per-source thresholds on overridden rows", async () => {
+    const result = await auditAnchors({
+      sources: [
+        {
+          id: "realreel-ocsp-responder",
+          root_cert: "x",
+          selfSigned: false,
+          warnDays: 60,
+          critDays: 21,
+        },
+      ],
+      warnDays: 365,
+      critDays: 90,
+      now: NOW,
+      getCertInfo: stubReader({
+        "realreel-ocsp-responder": {
+          subjectCn: "RealReel OCSP Responder 1",
+          notAfter: new Date(NOW.getTime() + 200 * MS_PER_DAY),
+        },
+      }),
+    });
+    expect(renderAudit(result)).toContain("OK (warn <60d, crit <21d)");
+  });
+
+  // Pin the operational-cert list itself: dropping either entry would
+  // silently remove the only expiry watch on the ICA / OCSP responder.
+  it("tracks the ICA and OCSP responder as operational certs", () => {
+    const byId = Object.fromEntries(OPERATIONAL_CERTS.map((c) => [c.id, c]));
+    expect(byId["realreel-ica"]!.root_cert).toBe(
+      "trust-sources/realreel/realreel-claim-signing-ca.pem",
+    );
+    expect(byId["realreel-ica"]!.selfSigned).toBe(false);
+    expect(byId["realreel-ocsp-responder"]!.root_cert).toBe(
+      "trust-sources/realreel/realreel-ocsp-responder-1.pem",
+    );
+    expect(byId["realreel-ocsp-responder"]!.warnDays).toBeLessThanOrEqual(90);
   });
 
   it("returns exitCode=2 with ERROR row when getCertInfo throws (missing/unreadable PEM)", async () => {
