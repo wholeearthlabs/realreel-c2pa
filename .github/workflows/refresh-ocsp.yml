@@ -11,8 +11,9 @@
 # realreel-ocsp-root key ONLY — see ocsp/README.md for the one-time GCP and
 # repo-secret setup.
 #
-# Status is STICKY: an explicit dispatch persists it to the
-# OCSP_ICA_STATUS / OCSP_ICA_REVOCATION_* repo variables, and every scheduled
+# Status is STICKY: an explicit dispatch persists it to the `ica-status` key
+# in the same KV namespace as the responses (GITHUB_TOKEN cannot write repo
+# variables, and the Cloudflare token is already here), and every scheduled
 # run re-signs that persisted status. So an ICA compromise (CP §3.6, revoke
 # ≤ 72 h) is one dispatch with status=revoked — the daily cron then keeps
 # publishing `revoked` with fresh validity windows instead of silently
@@ -47,7 +48,6 @@ permissions:
   contents: read
   id-token: write   # Workload Identity Federation token exchange
   issues: write     # failure tracking issue
-  actions: write    # persist OCSP_ICA_* repo variables on explicit dispatch
 
 concurrency:
   # Global group: serializes runs so a manual revocation dispatch can't race a
@@ -67,24 +67,40 @@ jobs:
 
       # All inputs/vars flow through env + step outputs from here on — no
       # ${{ }} interpolation inside run: bodies (script-injection hygiene).
-      - name: Resolve target status (dispatch input > persisted variable > good)
+      # Inherited runs read the persisted status from the ica-status KV key;
+      # a read error is a hard failure (defaulting to `good` on a flaky read
+      # could un-revoke), while 404 = never persisted = good.
+      - name: Resolve target status (dispatch input > persisted KV status > good)
         id: status
         env:
           INPUT_STATUS: ${{ inputs.status }}
           INPUT_TIME: ${{ inputs.revocation_time }}
           INPUT_REASON: ${{ inputs.revocation_reason }}
-          VAR_STATUS: ${{ vars.OCSP_ICA_STATUS }}
-          VAR_TIME: ${{ vars.OCSP_ICA_REVOCATION_TIME }}
-          VAR_REASON: ${{ vars.OCSP_ICA_REVOCATION_REASON }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         shell: bash
         run: |
           if [ -z "$INPUT_STATUS" ] || [ "$INPUT_STATUS" = "inherit" ]; then
-            STATUS="${VAR_STATUS:-good}"; TIME="$VAR_TIME"; REASON="$VAR_REASON"; EXPLICIT=false
+            NS=$(sed -n 's/.*binding = "OCSP_RESPONSES", id = "\([a-f0-9]*\)".*/\1/p' ocsp/wrangler.toml)
+            CODE=$(curl -s -o /tmp/ica-status.json -w '%{http_code}' \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces/$NS/values/ica-status")
+            if [ "$CODE" = "200" ]; then
+              STATUS=$(jq -r '.status // "good"' /tmp/ica-status.json)
+              TIME=$(jq -r '.revocationTime // ""' /tmp/ica-status.json)
+              REASON=$(jq -r '.revocationReason // ""' /tmp/ica-status.json)
+            elif [ "$CODE" = "404" ]; then
+              STATUS=good; TIME=""; REASON=""
+            else
+              echo "reading persisted ica-status from KV failed (HTTP $CODE)" >&2
+              exit 1
+            fi
+            EXPLICIT=false
           else
             STATUS="$INPUT_STATUS"; TIME="$INPUT_TIME"; REASON="$INPUT_REASON"; EXPLICIT=true
           fi
           if [ "$STATUS" = "revoked" ] && [ -z "$TIME" ]; then
-            echo "status=revoked requires a revocation time (dispatch input or OCSP_ICA_REVOCATION_TIME variable)" >&2
+            echo "status=revoked requires a revocation time (dispatch input or persisted ica-status)" >&2
             exit 1
           fi
           {
@@ -208,38 +224,40 @@ jobs:
           cat /tmp/live.txt | tee -a /tmp/refresh-output.txt
           exit 1
 
-      # Persist an explicitly dispatched status so scheduled runs keep
-      # re-signing it. Runs only after the live check proves it published; a
-      # failure here is loud (issue + red run) because losing it would let the
-      # next cron revert a revocation.
+      # Persist an explicitly dispatched status (to the ica-status KV key) so
+      # scheduled runs keep re-signing it. Runs only after the live check
+      # proves it published; a failure here is loud (issue + red run) because
+      # losing it would let the next cron revert a revocation.
       - name: Persist published status
         id: persist
         if: steps.live.outcome == 'success' && steps.status.outputs.explicit == 'true'
         continue-on-error: true
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           STATUS: ${{ steps.status.outputs.status }}
           REVOCATION_TIME: ${{ steps.status.outputs.time }}
           REVOCATION_REASON: ${{ steps.status.outputs.reason }}
         run: |
-          set_or_clear() {
-            if [ -n "$2" ]; then
-              gh variable set "$1" --repo "$GITHUB_REPOSITORY" --body "$2"
-            else
-              gh variable delete "$1" --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-            fi
-          }
-          set_or_clear OCSP_ICA_STATUS "$STATUS"
-          set_or_clear OCSP_ICA_REVOCATION_TIME "$REVOCATION_TIME"
-          set_or_clear OCSP_ICA_REVOCATION_REASON "$REVOCATION_REASON"
-          echo "persisted OCSP_ICA_STATUS=$STATUS" | tee -a /tmp/refresh-output.txt
+          set -o pipefail
+          NS=$(sed -n 's/.*binding = "OCSP_RESPONSES", id = "\([a-f0-9]*\)".*/\1/p' ocsp/wrangler.toml)
+          jq -n --arg s "$STATUS" --arg t "$REVOCATION_TIME" --arg r "$REVOCATION_REASON" \
+            '{status: $s, revocationTime: $t, revocationReason: $r}' > /tmp/ica-status.json
+          curl -sf -X PUT \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/ica-status.json \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces/$NS/values/ica-status" \
+            > /dev/null
+          echo "persisted ica-status: $(cat /tmp/ica-status.json)" | tee -a /tmp/refresh-output.txt
 
       - name: Ensure tracking label exists
         if: >-
-          (steps.build.outcome == 'failure' || steps.crossverify.outcome == 'failure' ||
-           steps.publish.outcome == 'failure' || steps.live.outcome == 'failure' ||
-           steps.persist.outcome == 'failure')
+          always() &&
+          (steps.status.outcome == 'failure' || steps.build.outcome == 'failure' ||
+           steps.crossverify.outcome == 'failure' || steps.publish.outcome == 'failure' ||
+           steps.live.outcome == 'failure' || steps.persist.outcome == 'failure')
         uses: actions/github-script@v9
         with:
           script: |
@@ -253,9 +271,10 @@ jobs:
 
       - name: Open or comment on tracking issue
         if: >-
-          (steps.build.outcome == 'failure' || steps.crossverify.outcome == 'failure' ||
-           steps.publish.outcome == 'failure' || steps.live.outcome == 'failure' ||
-           steps.persist.outcome == 'failure')
+          always() &&
+          (steps.status.outcome == 'failure' || steps.build.outcome == 'failure' ||
+           steps.crossverify.outcome == 'failure' || steps.publish.outcome == 'failure' ||
+           steps.live.outcome == 'failure' || steps.persist.outcome == 'failure')
         uses: actions/github-script@v9
         with:
           script: |
@@ -267,8 +286,8 @@ jobs:
             const body = [
               'The OCSP refresh job failed. Pre-signed responses in KV keep serving until their',
               '`nextUpdate` (7-day window) — fix the refresh before it lapses or the responder goes stale.',
-              'If the failed step is "Persist published status" after a status change, re-dispatch or set the',
-              '`OCSP_ICA_*` repo variables by hand before the next scheduled run re-signs the old status.',
+              'If the failed step is "Persist published status" after a status change, re-dispatch or write the',
+              '`ica-status` KV key by hand before the next scheduled run re-signs the old status.',
               '', '```', output.trim() || '(no output captured)', '```', '',
               `Run: ${runUrl}`, '',
               'Runbook: `ocsp/README.md` § Refresh job.',
@@ -291,7 +310,8 @@ jobs:
 
       - name: Fail the run when any step failed
         if: >-
-          (steps.build.outcome == 'failure' || steps.crossverify.outcome == 'failure' ||
-           steps.publish.outcome == 'failure' || steps.live.outcome == 'failure' ||
-           steps.persist.outcome == 'failure')
+          always() &&
+          (steps.status.outcome == 'failure' || steps.build.outcome == 'failure' ||
+           steps.crossverify.outcome == 'failure' || steps.publish.outcome == 'failure' ||
+           steps.live.outcome == 'failure' || steps.persist.outcome == 'failure')
         run: exit 1

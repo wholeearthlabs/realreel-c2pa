@@ -202,13 +202,14 @@ after every publish, and opens a tracking issue (label `ocsp`) on any failure.
 - **ICA compromise (revoke ≤ 72 h, CP §3.6):** dispatch *Refresh OCSP
   responses* with `status=revoked`, a `revocation_time`, and optionally
   `revocation_reason=1` (keyCompromise). The published status is **sticky**:
-  once the live check passes, the workflow persists it to the
-  `OCSP_ICA_STATUS` / `OCSP_ICA_REVOCATION_*` repo variables (workflow-managed
-  — don't set them by hand except in recovery) and every scheduled run
-  re-signs that status with a fresh validity window. Edge caches expire within
-  an hour (`max-age=3600`). Restoring `good` requires an explicit
-  `status=good` dispatch — a scheduled run can never flip the status, and the
-  dispatch default (`inherit`) can't either.
+  once the live check passes, the workflow persists it to the `ica-status` key
+  in the responses' KV namespace (workflow-managed — touch it by hand only in
+  recovery, e.g. `wrangler kv key put ica-status … --binding OCSP_RESPONSES
+  --remote`) and every scheduled run re-signs that status with a fresh
+  validity window. Edge caches expire within an hour (`max-age=3600`).
+  Restoring `good` requires an explicit `status=good` dispatch — a scheduled
+  run can never flip the status, and the dispatch default (`inherit`) can't
+  either.
 - **ICA rotation (new ICA under the same root):** the Worker derives CertID
   targets from `realreel-claim-signing-ca.pem` at runtime — updating that PEM
   (the `pki/` rotation step) re-points this responder automatically; run a
