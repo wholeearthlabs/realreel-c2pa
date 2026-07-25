@@ -17,7 +17,8 @@
     "typecheck:verifier": "tsc -p verifier/tsconfig.json --noEmit",
     "test:ca": "cd ca && deno test --allow-read --allow-env .",
     "test:pki": "cd pki && deno test --allow-read .",
-    "test": "npm run build -w trust-core && npm run test:trust-core && npm run typecheck:verifier && npm run test:verifier && npm run test:ca && npm run test:pki",
+    "test:ocsp": "cd ocsp && deno test --allow-read .",
+    "test": "npm run build -w trust-core && npm run test:trust-core && npm run typecheck:verifier && npm run test:verifier && npm run test:ca && npm run test:pki && npm run test:ocsp",
     "demo": "cd verifier && tsx ../examples/verify-demo.ts",
     "changeset": "changeset",
     "release": "changeset publish"

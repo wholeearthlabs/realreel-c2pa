@@ -1,0 +1,10 @@
+{
+  "//": "Deno config for the realreel-ocsp Worker + refresh tool (mirrors ca/deno.json).",
+  "//1": "nodeModulesDir auto also feeds `wrangler deploy` bundling — run `deno install` (or the tests) before the first deploy.",
+  "nodeModulesDir": "auto",
+  "imports": {
+    "pkijs": "npm:pkijs@3.2.4",
+    "asn1js": "npm:asn1js@3.0.5",
+    "@noble/curves/nist.js": "npm:@noble/curves@1.9.7/nist.js"
+  }
+}

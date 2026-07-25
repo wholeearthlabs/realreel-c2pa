@@ -1,0 +1,145 @@
+// Shared OCSP (RFC 6960) primitives for the realreel-ocsp Worker and its
+// response-refresh tool. Everything here is pure and WebCrypto-based so it runs
+// identically in the Workers runtime, Deno (tests + refresh tool), and Node.
+//
+// The single certificate this responder is authoritative for is the RealReel
+// Claim Signing CA (the ICA), whose issuer is the RealReel C2PA Root CA. A
+// client's CertID names that pair as: hash(ICA's issuer Name DER) +
+// hash(root's subjectPublicKey bits) + the ICA serial (RFC 6960 §4.1.1).
+
+import * as pkijs from "pkijs";
+import * as asn1js from "asn1js";
+
+export const OID_SHA1 = "1.3.14.3.2.26";
+export const OID_SHA256 = "2.16.840.1.101.3.4.2.1";
+export const OID_ECDSA_WITH_SHA256 = "1.2.840.10045.4.3.2";
+export const OID_OCSP_BASIC = "1.3.6.1.5.5.7.48.1.1";
+
+// KV keys the refresh tool writes and the Worker reads, one pre-signed
+// response per CertID hash algorithm a client may use. SHA-1 is what nearly
+// every OCSP client sends (openssl, c2pa-rs); SHA-256 is covered for the rest.
+export const KV_KEY_BY_HASH_OID: Record<string, string> = {
+  [OID_SHA1]: "response:sha1",
+  [OID_SHA256]: "response:sha256",
+};
+
+const WEBCRYPTO_ALG_BY_OID: Record<string, string> = {
+  [OID_SHA1]: "SHA-1",
+  [OID_SHA256]: "SHA-256",
+};
+
+// An OCSPResponse with a non-successful responseStatus carries no
+// responseBytes (RFC 6960 §4.2.1) and therefore needs no signature — it
+// encodes as five constant bytes: SEQUENCE { ENUMERATED status }.
+function errorResponse(status: number): Uint8Array {
+  return new Uint8Array([0x30, 0x03, 0x0a, 0x01, status]);
+}
+export const OCSP_MALFORMED_REQUEST = errorResponse(1);
+export const OCSP_INTERNAL_ERROR = errorResponse(2);
+export const OCSP_UNAUTHORIZED = errorResponse(6);
+
+// --- Byte / cert helpers --------------------------------------------------
+
+export function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
+  return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
+}
+
+export function pemToDer(pem: string): Uint8Array {
+  const b64 = pem
+    .replace(/-----BEGIN CERTIFICATE-----/g, "")
+    .replace(/-----END CERTIFICATE-----/g, "")
+    .replace(/\s+/g, "");
+  const bin = atob(b64);
+  const der = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) der[i] = bin.charCodeAt(i);
+  return der;
+}
+
+export function parseCert(pem: string): pkijs.Certificate {
+  const asn1 = asn1js.fromBER(toArrayBuffer(pemToDer(pem)));
+  if (asn1.offset === -1) throw new Error("failed to parse certificate PEM as DER");
+  return new pkijs.Certificate({ schema: asn1.result });
+}
+
+// OCTET STRING / INTEGER / BIT STRING content bytes, with the same
+// valueHexView → valueHex fallback the ca/ tooling uses.
+export function blockBytes(node: unknown): Uint8Array {
+  const vb = (node as { valueBlock?: unknown }).valueBlock as {
+    valueHexView?: Uint8Array;
+    valueHex?: ArrayBuffer;
+  };
+  if (vb?.valueHexView) return new Uint8Array(vb.valueHexView);
+  if (vb?.valueHex) return new Uint8Array(vb.valueHex);
+  throw new Error("cannot extract ASN.1 value bytes");
+}
+
+export function subjectPublicKeyBits(cert: pkijs.Certificate): Uint8Array {
+  return blockBytes(cert.subjectPublicKeyInfo.subjectPublicKey);
+}
+
+export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+async function digest(webcryptoAlg: string, data: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest(webcryptoAlg, toArrayBuffer(data)));
+}
+
+// --- CertID values --------------------------------------------------------
+
+export interface CertIdValues {
+  hashOid: string;
+  issuerNameHash: Uint8Array;
+  issuerKeyHash: Uint8Array;
+  serialNumber: Uint8Array;
+}
+
+// The CertID values a client asking about the ICA will send, for each
+// supported hash algorithm. Derived at runtime from the same trust-source
+// PEMs the verifier ships, so they can never drift from the deployed certs.
+export async function icaCertIdTargets(rootPem: string, icaPem: string): Promise<CertIdValues[]> {
+  const root = parseCert(rootPem);
+  const ica = parseCert(icaPem);
+  const issuerNameDer = new Uint8Array(ica.issuer.toSchema().toBER(false));
+  const rootKeyBits = subjectPublicKeyBits(root);
+  const serialNumber = blockBytes(ica.serialNumber);
+  return Promise.all(
+    Object.keys(KV_KEY_BY_HASH_OID).map(async (hashOid) => ({
+      hashOid,
+      issuerNameHash: await digest(WEBCRYPTO_ALG_BY_OID[hashOid], issuerNameDer),
+      issuerKeyHash: await digest(WEBCRYPTO_ALG_BY_OID[hashOid], rootKeyBits),
+      serialNumber,
+    })),
+  );
+}
+
+export function certIdMatches(a: CertIdValues, b: CertIdValues): boolean {
+  return (
+    a.hashOid === b.hashOid &&
+    bytesEqual(a.issuerNameHash, b.issuerNameHash) &&
+    bytesEqual(a.issuerKeyHash, b.issuerKeyHash) &&
+    bytesEqual(a.serialNumber, b.serialNumber)
+  );
+}
+
+// --- Request parsing ------------------------------------------------------
+
+export function certIdValues(certId: pkijs.CertID): CertIdValues {
+  return {
+    hashOid: certId.hashAlgorithm.algorithmId,
+    issuerNameHash: blockBytes(certId.issuerNameHash),
+    issuerKeyHash: blockBytes(certId.issuerKeyHash),
+    serialNumber: blockBytes(certId.serialNumber),
+  };
+}
+
+// Parses a DER OCSPRequest and returns the CertID values of every Request in
+// its requestList. Throws on anything that doesn't parse as an OCSPRequest.
+// Request extensions (e.g. a nonce) are deliberately ignored: pre-signed
+// responses cannot echo a nonce, per RFC 5019 operating practice.
+export function parseOcspRequestCertIds(der: Uint8Array): CertIdValues[] {
+  const request = pkijs.OCSPRequest.fromBER(toArrayBuffer(der));
+  return request.tbsRequest.requestList.map((r) => certIdValues(r.reqCert));
+}

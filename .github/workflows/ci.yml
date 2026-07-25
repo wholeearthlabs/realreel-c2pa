@@ -75,6 +75,20 @@ jobs:
         run: deno test --allow-read --allow-env .
         working-directory: ca
 
+  ocsp:
+    name: ocsp Worker (Deno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: ocsp — deno test
+        run: deno test --allow-read .
+        working-directory: ocsp
+
   # The native Expo module (native/) ships Swift + Kotlin source for
   # transparency, but compiling it requires a full Expo/React Native app
   # (Xcode + Gradle + autolinking). Only the TypeScript bridge is type-checked

@@ -1,0 +1,27 @@
+# realreel-ocsp Worker config. See README.md for deploy / refresh / rotation.
+name = "realreel-ocsp"
+main = "index.ts"
+compatibility_date = "2025-01-16"
+workers_dev = false
+
+# custom_domain = true auto-provisions DNS + edge TLS for ocsp.realreel.xyz on
+# first deploy (the realreel.xyz zone must already be on this Cloudflare
+# account). The AIA URL baked into issued certs is http:// — see README.md for
+# the zone settings that keep plain-HTTP OCSP requests from being redirected
+# or challenged.
+routes = [
+  { pattern = "ocsp.realreel.xyz", custom_domain = true }
+]
+
+# Pre-signed OCSP responses, written by the refresh job (build-ocsp-responses.ts
+# + `wrangler kv key put`), read by the Worker. Created once with:
+#   npx wrangler kv namespace create OCSP_RESPONSES
+kv_namespaces = [
+  { binding = "OCSP_RESPONSES", id = "544330752c3d4641a96ba2192cc2e9ab" }
+]
+
+# Bundle the trust-source PEMs as string modules (imported by index.ts).
+[[rules]]
+type = "Text"
+globs = ["**/*.pem"]
+fallthrough = true

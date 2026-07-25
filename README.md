@@ -49,6 +49,7 @@ for how, alongside what it defends against and where the guarantee is bounded.
 | [`native/`](./native)          | Hardware-backed capture-signing module (iOS Swift / Android Kotlin + a TS bridge).          | Swift / Kotlin   |
 | [`ca/`](./ca)                  | Enrollment / certificate-authority and challenge edge functions.                            | TypeScript/Deno  |
 | [`pki/`](./pki)                | Cloudflare Worker publishing the CA root + intermediate certs at `pki.realreel.xyz`.         | Cloudflare Worker |
+| [`ocsp/`](./ocsp)              | Cloudflare Worker answering RFC 6960 OCSP for the Claim Signing ICA at `ocsp.realreel.xyz`.  | Cloudflare Worker |
 
 The CA signing key itself is **not** in this repository — it lives in a hardware
 security module. Only the public RealReel root certificate ships here, alongside
@@ -82,6 +83,7 @@ npm test             # runs every suite (see below)
 - **verifier** — `tsc` (src typecheck) + `vitest`
 - **ca** — `deno test`
 - **pki** — `deno test`
+- **ocsp** — `deno test`
 
 Per workspace:
 

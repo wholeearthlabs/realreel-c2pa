@@ -1,0 +1,297 @@
+# Refreshes the pre-signed OCSP responses served at http://ocsp.realreel.xyz.
+#
+# Daily cadence against a 7-day nextUpdate window (OCSP_VALIDITY_DAYS in
+# ocsp/build-ocsp-responses.ts), so ~6 missed runs still leave valid responses
+# in KV. A failed run opens/updates a tracking issue (same ritual as
+# audit-trust-anchors.yml) — and the audit workflow independently watches the
+# responder cert's own expiry.
+#
+# Auth: Workload Identity Federation (no long-lived GCP key in GitHub). The
+# ocsp-refresh service account holds roles/cloudkms.signer on the
+# realreel-ocsp-root key ONLY — see ocsp/README.md for the one-time GCP and
+# repo-secret setup.
+#
+# Status is STICKY: an explicit dispatch persists it to the
+# OCSP_ICA_STATUS / OCSP_ICA_REVOCATION_* repo variables, and every scheduled
+# run re-signs that persisted status. So an ICA compromise (CP §3.6, revoke
+# ≤ 72 h) is one dispatch with status=revoked — the daily cron then keeps
+# publishing `revoked` with fresh validity windows instead of silently
+# reverting to `good`. Restoring `good` likewise requires an explicit
+# status=good dispatch.
+
+name: Refresh OCSP responses
+
+on:
+  schedule:
+    - cron: '17 6 * * *'   # daily 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      status:
+        description: >-
+          Certificate status to publish for the ICA (inherit = re-sign the
+          currently persisted status; an explicit good/revoked is persisted
+          for all future scheduled runs)
+        type: choice
+        options: [inherit, good, revoked]
+        default: inherit
+      revocation_time:
+        description: 'ISO-8601 revocation time (required when status=revoked)'
+        type: string
+        required: false
+      revocation_reason:
+        description: 'CRLReason integer 0..10 (optional; 1 = keyCompromise)'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  id-token: write   # Workload Identity Federation token exchange
+  issues: write     # failure tracking issue
+  actions: write    # persist OCSP_ICA_* repo variables on explicit dispatch
+
+concurrency:
+  # Global group: serializes runs so a manual revocation dispatch can't race a
+  # scheduled refresh mid-flight.
+  group: refresh-ocsp
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # All inputs/vars flow through env + step outputs from here on — no
+      # ${{ }} interpolation inside run: bodies (script-injection hygiene).
+      - name: Resolve target status (dispatch input > persisted variable > good)
+        id: status
+        env:
+          INPUT_STATUS: ${{ inputs.status }}
+          INPUT_TIME: ${{ inputs.revocation_time }}
+          INPUT_REASON: ${{ inputs.revocation_reason }}
+          VAR_STATUS: ${{ vars.OCSP_ICA_STATUS }}
+          VAR_TIME: ${{ vars.OCSP_ICA_REVOCATION_TIME }}
+          VAR_REASON: ${{ vars.OCSP_ICA_REVOCATION_REASON }}
+        shell: bash
+        run: |
+          if [ -z "$INPUT_STATUS" ] || [ "$INPUT_STATUS" = "inherit" ]; then
+            STATUS="${VAR_STATUS:-good}"; TIME="$VAR_TIME"; REASON="$VAR_REASON"; EXPLICIT=false
+          else
+            STATUS="$INPUT_STATUS"; TIME="$INPUT_TIME"; REASON="$INPUT_REASON"; EXPLICIT=true
+          fi
+          if [ "$STATUS" = "revoked" ] && [ -z "$TIME" ]; then
+            echo "status=revoked requires a revocation time (dispatch input or OCSP_ICA_REVOCATION_TIME variable)" >&2
+            exit 1
+          fi
+          {
+            echo "status=$STATUS"
+            echo "time=$TIME"
+            echo "reason=$REASON"
+            echo "explicit=$EXPLICIT"
+          } >> "$GITHUB_OUTPUT"
+          echo "publishing status '$STATUS' (explicit dispatch: $EXPLICIT)"
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_OCSP_REFRESH_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Build, KMS-sign, and self-verify responses
+        id: build
+        continue-on-error: true
+        working-directory: ocsp
+        shell: bash
+        env:
+          STATUS: ${{ steps.status.outputs.status }}
+          REVOCATION_TIME: ${{ steps.status.outputs.time }}
+          REVOCATION_REASON: ${{ steps.status.outputs.reason }}
+        run: |
+          set -o pipefail
+          ARGS=(--out-dir out --status "$STATUS")
+          if [ -n "$REVOCATION_TIME" ]; then
+            ARGS+=(--revocation-time "$REVOCATION_TIME")
+          fi
+          if [ -n "$REVOCATION_REASON" ]; then
+            ARGS+=(--revocation-reason "$REVOCATION_REASON")
+          fi
+          deno run --allow-read --allow-write --allow-env --allow-run=gcloud \
+            build-ocsp-responses.ts "${ARGS[@]}" | tee /tmp/refresh-output.txt
+
+      # Independent-implementation check before anything is published: openssl
+      # must agree the responses verify and carry the expected status.
+      - name: Cross-verify with openssl
+        id: crossverify
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          STATUS: ${{ steps.status.outputs.status }}
+        run: |
+          set -o pipefail
+          CERTS=verifier/trust-sources/realreel
+          for alg in "sha1:" "sha256:-sha256"; do
+            name="${alg%%:*}"; flag="${alg#*:}"
+            openssl ocsp -issuer "$CERTS/realreel-c2pa-root.pem" $flag \
+              -cert "$CERTS/realreel-claim-signing-ca.pem" \
+              -respin "ocsp/out/response-$name.der" \
+              -CAfile "$CERTS/realreel-c2pa-root.pem" -no_nonce \
+              2>&1 | tee "/tmp/openssl-$name.txt"
+            grep -q "Response verify OK" "/tmp/openssl-$name.txt"
+            grep -q ": $STATUS" "/tmp/openssl-$name.txt"
+          done | tee -a /tmp/refresh-output.txt
+
+      - uses: actions/setup-node@v6
+        if: steps.crossverify.outcome == 'success'
+        with:
+          node-version: '22'
+
+      - name: Publish to Workers KV
+        id: publish
+        if: steps.crossverify.outcome == 'success'
+        continue-on-error: true
+        working-directory: ocsp
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          {
+            npx wrangler@4 kv key put response:sha1 --path out/response-sha1.der \
+              --binding OCSP_RESPONSES --remote
+            npx wrangler@4 kv key put response:sha256 --path out/response-sha256.der \
+              --binding OCSP_RESPONSES --remote
+          } | tee -a /tmp/refresh-output.txt
+
+      # End-to-end acceptance against the live endpoint, exactly as a C2PA
+      # reviewer would query it (plain http, no browser User-Agent). Polls
+      # through KV's eventual consistency (~60 s) and pins This Update to the
+      # bytes built above, so it proves the NEW response is being served — a
+      # same-status stale response cannot pass.
+      - name: Verify the live endpoint
+        id: live
+        if: steps.publish.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          STATUS: ${{ steps.status.outputs.status }}
+        run: |
+          CERTS=verifier/trust-sources/realreel
+          WANT_UPDATE=$(openssl ocsp -respin ocsp/out/response-sha1.der -resp_text -noverify 2>/dev/null \
+            | grep -m1 'This Update:' | sed 's/^ *//')
+          if [ -z "$WANT_UPDATE" ]; then
+            echo "could not extract This Update from the built response" | tee -a /tmp/refresh-output.txt
+            exit 1
+          fi
+          for attempt in $(seq 1 10); do
+            openssl ocsp -issuer "$CERTS/realreel-c2pa-root.pem" \
+              -cert "$CERTS/realreel-claim-signing-ca.pem" \
+              -url http://ocsp.realreel.xyz -no_nonce \
+              -CAfile "$CERTS/realreel-c2pa-root.pem" > /tmp/live.txt 2>&1 || true
+            if grep -q "Response verify OK" /tmp/live.txt \
+              && grep -q ": $STATUS" /tmp/live.txt \
+              && grep -qF "$WANT_UPDATE" /tmp/live.txt; then
+              echo "live endpoint serves the fresh '$STATUS' response ($WANT_UPDATE, attempt $attempt)" \
+                | tee -a /tmp/refresh-output.txt
+              cat /tmp/live.txt >> /tmp/refresh-output.txt
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "live endpoint never served the freshly published response" | tee -a /tmp/refresh-output.txt
+          cat /tmp/live.txt | tee -a /tmp/refresh-output.txt
+          exit 1
+
+      # Persist an explicitly dispatched status so scheduled runs keep
+      # re-signing it. Runs only after the live check proves it published; a
+      # failure here is loud (issue + red run) because losing it would let the
+      # next cron revert a revocation.
+      - name: Persist published status
+        id: persist
+        if: steps.live.outcome == 'success' && steps.status.outputs.explicit == 'true'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ steps.status.outputs.status }}
+          REVOCATION_TIME: ${{ steps.status.outputs.time }}
+          REVOCATION_REASON: ${{ steps.status.outputs.reason }}
+        run: |
+          set_or_clear() {
+            if [ -n "$2" ]; then
+              gh variable set "$1" --repo "$GITHUB_REPOSITORY" --body "$2"
+            else
+              gh variable delete "$1" --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+            fi
+          }
+          set_or_clear OCSP_ICA_STATUS "$STATUS"
+          set_or_clear OCSP_ICA_REVOCATION_TIME "$REVOCATION_TIME"
+          set_or_clear OCSP_ICA_REVOCATION_REASON "$REVOCATION_REASON"
+          echo "persisted OCSP_ICA_STATUS=$STATUS" | tee -a /tmp/refresh-output.txt
+
+      - name: Ensure tracking label exists
+        if: >-
+          (steps.build.outcome == 'failure' || steps.crossverify.outcome == 'failure' ||
+           steps.publish.outcome == 'failure' || steps.live.outcome == 'failure' ||
+           steps.persist.outcome == 'failure')
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const label = { name: 'ocsp', color: 'D93F0B', description: 'OCSP responder operations' };
+            try {
+              await github.rest.issues.getLabel({ owner: context.repo.owner, repo: context.repo.repo, name: label.name });
+            } catch (e) {
+              if (e.status !== 404) throw e;
+              await github.rest.issues.createLabel({ owner: context.repo.owner, repo: context.repo.repo, ...label });
+            }
+
+      - name: Open or comment on tracking issue
+        if: >-
+          (steps.build.outcome == 'failure' || steps.crossverify.outcome == 'failure' ||
+           steps.publish.outcome == 'failure' || steps.live.outcome == 'failure' ||
+           steps.persist.outcome == 'failure')
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            let output = '';
+            try { output = fs.readFileSync('/tmp/refresh-output.txt', 'utf-8'); } catch {}
+            const today = new Date().toISOString().slice(0, 10);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              'The OCSP refresh job failed. Pre-signed responses in KV keep serving until their',
+              '`nextUpdate` (7-day window) — fix the refresh before it lapses or the responder goes stale.',
+              'If the failed step is "Persist published status" after a status change, re-dispatch or set the',
+              '`OCSP_ICA_*` repo variables by hand before the next scheduled run re-signs the old status.',
+              '', '```', output.trim() || '(no output captured)', '```', '',
+              `Run: ${runUrl}`, '',
+              'Runbook: `ocsp/README.md` § Refresh job.',
+            ].join('\n');
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo, labels: 'ocsp', state: 'open',
+            });
+            if (existing.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing[0].number, body: `Refresh re-run on ${today}:\n\n${body}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: `OCSP refresh failing (${today})`,
+                labels: ['ocsp'], body,
+              });
+            }
+
+      - name: Fail the run when any step failed
+        if: >-
+          (steps.build.outcome == 'failure' || steps.crossverify.outcome == 'failure' ||
+           steps.publish.outcome == 'failure' || steps.live.outcome == 'failure' ||
+           steps.persist.outcome == 'failure')
+        run: exit 1
