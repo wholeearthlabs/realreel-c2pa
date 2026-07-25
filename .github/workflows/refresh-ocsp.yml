@@ -12,13 +12,16 @@
 # repo-secret setup.
 #
 # Status is STICKY: an explicit dispatch persists it to the `ica-status` key
-# in the same KV namespace as the responses (GITHUB_TOKEN cannot write repo
-# variables, and the Cloudflare token is already here), and every scheduled
-# run re-signs that persisted status. So an ICA compromise (CP §3.6, revoke
-# ≤ 72 h) is one dispatch with status=revoked — the daily cron then keeps
-# publishing `revoked` with fresh validity windows instead of silently
-# reverting to `good`. Restoring `good` likewise requires an explicit
-# status=good dispatch.
+# in the same KV namespace as the responses, and every scheduled run re-signs
+# that persisted status. So an ICA compromise (CP §3.6, revoke ≤ 72 h) is one
+# dispatch with status=revoked — the daily cron then keeps publishing
+# `revoked` with fresh validity windows instead of silently reverting to
+# `good`. Restoring `good` likewise requires an explicit status=good dispatch.
+#
+# The steps are thin wrappers: status resolve/persist and the live-endpoint
+# check live in ocsp/refresh-ops.ts (typed + unit-tested); openssl stays
+# inline as the independent cross-check of the built responses. Actions are
+# SHA-pinned (this job holds a signing credential); actionlint runs in ci.yml.
 
 name: Refresh OCSP responses
 
@@ -59,64 +62,34 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
         with:
           deno-version: v2.x
 
-      # All inputs/vars flow through env + step outputs from here on — no
-      # ${{ }} interpolation inside run: bodies (script-injection hygiene).
-      # Inherited runs read the persisted status from the ica-status KV key;
-      # a read error is a hard failure (defaulting to `good` on a flaky read
-      # could un-revoke), while 404 = never persisted = good.
+      # Inputs flow through env + step outputs only — no ${{ }} interpolation
+      # inside run: bodies (script-injection hygiene).
       - name: Resolve target status (dispatch input > persisted KV status > good)
         id: status
+        working-directory: ocsp
+        shell: bash
         env:
           INPUT_STATUS: ${{ inputs.status }}
           INPUT_TIME: ${{ inputs.revocation_time }}
           INPUT_REASON: ${{ inputs.revocation_reason }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-        shell: bash
         run: |
-          if [ -z "$INPUT_STATUS" ] || [ "$INPUT_STATUS" = "inherit" ]; then
-            NS=$(sed -n 's/.*binding = "OCSP_RESPONSES", id = "\([a-f0-9]*\)".*/\1/p' ocsp/wrangler.toml)
-            CODE=$(curl -s -o /tmp/ica-status.json -w '%{http_code}' \
-              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces/$NS/values/ica-status")
-            if [ "$CODE" = "200" ]; then
-              STATUS=$(jq -r '.status // "good"' /tmp/ica-status.json)
-              TIME=$(jq -r '.revocationTime // ""' /tmp/ica-status.json)
-              REASON=$(jq -r '.revocationReason // ""' /tmp/ica-status.json)
-            elif [ "$CODE" = "404" ]; then
-              STATUS=good; TIME=""; REASON=""
-            else
-              echo "reading persisted ica-status from KV failed (HTTP $CODE)" >&2
-              exit 1
-            fi
-            EXPLICIT=false
-          else
-            STATUS="$INPUT_STATUS"; TIME="$INPUT_TIME"; REASON="$INPUT_REASON"; EXPLICIT=true
-          fi
-          if [ "$STATUS" = "revoked" ] && [ -z "$TIME" ]; then
-            echo "status=revoked requires a revocation time (dispatch input or persisted ica-status)" >&2
-            exit 1
-          fi
-          {
-            echo "status=$STATUS"
-            echo "time=$TIME"
-            echo "reason=$REASON"
-            echo "explicit=$EXPLICIT"
-          } >> "$GITHUB_OUTPUT"
-          echo "publishing status '$STATUS' (explicit dispatch: $EXPLICIT)"
+          deno run --allow-env --allow-read=. --allow-net=api.cloudflare.com \
+            refresh-ops.ts resolve-status >> "$GITHUB_OUTPUT"
 
-      - uses: google-github-actions/auth@v3
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_OCSP_REFRESH_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
 
       - name: Build, KMS-sign, and self-verify responses
         id: build
@@ -128,16 +101,11 @@ jobs:
           REVOCATION_TIME: ${{ steps.status.outputs.time }}
           REVOCATION_REASON: ${{ steps.status.outputs.reason }}
         run: |
-          set -o pipefail
-          ARGS=(--out-dir out --status "$STATUS")
-          if [ -n "$REVOCATION_TIME" ]; then
-            ARGS+=(--revocation-time "$REVOCATION_TIME")
-          fi
-          if [ -n "$REVOCATION_REASON" ]; then
-            ARGS+=(--revocation-reason "$REVOCATION_REASON")
-          fi
           deno run --allow-read --allow-write --allow-env --allow-run=gcloud \
-            build-ocsp-responses.ts "${ARGS[@]}" | tee /tmp/refresh-output.txt
+            build-ocsp-responses.ts --out-dir out --status "$STATUS" \
+            --revocation-time "$REVOCATION_TIME" \
+            --revocation-reason "$REVOCATION_REASON" \
+            | tee /tmp/refresh-output.txt
 
       # Independent-implementation check before anything is published: openssl
       # must agree the responses verify and carry the expected status.
@@ -149,20 +117,20 @@ jobs:
         env:
           STATUS: ${{ steps.status.outputs.status }}
         run: |
-          set -o pipefail
           CERTS=verifier/trust-sources/realreel
-          for alg in "sha1:" "sha256:-sha256"; do
-            name="${alg%%:*}"; flag="${alg#*:}"
-            openssl ocsp -issuer "$CERTS/realreel-c2pa-root.pem" $flag \
-              -cert "$CERTS/realreel-claim-signing-ca.pem" \
-              -respin "ocsp/out/response-$name.der" \
-              -CAfile "$CERTS/realreel-c2pa-root.pem" -no_nonce \
-              2>&1 | tee "/tmp/openssl-$name.txt"
-            grep -q "Response verify OK" "/tmp/openssl-$name.txt"
-            grep -q ": $STATUS" "/tmp/openssl-$name.txt"
-          done | tee -a /tmp/refresh-output.txt
+          verify() {
+            openssl ocsp -issuer "$CERTS/realreel-c2pa-root.pem" "$@" \
+              -CAfile "$CERTS/realreel-c2pa-root.pem" -no_nonce 2>&1 \
+              | tee -a /tmp/refresh-output.txt | tee /tmp/openssl-out.txt
+            grep -q "Response verify OK" /tmp/openssl-out.txt
+            grep -q ": $STATUS" /tmp/openssl-out.txt
+          }
+          verify -cert "$CERTS/realreel-claim-signing-ca.pem" \
+            -respin ocsp/out/response-sha1.der
+          verify -sha256 -cert "$CERTS/realreel-claim-signing-ca.pem" \
+            -respin ocsp/out/response-sha256.der
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         if: steps.crossverify.outcome == 'success'
         with:
           node-version: '22'
@@ -177,7 +145,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          set -o pipefail
           {
             npx wrangler@4 kv key put response:sha1 --path out/response-sha1.der \
               --binding OCSP_RESPONSES --remote
@@ -185,44 +152,20 @@ jobs:
               --binding OCSP_RESPONSES --remote
           } | tee -a /tmp/refresh-output.txt
 
-      # End-to-end acceptance against the live endpoint, exactly as a C2PA
-      # reviewer would query it (plain http, no browser User-Agent). Polls
-      # through KV's eventual consistency (~60 s) and pins This Update to the
-      # bytes built above, so it proves the NEW response is being served — a
-      # same-status stale response cannot pass.
+      # Polls the live endpoint until POST and GET both serve bytes identical
+      # to the response built above (see verify-live in ocsp/refresh-ops.ts) —
+      # byte-equality proves the NEW response is being served through KV's
+      # eventual consistency; a same-status stale response cannot pass.
       - name: Verify the live endpoint
         id: live
         if: steps.publish.outcome == 'success'
         continue-on-error: true
+        working-directory: ocsp
         shell: bash
-        env:
-          STATUS: ${{ steps.status.outputs.status }}
         run: |
-          CERTS=verifier/trust-sources/realreel
-          WANT_UPDATE=$(openssl ocsp -respin ocsp/out/response-sha1.der -resp_text -noverify 2>/dev/null \
-            | grep -m1 'This Update:' | sed 's/^ *//')
-          if [ -z "$WANT_UPDATE" ]; then
-            echo "could not extract This Update from the built response" | tee -a /tmp/refresh-output.txt
-            exit 1
-          fi
-          for attempt in $(seq 1 10); do
-            openssl ocsp -issuer "$CERTS/realreel-c2pa-root.pem" \
-              -cert "$CERTS/realreel-claim-signing-ca.pem" \
-              -url http://ocsp.realreel.xyz -no_nonce \
-              -CAfile "$CERTS/realreel-c2pa-root.pem" > /tmp/live.txt 2>&1 || true
-            if grep -q "Response verify OK" /tmp/live.txt \
-              && grep -q ": $STATUS" /tmp/live.txt \
-              && grep -qF "$WANT_UPDATE" /tmp/live.txt; then
-              echo "live endpoint serves the fresh '$STATUS' response ($WANT_UPDATE, attempt $attempt)" \
-                | tee -a /tmp/refresh-output.txt
-              cat /tmp/live.txt >> /tmp/refresh-output.txt
-              exit 0
-            fi
-            sleep 30
-          done
-          echo "live endpoint never served the freshly published response" | tee -a /tmp/refresh-output.txt
-          cat /tmp/live.txt | tee -a /tmp/refresh-output.txt
-          exit 1
+          deno run --allow-env --allow-read=.,../verifier \
+            --allow-net=ocsp.realreel.xyz \
+            refresh-ops.ts verify-live | tee -a /tmp/refresh-output.txt
 
       # Persist an explicitly dispatched status (to the ica-status KV key) so
       # scheduled runs keep re-signing it. Runs only after the live check
@@ -232,6 +175,7 @@ jobs:
         id: persist
         if: steps.live.outcome == 'success' && steps.status.outputs.explicit == 'true'
         continue-on-error: true
+        working-directory: ocsp
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -240,17 +184,8 @@ jobs:
           REVOCATION_TIME: ${{ steps.status.outputs.time }}
           REVOCATION_REASON: ${{ steps.status.outputs.reason }}
         run: |
-          set -o pipefail
-          NS=$(sed -n 's/.*binding = "OCSP_RESPONSES", id = "\([a-f0-9]*\)".*/\1/p' ocsp/wrangler.toml)
-          jq -n --arg s "$STATUS" --arg t "$REVOCATION_TIME" --arg r "$REVOCATION_REASON" \
-            '{status: $s, revocationTime: $t, revocationReason: $r}' > /tmp/ica-status.json
-          curl -sf -X PUT \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data-binary @/tmp/ica-status.json \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces/$NS/values/ica-status" \
-            > /dev/null
-          echo "persisted ica-status: $(cat /tmp/ica-status.json)" | tee -a /tmp/refresh-output.txt
+          deno run --allow-env --allow-read=. --allow-net=api.cloudflare.com \
+            refresh-ops.ts persist-status | tee -a /tmp/refresh-output.txt
 
       - name: Ensure tracking label exists
         if: >-
@@ -258,7 +193,7 @@ jobs:
           (steps.status.outcome == 'failure' || steps.build.outcome == 'failure' ||
            steps.crossverify.outcome == 'failure' || steps.publish.outcome == 'failure' ||
            steps.live.outcome == 'failure' || steps.persist.outcome == 'failure')
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const label = { name: 'ocsp', color: 'D93F0B', description: 'OCSP responder operations' };
@@ -275,7 +210,7 @@ jobs:
           (steps.status.outcome == 'failure' || steps.build.outcome == 'failure' ||
            steps.crossverify.outcome == 'failure' || steps.publish.outcome == 'failure' ||
            steps.live.outcome == 'failure' || steps.persist.outcome == 'failure')
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const fs = require('fs');

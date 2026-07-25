@@ -89,6 +89,27 @@ jobs:
         run: deno test --allow-read .
         working-directory: ocsp
 
+  workflows:
+    name: workflow lint (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          cache: false   # nothing to cache for a single `go install`
+
+      # `go install` verifies the module against the public Go checksum
+      # database — a version-pinned, supply-chain-checked install without
+      # curl|bash or hand-maintained binary digests. shellcheck (preinstalled
+      # on the runner) is picked up automatically for `run:` script linting.
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      - name: Lint workflows
+        run: |
+          "$(go env GOPATH)/bin/actionlint" -color
+
   # The native Expo module (native/) ships Swift + Kotlin source for
   # transparency, but compiling it requires a full Expo/React Native app
   # (Xcode + Gradle + autolinking). Only the TypeScript bridge is type-checked

@@ -31,6 +31,7 @@ import {
   blockBytes,
   bytesEqual,
   certIdMatches,
+  certIdToPkijs,
   certIdValues,
   icaCertIdTargets,
   KV_KEY_BY_HASH_OID,
@@ -38,7 +39,6 @@ import {
   OID_OCSP_BASIC,
   OID_SHA1,
   parseCert,
-  pemToDer,
   subjectPublicKeyBits,
   toArrayBuffer,
 } from "./ocsp.ts";
@@ -106,18 +106,8 @@ export async function buildOcspResponseDer(opts: BuildOpts): Promise<Uint8Array>
   now.setMilliseconds(0); // whole seconds: keeps GeneralizedTime fraction-free
   const nextUpdate = new Date(now.getTime() + opts.validityDays * 86_400_000);
 
-  const certID = new pkijs.CertID({
-    hashAlgorithm: new pkijs.AlgorithmIdentifier({
-      algorithmId: target.hashOid,
-      algorithmParams: new asn1js.Null(),
-    }),
-    issuerNameHash: new asn1js.OctetString({ valueHex: toArrayBuffer(target.issuerNameHash) }),
-    issuerKeyHash: new asn1js.OctetString({ valueHex: toArrayBuffer(target.issuerKeyHash) }),
-    serialNumber: new asn1js.Integer({ valueHex: toArrayBuffer(target.serialNumber) }),
-  });
-
   const single = new pkijs.SingleResponse({
-    certID,
+    certID: certIdToPkijs(target),
     certStatus: certStatusSchema(opts),
     thisUpdate: now,
     nextUpdate,

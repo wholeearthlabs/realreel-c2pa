@@ -189,8 +189,11 @@ curl -s -A '' "http://ocsp.realreel.xyz/$(openssl ocsp \
   -no_nonce -reqout /dev/stdout | base64)" | openssl ocsp -respin /dev/stdin -resp_text -noverify | head -5
 ```
 
-The refresh workflow repeats the live `openssl ocsp -url` acceptance check
-after every publish, and opens a tracking issue (label `ocsp`) on any failure.
+The refresh workflow re-proves the live endpoint after every publish
+(`verify-live` in `refresh-ops.ts`: POST and GET must both serve bytes
+identical to the just-published response), and opens a tracking issue (label
+`ocsp`) on any failure. `refresh-ops.ts` also carries the workflow's status
+resolve/persist logic — thin `deno run` steps instead of curl/jq in YAML.
 
 ## Rotation and revocation
 

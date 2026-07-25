@@ -53,7 +53,7 @@ jobs:
           # 2>&1 so a module-load throw (fingerprint self-check) still reaches the issue body.
           deno run --quiet --allow-read --allow-env --allow-net \
             scripts/audit-attestation-roots.ts 2>&1 | tee /tmp/audit-output.txt
-          exit ${PIPESTATUS[0]}
+          exit "${PIPESTATUS[0]}"
 
       - name: Ensure tracking labels exist
         if: steps.audit.outcome == 'failure' && github.event_name != 'pull_request'

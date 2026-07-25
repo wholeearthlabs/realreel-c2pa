@@ -46,7 +46,7 @@ jobs:
         run: |
           set -o pipefail
           npx tsx scripts/audit-trust-anchors.ts | tee /tmp/audit-output.txt
-          exit ${PIPESTATUS[0]}
+          exit "${PIPESTATUS[0]}"
 
       - name: Ensure tracking labels exist
         if: steps.audit.outcome == 'failure' && github.event_name != 'pull_request'

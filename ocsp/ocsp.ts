@@ -124,6 +124,37 @@ export function certIdMatches(a: CertIdValues, b: CertIdValues): boolean {
   );
 }
 
+// --- CertID / request construction ----------------------------------------
+
+export function certIdToPkijs(t: CertIdValues): pkijs.CertID {
+  return new pkijs.CertID({
+    hashAlgorithm: new pkijs.AlgorithmIdentifier({
+      algorithmId: t.hashOid,
+      algorithmParams: new asn1js.Null(),
+    }),
+    issuerNameHash: new asn1js.OctetString({ valueHex: toArrayBuffer(t.issuerNameHash) }),
+    issuerKeyHash: new asn1js.OctetString({ valueHex: toArrayBuffer(t.issuerKeyHash) }),
+    serialNumber: new asn1js.Integer({ valueHex: toArrayBuffer(t.serialNumber) }),
+  });
+}
+
+// Minimal OCSPRequest DER for one CertID (no version, requestor, extensions
+// or nonce) — the same shape `openssl ocsp -no_nonce` produces. Used by the
+// refresh tooling's live-endpoint check.
+export function buildOcspRequestDer(t: CertIdValues): Uint8Array {
+  const request = new asn1js.Sequence({ value: [certIdToPkijs(t).toSchema()] });
+  const requestList = new asn1js.Sequence({ value: [request] });
+  const tbsRequest = new asn1js.Sequence({ value: [requestList] });
+  const ocspRequest = new asn1js.Sequence({ value: [tbsRequest] });
+  return new Uint8Array(ocspRequest.toBER(false));
+}
+
+export function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
 // --- Request parsing ------------------------------------------------------
 
 export function certIdValues(certId: pkijs.CertID): CertIdValues {
