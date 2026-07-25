@@ -23,11 +23,20 @@
 import postgres from "postgres";
 import type { VerifierDatastore } from "./ports.js";
 
+/**
+ * One row from lookup_signing_key_revocation — a two-table composite:
+ * key_id / cert_serial_number / platform / revoked_at come from the
+ * deletion-surviving issued_certificates ledger (the status system of
+ * record); user_id / public_key / app_attest_public_key are LEFT JOINed
+ * from the operational user_signing_keys row and are NULL once it is
+ * gone. The lookup only returns gone rows when revoked, a path that
+ * reads nothing but revoked_at.
+ */
 export interface RevocationRow {
   /** sha256(SPKI) — kept on the row for telemetry / migration parity; not
    * the lookup key (that's cert_serial_number). */
   key_id: string;
-  user_id: string;
+  user_id: string | null;
   revoked_at: string | null;
   /** Decimal-form leaf cert serial. The actual lookup key — matches
    * c2pa-node's signature_info.cert_serial_number byte-for-byte. */
@@ -45,7 +54,7 @@ export interface RevocationRow {
    * validator to reconstruct clientData = SHA256(challenge || SE_SPKI)
    * and verify Apple's signature over the assertion.
    * postgres.js returns bytea columns as Node Buffer. */
-  public_key: Buffer;
+  public_key: Buffer | null;
   /** X9.63 uncompressed P-256 public key (0x04 || X || Y, 65 bytes) of
    * the Apple App Attest credCert. Populated at enrollment for iOS rows;
    * NULL for Android. The Stage-2 validator uses this to verify the

@@ -159,10 +159,14 @@ export async function verifyRealReel(
   // that references it, by anyone — the kill switch for a signing oracle
   // whose fakes other accounts launder. DENYLIST semantics: reject ONLY if
   // the Stage-1 leaf serial is a known, revoked RealReel key. A serial absent
-  // from the registry is fine — a wrap-mode parent (Pixel etc.) carries a
+  // from the lookup is fine — a wrap-mode parent (Pixel etc.) carries a
   // non-RealReel cert that was never enrolled, so the Stage-1 denylist only
   // bites native RealReel captures. We read solely revoked_at; the row's
   // user_id is never bound. Runs before the Stage 2 lookup.
+  //
+  // Revocation status comes from the app-side issued_certificates ledger,
+  // which survives account deletion — a revoked capture key stays on this
+  // denylist even after its owner's registry row is gone.
   const stage1Serial = readCertSerial(capture, "stage 1");
   const stage1Row = await datastore.lookup(stage1Serial);
   // The row-present guard implements the denylist skip (not-found is not a
@@ -178,13 +182,15 @@ export async function verifyRealReel(
 
   // === Stage 2 (active, the upload) signing-key lookup + gates ===
   // Stage 2 is RealReel-signed in both native + wrap modes. Its leaf cert
-  // serial keys the user_signing_keys lookup.
+  // serial keys the lookup. Not-found also covers a never-revoked key whose
+  // registry row was deleted — the lookup hides those, so they fail closed
+  // on every platform.
   const stage2Serial = readCertSerial(active, "stage 2");
   const stage2Row = await datastore.lookup(stage2Serial);
   if (!stage2Row) {
     throw new VerifyError(
       VerifyErrorCode.KEY_NOT_FOUND,
-      `stage 2 cert_serial_number not in user_signing_keys`,
+      `stage 2 cert_serial_number not in the issued_certificates registry`,
     );
   }
   if (stage2Row.revoked_at !== null) {

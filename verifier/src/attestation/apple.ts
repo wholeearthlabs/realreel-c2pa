@@ -162,11 +162,12 @@ export function validateAppAttestStructure(
 
 /**
  * Crypto inputs for App Attest assertion verification: the per-device App
- * Attest credCert public key + the SE signing key's SPKI. Both are persisted
- * on user_signing_keys and surfaced via lookup_signing_key_revocation. They
- * are MANDATORY — the realreel profile rejects a Stage-2 app_attest upload
- * whose registry row lacks either (no nonce-only fallback); a NOT NULL DB
- * constraint enforces the same invariant.
+ * Attest credCert public key + the SE signing key's SPKI. Both live on
+ * user_signing_keys (the operational table — NOT the issued_certificates
+ * status ledger) and are surfaced via lookup_signing_key_revocation's LEFT
+ * JOIN, so they are NULL when the operational row is gone. They are
+ * MANDATORY — the realreel profile rejects a Stage-2 app_attest upload
+ * whose row lacks either (no nonce-only fallback).
  */
 export interface AppAttestCryptoInputs {
   /** X9.63 uncompressed P-256 public key (0x04 || X(32) || Y(32), 65
