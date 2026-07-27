@@ -4,6 +4,7 @@
 // same helpers the verifier stack uses.
 
 import {
+  assertIssuerCn,
   buildCaCert,
   encodeCertTBS,
   finalizeCertPem,
@@ -133,6 +134,45 @@ async function makeTestCa(rootSerial?: Uint8Array): Promise<TestCa> {
     rootSpkiDer,
     signTbs,
     spkiOf,
+  };
+}
+
+interface TestIca {
+  cert: pkijs.Certificate;
+  spkiDer: Uint8Array;
+  signTbs: (tbs: Uint8Array) => Promise<Uint8Array>;
+}
+
+// A root-signed ICA plus a signer bound to its private key — the issuer the
+// `ocsp-leaf` profile is minted under.
+async function makeTestIca(ca: TestCa): Promise<TestIca> {
+  const keys = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-384" },
+    true,
+    ["sign", "verify"],
+  );
+  const spkiDer = await ca.spkiOf(keys);
+  const cert = await buildCaCert({
+    profile: PROFILES.ica,
+    subjectSpkiDer: spkiDer,
+    issuerCert: ca.rootCert,
+    serialNumber: crypto.getRandomValues(new Uint8Array(20)),
+    now: new Date("2026-07-21T12:00:00Z"),
+  });
+  const pem = finalizeCertPem(cert, await ca.signTbs(encodeCertTBS(cert)));
+  return {
+    cert: parseCertFromPem(pem),
+    spkiDer,
+    signTbs: async (tbs: Uint8Array) =>
+      p1363ToDer(
+        new Uint8Array(
+          await crypto.subtle.sign(
+            { name: "ECDSA", hash: "SHA-384" },
+            keys.privateKey,
+            tbs.slice().buffer as ArrayBuffer,
+          ),
+        ),
+      ),
   };
 }
 
@@ -330,6 +370,108 @@ Deno.test("ocsp profile: chains to root, EKU exactly OCSPSigning, nocheck presen
   assert(findExtensionByOid(c, OID_AIA) === null, "responder MUST NOT carry AIA");
 });
 
+Deno.test("ocsp-leaf profile: ICA-signed, chains root→ICA→responder, AKI is the ICA's SKI, responder profile identical to `ocsp`", async () => {
+  const ca = await makeTestCa();
+  const ica = await makeTestIca(ca);
+
+  const responderKeys = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const responderSpki = await ca.spkiOf(responderKeys);
+  const cert = await buildCaCert({
+    profile: PROFILES["ocsp-leaf"],
+    subjectSpkiDer: responderSpki,
+    issuerCert: ica.cert,
+    serialNumber: crypto.getRandomValues(new Uint8Array(20)),
+    now: new Date("2026-07-21T12:00:00Z"),
+  });
+  const tbs = encodeCertTBS(cert);
+  const pem = finalizeCertPem(cert, await ica.signTbs(tbs));
+
+  // The whole point of this profile: the ICA signs it, and the root does not.
+  await selfVerify(pem, tbs, ica.spkiDer, responderSpki);
+  let rootThrew = false;
+  try {
+    await selfVerify(pem, tbs, ca.rootSpkiDer, responderSpki);
+  } catch {
+    rootThrew = true;
+  }
+  assert(rootThrew, "selfVerify must reject the root as issuer of an ICA-signed cert");
+
+  const c = parseCertFromPem(pem);
+  await verifyChainToTrustedRoots([c, ica.cert], [ca.rootCert]);
+  assert(c.issuer.isEqual(ica.cert.subject), "issuer DN must be the ICA's subject");
+
+  const hexOf = (b: Uint8Array) =>
+    [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  const aki = hexOf(findExtensionByOid(c, OID_AKI)!);
+  const icaSki = hexOf(findExtensionByOid(ica.cert, OID_SKI)!);
+  assert(aki.includes(icaSki.slice(4)), "AKI must embed the ICA's SKI, not the root's");
+  const rootSki = hexOf(findExtensionByOid(ca.rootCert, OID_SKI)!);
+  assert(!aki.includes(rootSki.slice(4)), "AKI must not be the root's SKI");
+
+  const days = (c.notAfter.value.getTime() - c.notBefore.value.getTime()) /
+    86_400_000;
+  assert(days === 366, `leaf responder validity must be 366d, got ${days}`);
+
+  const bc = new pkijs.BasicConstraints({
+    schema: asn1js.fromBER(
+      findExtensionByOid(c, OID_BC)!.buffer as ArrayBuffer,
+    ).result,
+  });
+  assert(bc.cA === false, "responder must be CA:FALSE");
+
+  assertCriticalities(c, "ocsp-leaf");
+  const ku = decodeKu(c);
+  assert(
+    ku.bytes.length === 1 && ku.bytes[0] === 0x80 && ku.unusedBits === 7,
+    "responder KU must be digitalSignature (0x80/7)",
+  );
+
+  const eku = new pkijs.ExtKeyUsage({
+    schema: asn1js.fromBER(
+      findExtensionByOid(c, OID_EKU)!.buffer as ArrayBuffer,
+    ).result,
+  });
+  assert(
+    eku.keyPurposes.length === 1 && eku.keyPurposes[0] === "1.3.6.1.5.5.7.3.9",
+    "EKU must be exactly id-kp-OCSPSigning",
+  );
+
+  assert(findExtensionByOid(c, OID_NOCHECK) !== null, "ocsp-nocheck present");
+  assert(findExtensionByOid(c, OID_AIA) === null, "responder MUST NOT carry AIA");
+  assert(
+    findExtensionByOid(c, OID_POLICIES) === null,
+    "responder MUST NOT carry certificatePolicies",
+  );
+
+  const serialBytes = new Uint8Array(c.serialNumber.valueBlock.valueHexView);
+  assert(
+    serialBytes.length <= 20 && serialBytes[0] !== 0x00 &&
+      (serialBytes[0] & 0x80) === 0,
+    "positive minimal-DER ≤20-octet serial",
+  );
+});
+
+Deno.test("assertIssuerCn: accepts the ICA for ocsp-leaf, rejects the root", async () => {
+  const ca = await makeTestCa();
+  const ica = await makeTestIca(ca);
+
+  assertIssuerCn(ica.cert, PROFILES["ocsp-leaf"]); // must not throw
+  assertIssuerCn(ca.rootCert, PROFILES.ocsp);
+
+  // The mistake this guard exists for: `--ica out/realreel-c2pa-root.pem`.
+  let threw = false;
+  try {
+    assertIssuerCn(ca.rootCert, PROFILES["ocsp-leaf"]);
+  } catch {
+    threw = true;
+  }
+  assert(threw, "assertIssuerCn must reject a root cert supplied as the ICA");
+});
+
 Deno.test("PROFILES pin: literal values match the runbook Appendix A table", () => {
   const r = PROFILES.root;
   assert(r.cn === "RealReel C2PA Root CA", "root CN");
@@ -372,6 +514,26 @@ Deno.test("PROFILES pin: literal values match the runbook Appendix A table", () 
     JSON.stringify(o.eku) === JSON.stringify(["1.3.6.1.5.5.7.3.9"]),
     "ocsp EKU",
   );
+
+  const l = PROFILES["ocsp-leaf"];
+  assert(l.cn === "RealReel Leaf OCSP Responder 1", "ocsp-leaf CN");
+  assert(l.kmsKey === "realreel-ocsp-ica", "ocsp-leaf subject KMS key");
+  assert(l.validityDays === 366, "ocsp-leaf 366d");
+  assert(l.ocspNoCheck === true, "ocsp-leaf nocheck");
+  assert(
+    JSON.stringify(l.eku) === JSON.stringify(["1.3.6.1.5.5.7.3.9"]),
+    "ocsp-leaf EKU",
+  );
+  assert(l.aia === null && l.certificatePolicies === null, "ocsp-leaf minimal extensions");
+
+  // Who signs what — the field that separates the two responder profiles.
+  assert(r.signerKey === "realreel-root" && r.issuerCn === null, "root self-signs");
+  assert(i.signerKey === "realreel-root" && i.issuerCn === r.cn, "ica is root-signed");
+  assert(o.signerKey === "realreel-root" && o.issuerCn === r.cn, "ocsp is root-signed");
+  assert(
+    l.signerKey === "realreel-claim-ica" && l.issuerCn === i.cn,
+    "ocsp-leaf is ICA-signed",
+  );
 });
 
 Deno.test("lint: runs inside buildCaCert and rejects a >1827d issuing CA", async () => {
@@ -405,6 +567,7 @@ Deno.test("lint: rejects root pathLen 3 and CA-flagged responder", () => {
     const [name, bad] of [
       ["root", { ...PROFILES.root, basicConstraints: { cA: true, pathLen: 3 } }],
       ["ocsp", { ...PROFILES.ocsp, basicConstraints: { cA: true } }],
+      ["ocsp-leaf", { ...PROFILES["ocsp-leaf"], basicConstraints: { cA: true } }],
     ] as const
   ) {
     let threw = false;
@@ -415,6 +578,51 @@ Deno.test("lint: rejects root pathLen 3 and CA-flagged responder", () => {
     }
     assert(threw, `lint must reject bad ${name} profile`);
   }
+});
+
+Deno.test("lint: responder profiles must not swap delegators, outlive 366d, or self-sign", () => {
+  const L = PROFILES["ocsp-leaf"];
+  const cases: Array<[string, Parameters<typeof lintProfile>[1], string]> = [
+    // A leaf-status responder signed by the ROOT is not an authorized
+    // responder for leaves (RFC 6960 §4.2.2.2) — no client would accept it.
+    ["ocsp-leaf", { ...L, signerKey: "realreel-root", issuerCn: "RealReel C2PA Root CA" }, "root-delegated leaf responder"],
+    // ...and the mirror image: ICA-signed ICA-status responder.
+    ["ocsp", { ...PROFILES.ocsp, signerKey: "realreel-claim-ica", issuerCn: "RealReel Claim Signing CA" }, "ICA-delegated ICA responder"],
+    // ocsp-nocheck + a long life = an unrevocable cert for that whole life.
+    ["ocsp-leaf", { ...L, validityDays: 730 }, "730d ocsp-nocheck responder"],
+    ["ocsp", { ...PROFILES.ocsp, validityDays: 367 }, "367d ocsp-nocheck responder"],
+    // selfSigned/issuerCn must agree — the CLI branches on selfSigned but the
+    // pre-sign issuer guard reads issuerCn.
+    ["ocsp-leaf", { ...L, selfSigned: true }, "selfSigned with an issuerCn"],
+    ["root", { ...PROFILES.root, selfSigned: true, issuerCn: null, signerKey: "realreel-claim-ica" }, "self-signed by another key"],
+  ];
+  for (const [name, bad, label] of cases) {
+    let threw = false;
+    try {
+      lintProfile(name, bad);
+    } catch {
+      threw = true;
+    }
+    assert(threw, `lint must reject ${label}`);
+  }
+});
+
+Deno.test("lint: runs inside buildCaCert for the ocsp-leaf profile too", async () => {
+  const ca = await makeTestCa();
+  const ica = await makeTestIca(ca);
+  let threw = false;
+  try {
+    await buildCaCert({
+      profile: { ...PROFILES["ocsp-leaf"], validityDays: 730 },
+      subjectSpkiDer: ca.rootSpkiDer,
+      issuerCert: ica.cert,
+      serialNumber: new Uint8Array(20).fill(1),
+      now: new Date("2026-07-21T12:00:00Z"),
+    });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "buildCaCert must lint the CN-matched ocsp-leaf profile");
 });
 
 Deno.test("selfVerify: rejects a TBS mismatch and a subject-SPKI mismatch", async () => {

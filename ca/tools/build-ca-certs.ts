@@ -1,15 +1,21 @@
 // Ceremony tool: builds and signs the RealReel C2PA CA hierarchy.
 //
-// One subcommand per certificate, run in order during the recorded ceremony
-// (see the app repo's docs/runbooks/c2pa-ca-key-ceremony.md):
+// One subcommand per certificate. The first three run in order during the
+// recorded ceremony (app repo: docs/runbooks/c2pa-ca-key-ceremony.md):
 //
 //   deno run -A ca/tools/build-ca-certs.ts root --out out/realreel-c2pa-root.pem
 //   deno run -A ca/tools/build-ca-certs.ts ica  --root out/realreel-c2pa-root.pem --out out/realreel-claim-signing-ca.pem
 //   deno run -A ca/tools/build-ca-certs.ts ocsp --root out/realreel-c2pa-root.pem --out out/realreel-ocsp-responder-1.pem
 //
+// The fourth is an off-camera follow-up: an ICA-signed end-entity cert, no root
+// involvement (the ceremony design doc's "Post-ceremony follow-ups").
+//
+//   deno run -A ca/tools/build-ca-certs.ts ocsp-leaf --ica out/realreel-claim-signing-ca.pem --out out/realreel-leaf-ocsp-responder-1.pem
+//
 // Add --dry-run to build and display the certificate WITHOUT signing (for
-// pre-ceremony review). Keyring/location default to realreel-ca-v2 / the
-// `us` multi-region; override with env RING / LOC.
+// pre-ceremony review). Project/keyring/location default to
+// realreel-certificate-authority / realreel-ca-v2 / the `us` multi-region;
+// override with env PROJ / RING / LOC.
 //
 // Audit properties (why a script is acceptable ceremony tooling):
 //   1. All certificate values are hardcoded in the PROFILES table below —
@@ -23,14 +29,15 @@
 //   3. After signing, the tool re-parses its own output and verifies that the
 //      embedded TBS byte-equals the approved TBS, that the embedded subject
 //      public key byte-equals the KMS-fetched SPKI, and that the signature
-//      verifies against the root public key — so "what was displayed" and
+//      verifies against the issuer's public key — so "what was displayed" and
 //      "what was signed" cannot diverge silently. The final artifact is plain
 //      X.509, independently checkable with openssl by the second person.
 //
 // KMS access: subject public keys are fetched with
 // `gcloud kms keys versions get-public-key`; signing shells out to
-// `gcloud kms asymmetric-sign` using the operator's gcloud auth (the
-// ceremony's temporary grant). The ROOT key signs all three certificates.
+// `gcloud kms asymmetric-sign` using the operator's gcloud auth (a temporary
+// grant). Each profile names the key that signs it: the ROOT key signs the
+// three ceremony certificates, the ICA key signs `ocsp-leaf`.
 
 import {
   asn1js,
@@ -92,6 +99,8 @@ const KU_DS = { bytes: new Uint8Array([0x80]), unusedBits: 7 }; // digitalSignat
 export interface CaProfile {
   cn: string;
   kmsKey: string; // subject key (whose public key goes in the cert)
+  signerKey: string; // KMS key that signs it (== kmsKey when self-signed)
+  issuerCn: string | null; // expected issuer CN; null iff self-signed
   selfSigned: boolean;
   validityDays: number;
   basicConstraints: { cA: boolean; pathLen?: number };
@@ -102,10 +111,17 @@ export interface CaProfile {
   ocspNoCheck: boolean;
 }
 
-export const PROFILES: Record<"root" | "ica" | "ocsp", CaProfile> = {
+const ROOT_CN = "RealReel C2PA Root CA";
+const ICA_CN = "RealReel Claim Signing CA";
+
+export type ProfileName = "root" | "ica" | "ocsp" | "ocsp-leaf";
+
+export const PROFILES: Record<ProfileName, CaProfile> = {
   root: {
-    cn: "RealReel C2PA Root CA",
+    cn: ROOT_CN,
     kmsKey: "realreel-root",
+    signerKey: "realreel-root",
+    issuerCn: null,
     selfSigned: true,
     validityDays: 9131, // ~25 y; >2049 expiry forces GeneralizedTime (handled below)
     basicConstraints: { cA: true, pathLen: 1 },
@@ -116,8 +132,10 @@ export const PROFILES: Record<"root" | "ica" | "ocsp", CaProfile> = {
     ocspNoCheck: false,
   },
   ica: {
-    cn: "RealReel Claim Signing CA",
+    cn: ICA_CN,
     kmsKey: "realreel-claim-ica",
+    signerKey: "realreel-root",
+    issuerCn: ROOT_CN,
     selfSigned: false,
     validityDays: 1825, // CP cap: 1827
     basicConstraints: { cA: true, pathLen: 0 },
@@ -137,9 +155,13 @@ export const PROFILES: Record<"root" | "ica" | "ocsp", CaProfile> = {
     },
     ocspNoCheck: false,
   },
+  // Answers status for the ICA — the CertID a client builds from the root, so
+  // the root must be its issuer (RFC 6960 §4.2.2.2 authorized responder).
   ocsp: {
     cn: "RealReel OCSP Responder 1",
     kmsKey: "realreel-ocsp-root",
+    signerKey: "realreel-root",
+    issuerCn: ROOT_CN,
     selfSigned: false,
     // Short deliberately: the cert carries ocsp-nocheck, so it is unrevocable
     // for its whole life and RFC 6960 §4.2.2.2.1 says treat compromise like a
@@ -150,6 +172,24 @@ export const PROFILES: Record<"root" | "ica" | "ocsp", CaProfile> = {
     eku: [OID.ekuOcspSigning], // exactly id-kp-OCSPSigning
     certificatePolicies: null,
     aia: null, // MUST NOT on the responder
+    ocspNoCheck: true,
+  },
+  // Sibling of `ocsp` for LEAF status (claim-signing certs). Same profile,
+  // different delegator: RFC 6960 §4.2.2.2 only accepts a responder issued by
+  // the same CA as the certificate being asked about, so this one is signed by
+  // the ICA. Off camera — no root key involvement.
+  "ocsp-leaf": {
+    cn: "RealReel Leaf OCSP Responder 1",
+    kmsKey: "realreel-ocsp-ica",
+    signerKey: "realreel-claim-ica",
+    issuerCn: ICA_CN,
+    selfSigned: false,
+    validityDays: 366, // same ocsp-nocheck reasoning as above
+    basicConstraints: { cA: false },
+    keyUsage: KU_DS,
+    eku: [OID.ekuOcspSigning],
+    certificatePolicies: null,
+    aia: null,
     ocspNoCheck: true,
   },
 };
@@ -163,6 +203,15 @@ export function lintProfile(name: string, p: CaProfile): void {
   const kuIs = (byte: number, unused: number) =>
     p.keyUsage.bytes.length === 1 && p.keyUsage.bytes[0] === byte &&
     p.keyUsage.unusedBits === unused;
+
+  // issuerCn is what the CLI checks the supplied issuer PEM against, so the
+  // two must never disagree about whether there IS an external issuer.
+  if (p.selfSigned !== (p.issuerCn === null)) {
+    fail("selfSigned and issuerCn disagree");
+  }
+  if (p.selfSigned && p.signerKey !== p.kmsKey) {
+    fail("a self-signed cert must be signed by its own key");
+  }
 
   if (name === "root") {
     if (!p.selfSigned) fail("root must be self-signed");
@@ -189,8 +238,13 @@ export function lintProfile(name: string, p: CaProfile): void {
     if (!p.eku?.includes(OID.ekuC2PAClaimSigning)) {
       fail("issuing CA EKU MUST contain c2pa-kp-claimSigning");
     }
+    // Nothing else pins signerKey: assertIssuerCn only checks the supplied
+    // PEM, so a drifted signerKey would surface only after a wasted signature.
+    if (p.issuerCn !== ROOT_CN || p.signerKey !== "realreel-root") {
+      fail(`'ica' must be issued by ${ROOT_CN} (KMS key realreel-root)`);
+    }
   }
-  if (name === "ocsp") {
+  if (name === "ocsp" || name === "ocsp-leaf") {
     if (p.basicConstraints.cA) fail("OCSP responder must be CA:FALSE");
     if (!kuIs(0x80, 7)) fail("OCSP responder KU must be exactly digitalSignature");
     if (
@@ -199,6 +253,20 @@ export function lintProfile(name: string, p: CaProfile): void {
       fail("OCSP responder MUST be exactly id-kp-OCSPSigning + ocsp-nocheck");
     }
     if (p.aia) fail("OCSP responder MUST NOT carry AIA");
+    // ocsp-nocheck makes the cert unrevocable for its whole life, so validity
+    // IS the only containment for a responder-key compromise (RFC 6960
+    // §4.2.2.2.1). Cap it at the re-issue cadence.
+    if (p.validityDays > 366) {
+      fail(`ocsp-nocheck responder validity ${p.validityDays}d exceeds 366d`);
+    }
+    // A responder is only "authorized" for the certs its OWN issuer issued:
+    // root-issued answers for the ICA, ICA-issued answers for the leaves.
+    // Swapping these two silently produces a responder no client will trust.
+    const wantIssuer = name === "ocsp" ? ROOT_CN : ICA_CN;
+    const wantSigner = name === "ocsp" ? "realreel-root" : "realreel-claim-ica";
+    if (p.issuerCn !== wantIssuer || p.signerKey !== wantSigner) {
+      fail(`'${name}' must be issued by ${wantIssuer} (KMS key ${wantSigner})`);
+    }
   }
 }
 
@@ -234,6 +302,24 @@ function subjectDn(cn: string): pkijs.RelativeDistinguishedNames {
       ),
     });
   return dn;
+}
+
+// Pre-sign guard: the issuer certificate handed on the command line must be
+// the CA this profile is supposed to be issued by. selfVerify() would catch a
+// mismatch too, but only after a signature has already been spent.
+export function assertIssuerCn(
+  issuerCert: pkijs.Certificate,
+  p: CaProfile,
+): void {
+  const cn = issuerCert.subject.typesAndValues.find(
+    (tv) => tv.type === OID.commonName,
+  )?.value.valueBlock.value;
+  if (cn !== p.issuerCn) {
+    throw new Error(
+      `issuer mismatch: '${p.cn}' must be issued by '${p.issuerCn}', ` +
+        `but the supplied issuer certificate is '${cn}'`,
+    );
+  }
 }
 
 // --- Small helpers --------------------------------------------------------
@@ -477,12 +563,14 @@ export async function buildCaCert(
 
 // Post-sign self-check: the finished cert's TBS must byte-equal the approved
 // TBS, its embedded subject public key must byte-equal the KMS-fetched SPKI,
-// and the signature must verify against the ROOT public key. Makes
-// "displayed", "fetched", and "signed" impossible to diverge silently.
+// and the signature must verify against the ISSUER's public key (the root, or
+// the ICA for `ocsp-leaf` — both P-384/SHA-384, matching the ecdsa-with-SHA384
+// in the cert). Makes "displayed", "fetched", and "signed" impossible to
+// diverge silently — including a mint run against the wrong signing key.
 export async function selfVerify(
   finishedPem: string,
   approvedTbs: Uint8Array,
-  rootSpkiDer: Uint8Array,
+  issuerSpkiDer: Uint8Array,
   expectedSubjectSpkiDer: Uint8Array,
 ): Promise<void> {
   const parsed = parseCertFromPem(finishedPem);
@@ -498,13 +586,13 @@ export async function selfVerify(
     );
   }
 
-  const point = pointBytesFromSpkiDer(rootSpkiDer);
+  const point = pointBytesFromSpkiDer(issuerSpkiDer);
   const sigBits = blockBytes(parsed.signatureValue);
   const digest = await sha("SHA-384", approvedTbs);
   const sig = p384.Signature.fromDER(sigBits).toCompactRawBytes();
   if (!p384.verify(sig, digest, point, { lowS: false })) {
     throw new Error(
-      "self-verify FAILED: signature does not verify against the root public key",
+      "self-verify FAILED: signature does not verify against the issuer public key",
     );
   }
 }
@@ -539,7 +627,7 @@ export async function renderReview(
     `Serial (hex):   ${serial} (${serial.length / 2} octets)`,
     `Not before:     ${cert.notBefore.value.toISOString()}`,
     `Not after:      ${cert.notAfter.value.toISOString()}  (${p.validityDays} days)`,
-    `Sig algorithm:  ecdsa-with-SHA384`,
+    `Sig algorithm:  ecdsa-with-SHA384, by KMS key '${p.signerKey}'`,
     `Subject key:    EC ${curveNameFromSpkiDer(subjectSpkiDer)}, from KMS key '${p.kmsKey}'`,
     `SPKI SHA-256:   ${hex(await sha("SHA-256", subjectSpkiDer))}`,
     `SKI:            ${hex(decodeSki(cert))}`,
@@ -573,6 +661,10 @@ const RING = Deno.env.get("RING") ?? "realreel-ca-v2";
 const LOC = Deno.env.get("LOC") ?? "us"; // multi-region: supports HSM and
 // backs the plan's multi-region-redundancy answer to CP §6.2.1 off-site backup
 
+// Pinned rather than inherited from `gcloud config`: an ambient default project
+// can point a signing run at the wrong key.
+const PROJ = Deno.env.get("PROJ") ?? "realreel-certificate-authority";
+
 async function gcloud(args: string[]): Promise<void> {
   const out = await new Deno.Command("gcloud", { args }).output();
   if (!out.success) {
@@ -597,6 +689,8 @@ async function kmsPublicKeyDer(key: string): Promise<Uint8Array> {
     RING,
     "--location",
     LOC,
+    "--project",
+    PROJ,
     "--output-file",
     tmp,
   ]);
@@ -605,9 +699,11 @@ async function kmsPublicKeyDer(key: string): Promise<Uint8Array> {
   return spkiPemToDer(pem);
 }
 
-// Signs with the ROOT key (the only signing key in the ceremony). gcloud
-// hashes the input with SHA-384 client-side and returns a DER ECDSA signature.
-async function kmsSignWithRoot(tbs: Uint8Array): Promise<Uint8Array> {
+// Signs with the profile's issuing key — the root for the ceremony certs, the
+// ICA for `ocsp-leaf`. Both are EC_SIGN_P384_SHA384, so sha384 matches the
+// ecdsa-with-SHA384 OID the TBS commits to. gcloud hashes the input
+// client-side and returns a DER ECDSA signature.
+async function kmsSign(key: string, tbs: Uint8Array): Promise<Uint8Array> {
   const inFile = await Deno.makeTempFile({ suffix: ".der" });
   const sigFile = await Deno.makeTempFile({ suffix: ".sig" });
   try {
@@ -618,11 +714,13 @@ async function kmsSignWithRoot(tbs: Uint8Array): Promise<Uint8Array> {
       "--version",
       "1",
       "--key",
-      "realreel-root",
+      key,
       "--keyring",
       RING,
       "--location",
       LOC,
+      "--project",
+      PROJ,
       "--digest-algorithm",
       "sha384",
       "--input-file",
@@ -639,14 +737,24 @@ async function kmsSignWithRoot(tbs: Uint8Array): Promise<Uint8Array> {
 
 // --- CLI ------------------------------------------------------------------
 
+// Which flag carries the issuer certificate. Named after the CA it must hold,
+// so a wrong-cert mistake is visible in the command line itself.
+const ISSUER_FLAG: Record<ProfileName, string | null> = {
+  root: null, // self-signed
+  ica: "--root",
+  ocsp: "--root",
+  "ocsp-leaf": "--ica",
+};
+
 function parseArgs(argv: string[]) {
   const usage = () => {
     console.error(
-      "usage: build-ca-certs.ts <root|ica|ocsp> [--root <root.pem>] --out <file> [--dry-run]",
+      "usage: build-ca-certs.ts <root|ica|ocsp|ocsp-leaf> [--root <root.pem>] " +
+        "[--ica <ica.pem>] --out <file> [--dry-run]",
     );
     Deno.exit(2);
   };
-  const step = argv[0] as "root" | "ica" | "ocsp";
+  const step = argv[0] as ProfileName;
   if (!PROFILES[step]) usage();
   const get = (flag: string) => {
     const i = argv.indexOf(flag);
@@ -656,7 +764,8 @@ function parseArgs(argv: string[]) {
   };
   const dryRun = argv.includes("--dry-run");
   const outPath = get("--out");
-  const rootPemPath = get("--root");
+  const issuerFlag = ISSUER_FLAG[step];
+  const issuerPemPath = issuerFlag ? get(issuerFlag) : undefined;
   // Validate EVERYTHING before any KMS interaction: a signature taken and
   // then dropped because --out was missing would burn an on-camera root-key
   // AsymmetricSign (and fire the usage alert) for nothing.
@@ -664,28 +773,29 @@ function parseArgs(argv: string[]) {
     console.error("--out <file> is required (checked before anything signs)");
     usage();
   }
-  if (step !== "root" && !rootPemPath) {
-    console.error(`'${step}' requires --root <root.pem>`);
+  if (issuerFlag && !issuerPemPath) {
+    console.error(`'${step}' requires ${issuerFlag} <issuer.pem>`);
     usage();
   }
-  return { step, rootPemPath, outPath, dryRun };
+  return { step, issuerPemPath, outPath, dryRun };
 }
 
 if (import.meta.main) {
-  const { step, rootPemPath, outPath, dryRun } = parseArgs(Deno.args);
+  const { step, issuerPemPath, outPath, dryRun } = parseArgs(Deno.args);
   const profile = PROFILES[step];
 
   let issuerCert: pkijs.Certificate | undefined;
-  let rootSpkiDer: Uint8Array;
-  if (step === "root") {
-    rootSpkiDer = await kmsPublicKeyDer(profile.kmsKey);
+  let issuerSpkiDer: Uint8Array;
+  if (profile.selfSigned) {
+    issuerSpkiDer = await kmsPublicKeyDer(profile.kmsKey);
   } else {
-    issuerCert = parseCertFromPem(await Deno.readTextFile(rootPemPath!));
-    rootSpkiDer = extractSpkiDer(issuerCert);
+    issuerCert = parseCertFromPem(await Deno.readTextFile(issuerPemPath!));
+    assertIssuerCn(issuerCert, profile);
+    issuerSpkiDer = extractSpkiDer(issuerCert);
   }
 
-  const subjectSpkiDer = step === "root"
-    ? rootSpkiDer
+  const subjectSpkiDer = profile.selfSigned
+    ? issuerSpkiDer
     : await kmsPublicKeyDer(profile.kmsKey);
 
   const serialNumber = new Uint8Array(20);
@@ -708,16 +818,17 @@ if (import.meta.main) {
   }
 
   const answer = prompt(
-    'Second Trusted Person has read the fields aloud and approved. Type "SIGN" to invoke Cloud KMS with the root key, anything else to abort:',
+    `Second Trusted Person has read the fields aloud and approved. Type "SIGN" ` +
+      `to invoke Cloud KMS with the '${profile.signerKey}' key, anything else to abort:`,
   );
   if (answer !== "SIGN") {
     console.log("Aborted. Nothing was signed.");
     Deno.exit(1);
   }
 
-  const signature = await kmsSignWithRoot(tbs);
+  const signature = await kmsSign(profile.signerKey, tbs);
   const pem = finalizeCertPem(cert, signature);
-  await selfVerify(pem, tbs, rootSpkiDer, subjectSpkiDer);
+  await selfVerify(pem, tbs, issuerSpkiDer, subjectSpkiDer);
 
   const dir = outPath!.split("/").slice(0, -1).join("/");
   if (dir) await Deno.mkdir(dir, { recursive: true });
@@ -727,7 +838,7 @@ if (import.meta.main) {
     await sha("SHA-256", new TextEncoder().encode(pem)),
   );
   console.log(
-    "self-verify OK: signed TBS matches approved TBS; certified key matches the KMS SPKI; signature verifies against the root public key.",
+    "self-verify OK: signed TBS matches approved TBS; certified key matches the KMS SPKI; signature verifies against the issuer public key.",
   );
   console.log(`wrote ${outPath}`);
   console.log(`PEM SHA-256 (read aloud): ${pemSha}`);
