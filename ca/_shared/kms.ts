@@ -19,7 +19,7 @@
 
 if (typeof Deno === "undefined") {
   throw new Error(
-    "ca/_shared/kms.ts is Deno-only. Do not import from React Native or other non-Deno runtimes.",
+    "_shared/kms.ts is Deno-only. Do not import from React Native or other non-Deno runtimes.",
   );
 }
 
@@ -239,21 +239,25 @@ async function getAccessToken(creds: KmsCredentials): Promise<string> {
 
 // --- KMS asymmetricSign ------------------------------------------------
 
-// Sign a SHA-256 digest with the intermediate CA key in Cloud KMS. Returns the
-// raw signature bytes exactly as KMS returns them — for `ec-sign-p256-sha256`
+// Sign a digest with the intermediate/ICA key in Cloud KMS. Returns the
+// raw signature bytes exactly as KMS returns them — for `ec-sign-*` keys
 // this is a DER-encoded `SEQUENCE { r INTEGER, s INTEGER }`, which is the same
 // encoding X.509 expects in `signatureValue`. No P1363→DER conversion needed.
 //
-// The caller is responsible for SHA-256-hashing the TBSCertificate bytes
-// before calling.
+// The caller hashes the TBSCertificate before calling; `hash` names which
+// digest it computed and MUST match the KMS key algorithm (sha256 for the v1
+// `ec-sign-p256-sha256` intermediate, sha384 for the v2 `ec-sign-p384-sha384`
+// claim ICA) — KMS rejects a mismatched digest field.
 export async function kmsSignDigest(
   digest: Uint8Array,
   creds: KmsCredentials,
+  hash: "sha256" | "sha384" = "sha256",
 ): Promise<Uint8Array> {
-  if (digest.length !== 32) {
+  const expectedLen = hash === "sha384" ? 48 : 32;
+  if (digest.length !== expectedLen) {
     throw new KmsError(
       "BAD_DIGEST",
-      `kmsSignDigest expects a 32-byte SHA-256 digest, got ${digest.length} bytes`,
+      `kmsSignDigest expects a ${expectedLen}-byte ${hash} digest, got ${digest.length} bytes`,
     );
   }
   const token = await getAccessToken(creds);
@@ -276,7 +280,7 @@ export async function kmsSignDigest(
         "authorization": `Bearer ${token}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ digest: { sha256: digestB64 } }),
+      body: JSON.stringify({ digest: { [hash]: digestB64 } }),
     });
   } catch (e) {
     throw new KmsError(
@@ -318,19 +322,20 @@ export async function kmsSignDigest(
 
 // --- KMS getPublicKey -------------------------------------------------
 
-// Expected algorithm enum string from Cloud KMS for the RealReel intermediate.
-// See https://cloud.google.com/kms/docs/algorithms — `EC_SIGN_P256_SHA256`
-// signs with ECDSA P-256 and SHA-256, which matches the `ecdsaWithSHA256`
-// AlgorithmIdentifier pki.ts hardcodes in the TBSCertificate handed to KMS.
+// Expected algorithm enum strings from Cloud KMS for the leaf-signing key,
+// per hierarchy. See https://cloud.google.com/kms/docs/algorithms.
+// v1: `EC_SIGN_P256_SHA256` (legacy intermediate) ↔ pki.ts's ecdsaWithSHA256.
+// v2: `EC_SIGN_P384_SHA384` (claim ICA) ↔ ecdsaWithSHA384.
 //
-// If GCP_KMS_KEY_RESOURCE is ever pointed at an RSA, P-384, or other-curve
-// key without simultaneously updating pki.ts, every leaf we issue would
-// declare `signatureAlgorithm = ecdsaWithSHA256` while carrying a
-// different signature — leaves would fail to verify against their own
-// declared algorithm, and devices would be unable to capture until the
-// config drift is fixed. The constant + check below catch the misconfig
-// at the first cold-start KMS call rather than at first sign-then-verify.
+// If GCP_KMS_KEY_RESOURCE is ever pointed at a key whose algorithm doesn't
+// match the active CA_HIERARCHY, every leaf we issue would declare one
+// signatureAlgorithm while carrying another — leaves would fail to verify
+// against their own declared algorithm, and devices would be unable to
+// capture until the config drift is fixed. These constants + the cold-start
+// check in register-signing-key catch the misconfig at the first KMS call
+// rather than at first sign-then-verify.
 export const KMS_EXPECTED_ALGORITHM = "EC_SIGN_P256_SHA256";
+export const KMS_EXPECTED_ALGORITHM_V2 = "EC_SIGN_P384_SHA384";
 
 export interface KmsPublicKey {
   // DER-encoded SubjectPublicKeyInfo bytes (raw, no PEM wrapper). Same shape

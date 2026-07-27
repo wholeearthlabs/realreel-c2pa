@@ -44,6 +44,15 @@ const SECURITY_LEVEL_SOFTWARE = 0;
 const SECURITY_LEVEL_TEE = 1;
 const SECURITY_LEVEL_STRONG_BOX = 2;
 
+// KeyMint AuthorizationList enum values consumed by the AL2 evidence table
+// (CP Appendix A.3.1). Source: hardware/interfaces/security/keymint aidl.
+const KM_PURPOSE_SIGN = 2;
+const KM_ALGORITHM_EC = 3;
+const KM_DIGEST_SHA_2_256 = 4;
+const KM_EC_CURVE_P_256 = 1;
+const KM_ORIGIN_GENERATED = 0;
+const VERIFIED_BOOT_STATE_VERIFIED = 0;
+
 // Lazy-init the parsed Google roots.
 let _googleRoots: Certificate[] | null = null;
 function googleRoots(): Certificate[] {
@@ -65,7 +74,8 @@ export interface ValidateAndroidAttestationOpts {
   // SPKI DER bytes of the SE signing key the client claims. Must match the
   // public key in the leaf cert exactly.
   sePublicKey: Uint8Array;
-  // Our app package name (com.realreel.app).
+  // Our app package name (com.realreel.app; or com.realreel.app.dev on a gated
+  // local-dev stack — see _shared/config.ts). Passed in, not hardcoded here.
   packageName: string;
   // What the client claimed about hardware backing. Cross-checks against the
   // attestationSecurityLevel in the cert: 'strongbox' requires SECURITY_LEVEL_STRONG_BOX,
@@ -79,6 +89,36 @@ export interface ValidateAndroidAttestationOpts {
   // TEST-ONLY override for the chain validity-window checks (fixtures carry
   // short-lived RKP certs). See verifyChainToTrustedRoots. Production omits.
   validationTime?: Date;
+  // When present, evaluate the CP Appendix A.3.1 AL2 evidence table and
+  // report the outcome on the result. AL2-only failures NEVER reject the
+  // enrollment — the caller degrades the granted assurance level to AL1
+  // instead (keeps the long-tail of locked-down-but-slow-patching devices
+  // enrollable while Pixels carry AL2).
+  al2?: Al2EvidenceOpts;
+}
+
+export interface Al2EvidenceOpts {
+  // SHA-256 digests of the app's registered signing certificate(s) — the
+  // Play App Signing cert in prod, the debug keystore cert on a local
+  // stack. Empty ⇒ the signing-cert check cannot pass (config-missing
+  // failure); AL2 requires it (CP A.3.1 attestationApplicationID row).
+  signingCertSha256Digests: Uint8Array[];
+  // Optional versionCode floor for the registered package. Doubles as the
+  // Gen Agmt §4.2 mandated-change lever: raising it retires non-conformant
+  // builds as their leaves expire. Unset ⇒ version not checked.
+  minAppVersionCode?: number;
+  // Evaluation time for the patch-currency rows (os ≤ 4 months,
+  // vendor/boot ≤ 90 days). Injected so the evaluation stays a pure
+  // function of its inputs.
+  now: Date;
+}
+
+export interface Al2Evaluation {
+  eligible: boolean;
+  // Machine-readable reason codes for every failed AL2-only row; empty when
+  // eligible. Logged (never returned to the client verbatim) so a fleet's
+  // AL2 eligibility is observable before and after the v2 flip.
+  failures: string[];
 }
 
 export interface ValidateAndroidAttestationResult {
@@ -88,9 +128,12 @@ export interface ValidateAndroidAttestationResult {
   // When minOsPatchLevel is supplied, a null osPatchLevel is treated as
   // "older than any threshold" and rejected — fail closed.
   osPatchLevel: number | null;
+  // Present iff opts.al2 was supplied. eligible=true ⇒ the full A.3.1 table
+  // passed and the caller may issue an AL2 leaf.
+  al2?: Al2Evaluation;
 }
 
-interface KeyDescription {
+export interface KeyDescription {
   attestationVersion: number;
   attestationSecurityLevel: number;
   keymasterVersion: number;
@@ -101,6 +144,33 @@ interface KeyDescription {
   // YYYYMMDD on older builds. Normalized to YYYYMM in extractOsPatchLevel.
   // null when the AuthorizationList doesn't carry the tag.
   osPatchLevel: number | null;
+
+  // --- AL2 evidence fields (CP Appendix A.3.1). All null when the leaf
+  // doesn't carry the tag or encodes it in an unsupported shape — the AL2
+  // evaluation treats null as a failed row (degrade to AL1, never reject).
+
+  // attestationApplicationId [709]: package entries + the SET of SHA-256
+  // signing-cert digests.
+  appPackages: Array<{ name: string; version: number | null }>;
+  appSigningCertDigests: Uint8Array[];
+  // Key parameters, hardwareEnforced ONLY — a software-enforced key param
+  // proves nothing about the key the hardware actually holds.
+  purposes: number[] | null; // [1] SET OF INTEGER
+  algorithm: number | null; // [2]
+  keySize: number | null; // [3]
+  digests: number[] | null; // [5] SET OF INTEGER
+  ecCurve: number | null; // [10]
+  origin: number | null; // [702]
+  // rootOfTrust [704], hardwareEnforced ONLY.
+  rootOfTrust: { deviceLocked: boolean; verifiedBootState: number } | null;
+  // TAG_OS_PATCH_LEVEL [706] again, hardwareEnforced ONLY — the A.3.1 row
+  // reads `hardwareEnforced.osPatchLevel`. `osPatchLevel` above keeps the
+  // hw→sw fallback because the legacy baseline patch gate depends on it.
+  osPatchLevelHw: number | null;
+  // TAG_VENDOR_PATCH_LEVEL [718] / TAG_BOOT_PATCH_LEVEL [719], hardwareEnforced
+  // ONLY, YYYYMMDD (a YYYYMM wire value is normalized to YYYYMM01).
+  vendorPatchLevel: number | null;
+  bootPatchLevel: number | null;
 }
 
 // Throws AttestationError on any spec violation. Resolves with parsed
@@ -236,12 +306,20 @@ export async function validateAndroidAttestation(
   // by omitting minOsPatchLevel.
   enforcePatchGate(desc.osPatchLevel, opts.minOsPatchLevel);
 
-  // === Step 10 (deferred): check Google's revocation list ===
+  // === Step 10: AL2 evidence table (CP Appendix A.3.1), when requested ===
+  // Never rejects — AL2-only failures degrade the granted assurance level to
+  // AL1 in the caller. Runs after every hard-reject step so it only ever
+  // evaluates an otherwise-valid enrollment.
+  const al2 = opts.al2
+    ? evaluateAl2Evidence(desc, { ...opts.al2, packageName: opts.packageName })
+    : undefined;
+
+  // === Step 11 (deferred): check Google's revocation list ===
   // Fetch https://android.googleapis.com/attestation/status (with a cache) and
   // reject any revoked cert serial in the chain. Rare in practice for
   // unrevoked devices.
 
-  return { osPatchLevel: desc.osPatchLevel };
+  return { osPatchLevel: desc.osPatchLevel, al2 };
 }
 
 // Parses the leaf cert's KeyDescription extension. The extension value is
@@ -308,8 +386,9 @@ function parseKeyDescription(extValue: Uint8Array): KeyDescription {
 
   // packageNames live inside attestationApplicationId at tag [709] in either
   // softwareEnforced or hardwareEnforced (typically softwareEnforced).
-  const packageNames = extractPackageNames(softwareEnforced) ??
-    extractPackageNames(hardwareEnforced) ?? [];
+  const appId = extractAttestationApplicationId(softwareEnforced) ??
+    extractAttestationApplicationId(hardwareEnforced);
+  const packageNames = appId?.packages.map((p) => p.name) ?? [];
 
   const osPatchLevel = selectOsPatchLevel(hardwareEnforced, softwareEnforced);
 
@@ -321,6 +400,23 @@ function parseKeyDescription(extValue: Uint8Array): KeyDescription {
     attestationChallenge,
     packageNames,
     osPatchLevel,
+    appPackages: appId?.packages ?? [],
+    appSigningCertDigests: appId?.signatureDigests ?? [],
+    // Every AL2 evidence field is read from hardwareEnforced ONLY (see the
+    // KeyDescription field docs) — a softwareEnforced value is OS-asserted,
+    // not secure-environment-asserted, and A.3.1 sources each row from
+    // hardwareEnforced. Only `osPatchLevel` above keeps a sw fallback, for
+    // the legacy baseline gate.
+    purposes: readTaggedIntSet(hardwareEnforced, 1),
+    algorithm: readTaggedInt(hardwareEnforced, 2),
+    keySize: readTaggedInt(hardwareEnforced, 3),
+    digests: readTaggedIntSet(hardwareEnforced, 5),
+    ecCurve: readTaggedInt(hardwareEnforced, 10),
+    origin: readTaggedInt(hardwareEnforced, 702),
+    rootOfTrust: extractRootOfTrust(hardwareEnforced),
+    osPatchLevelHw: extractOsPatchLevel(hardwareEnforced),
+    vendorPatchLevel: extractDayPatchLevel(hardwareEnforced, 718),
+    bootPatchLevel: extractDayPatchLevel(hardwareEnforced, 719),
   };
 }
 
@@ -369,55 +465,280 @@ function readOctetString(node: any): Uint8Array {
 }
 
 // Walks an AuthorizationList SEQUENCE looking for the [709] EXPLICIT tagged
-// attestationApplicationId field. Its value is an OCTET STRING wrapping a
-// SEQUENCE { SET OF SEQUENCE { OCTET STRING packageName, INTEGER version }, ... }.
-// Returns the list of packageName strings, or null if not found.
-function extractPackageNames(authList: any): string[] | null {
-  if (!authList?.valueBlock?.value) return null;
-  const fields = authList.valueBlock.value as any[];
+// attestationApplicationId field. Its value is an OCTET STRING wrapping
+//   SEQUENCE {
+//     SET OF SEQUENCE { OCTET STRING packageName, INTEGER version },
+//     SET OF OCTET STRING signatureDigests   -- SHA-256 of signing cert(s)
+//   }
+// Returns the parsed structure, or null if not found / unparseable.
+export function extractAttestationApplicationId(
+  authList: any,
+): {
+  packages: Array<{ name: string; version: number | null }>;
+  signatureDigests: Uint8Array[];
+} | null {
+  const f = findTaggedField(authList, 709);
+  if (!f) return null;
 
-  for (const f of fields) {
-    // Looking for [709] EXPLICIT — context-class (3), tag number 709.
-    const tagClass = f?.idBlock?.tagClass;
-    const tagNumber = f?.idBlock?.tagNumber;
-    if (tagClass !== 3 || tagNumber !== 709) continue;
+  // Inside [709] is an OCTET STRING; inside that is a SEQUENCE.
+  const inner = f.valueBlock?.value as any[] | undefined;
+  if (!inner || !inner.length) return null;
 
-    // Inside [709] is an OCTET STRING; inside that is a SEQUENCE.
-    const inner = f.valueBlock?.value as any[] | undefined;
-    if (!inner || !inner.length) return null;
+  const octetBytes = readOctetString(inner[0]);
+  if (!octetBytes.length) return null;
 
-    const octetNode = inner[0];
-    const octetBytes = readOctetString(octetNode);
-    if (!octetBytes.length) return null;
+  const ab = octetBytes.buffer.slice(
+    octetBytes.byteOffset,
+    octetBytes.byteOffset + octetBytes.byteLength,
+  ) as ArrayBuffer;
+  const decoded = asn1js.fromBER(ab);
+  if (decoded.offset === -1) return null;
 
-    const ab = octetBytes.buffer.slice(
-      octetBytes.byteOffset,
-      octetBytes.byteOffset + octetBytes.byteLength,
-    ) as ArrayBuffer;
-    const decoded = asn1js.fromBER(ab);
-    if (decoded.offset === -1) return null;
+  const aidFields = (decoded.result as any).valueBlock?.value as
+    | any[]
+    | undefined;
+  if (!aidFields || !aidFields.length) return null;
 
-    const aidSeq = decoded.result;
-    const aidFields = (aidSeq as any).valueBlock?.value as any[] | undefined;
-    if (!aidFields || !aidFields.length) return null;
+  // First field: SET OF SEQUENCE { OCTET STRING packageName, INTEGER version }.
+  const pkgEntries = aidFields[0]?.valueBlock?.value as any[] | undefined;
+  if (!pkgEntries) return null;
 
-    // First field is SET OF SEQUENCE { OCTET STRING packageName, INTEGER version }.
-    const pkgSet = aidFields[0];
-    const pkgEntries = pkgSet?.valueBlock?.value as any[] | undefined;
-    if (!pkgEntries) return null;
+  const packages: Array<{ name: string; version: number | null }> = [];
+  for (const entry of pkgEntries) {
+    const entryFields = entry?.valueBlock?.value as any[] | undefined;
+    if (!entryFields || !entryFields.length) continue;
+    const nameBytes = readOctetString(entryFields[0]);
+    if (!nameBytes.length) continue;
+    const versionNode = entryFields[1];
+    packages.push({
+      name: new TextDecoder().decode(nameBytes),
+      version: versionNode ? readInt(versionNode) : null,
+    });
+  }
 
-    const names: string[] = [];
-    for (const entry of pkgEntries) {
-      const entryFields = entry?.valueBlock?.value as any[] | undefined;
-      if (!entryFields || !entryFields.length) continue;
-      const nameBytes = readOctetString(entryFields[0]);
-      if (nameBytes.length) {
-        names.push(new TextDecoder().decode(nameBytes));
-      }
+  // Second field: SET OF OCTET STRING — SHA-256 digests of the APK signing
+  // certificate(s). Absent on some legacy encodings → empty list (the AL2
+  // signing-cert row then fails, degrading to AL1).
+  const signatureDigests: Uint8Array[] = [];
+  const digestEntries = aidFields[1]?.valueBlock?.value as any[] | undefined;
+  if (digestEntries) {
+    for (const d of digestEntries) {
+      const bytes = readOctetString(d);
+      if (bytes.length) signatureDigests.push(bytes);
     }
-    return names;
+  }
+
+  return { packages, signatureDigests };
+}
+
+// --- Generic AuthorizationList tag readers ------------------------------
+//
+// Every scalar AuthorizationList field can appear in the same two wire
+// shapes documented on extractOsPatchLevel (EXPLICIT constructed wrapper —
+// what real KeyMint emits — or an IMPLICIT primitive). These helpers accept
+// both, and return null for anything absent or malformed: AL2 rows treat
+// null as a failed check (degrade, never crash).
+
+function findTaggedField(authList: any, tagNumber: number): any | null {
+  if (!authList?.valueBlock?.value) return null;
+  for (const f of authList.valueBlock.value as any[]) {
+    if (f?.idBlock?.tagClass === 3 && f?.idBlock?.tagNumber === tagNumber) {
+      return f;
+    }
   }
   return null;
+}
+
+// Big-endian unsigned decode of an INTEGER-ish node's bytes; null if empty.
+function readNodeUint(node: any): number | null {
+  const hexView = node?.valueBlock?.valueHexView as Uint8Array | undefined;
+  const raw = hexView && hexView.length
+    ? new Uint8Array(hexView)
+    : node?.valueBlock?.valueHex
+    ? new Uint8Array(node.valueBlock.valueHex as ArrayBuffer)
+    : null;
+  if (!raw || !raw.length) return null;
+  let value = 0;
+  for (let i = 0; i < raw.length; i++) value = value * 256 + raw[i];
+  return value;
+}
+
+/** Read a [tag] INTEGER from an AuthorizationList (both wire shapes). */
+export function readTaggedInt(authList: any, tagNumber: number): number | null {
+  const f = findTaggedField(authList, tagNumber);
+  if (!f) return null;
+  if (f.idBlock?.isConstructed === true) {
+    const inner = (f.valueBlock?.value as any[] | undefined)?.[0];
+    // Universal INTEGER (class 1, tag 2) or ENUMERATED (tag 10).
+    const tc = inner?.idBlock?.tagClass;
+    const tn = inner?.idBlock?.tagNumber;
+    if (tc !== 1 || (tn !== 2 && tn !== 10)) return null;
+    return readNodeUint(inner);
+  }
+  return readNodeUint(f);
+}
+
+/** Read a [tag] SET OF INTEGER from an AuthorizationList. */
+export function readTaggedIntSet(
+  authList: any,
+  tagNumber: number,
+): number[] | null {
+  const f = findTaggedField(authList, tagNumber);
+  if (!f) return null;
+  let members: any[] | undefined;
+  const children = f.valueBlock?.value as any[] | undefined;
+  const first = children?.[0];
+  if (first?.idBlock?.tagClass === 1 && first?.idBlock?.tagNumber === 17) {
+    // EXPLICIT: [tag] wraps a Universal SET whose members are INTEGERs.
+    members = first.valueBlock?.value as any[] | undefined;
+  } else {
+    // IMPLICIT: the INTEGER members sit directly under the context tag.
+    members = children;
+  }
+  if (!members) return null;
+  const out: number[] = [];
+  for (const m of members) {
+    const v = readNodeUint(m);
+    if (v !== null) out.push(v);
+  }
+  return out;
+}
+
+/** Parse rootOfTrust [704]:
+ *  SEQUENCE { OCTET STRING verifiedBootKey, BOOLEAN deviceLocked,
+ *             ENUMERATED verifiedBootState, [OCTET STRING verifiedBootHash] } */
+export function extractRootOfTrust(
+  authList: any,
+): { deviceLocked: boolean; verifiedBootState: number } | null {
+  const f = findTaggedField(authList, 704);
+  if (!f) return null;
+  const seq = (f.valueBlock?.value as any[] | undefined)?.[0];
+  const fields = seq?.valueBlock?.value as any[] | undefined;
+  if (!fields || fields.length < 3) return null;
+  const lockedNode = fields[1];
+  const deviceLocked = lockedNode?.valueBlock?.value === true;
+  const verifiedBootState = readNodeUint(fields[2]);
+  if (verifiedBootState === null) return null;
+  return { deviceLocked, verifiedBootState };
+}
+
+/** Read TAG_VENDOR_PATCH_LEVEL [718] / TAG_BOOT_PATCH_LEVEL [719] in
+ * YYYYMMDD canonical form. A YYYYMM wire value is normalized to YYYYMM01
+ * (day floored — conservative for a freshness gate). Out-of-range → null. */
+export function extractDayPatchLevel(
+  authList: any,
+  tagNumber: number,
+): number | null {
+  let value = readTaggedInt(authList, tagNumber);
+  if (value === null) return null;
+  if (value < 1_000_000_0) value = value * 100 + 1; // YYYYMM → YYYYMM01
+  if (value < 2000_01_01 || value > 2100_12_31) return null;
+  return value;
+}
+
+// --- AL2 evidence evaluation (CP Appendix A.3.1) ------------------------
+
+function yyyymmFloor(now: Date, monthsBack: number): number {
+  const d = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1),
+  );
+  return d.getUTCFullYear() * 100 + (d.getUTCMonth() + 1);
+}
+
+function yyyymmddFloor(now: Date, daysBack: number): number {
+  const d = new Date(now.getTime() - daysBack * 86_400_000);
+  return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 +
+    d.getUTCDate();
+}
+
+/**
+ * Evaluate the AL2-only rows of CP Appendix A.3.1 against a parsed
+ * KeyDescription. The baseline rows (hardware security level, challenge,
+ * SPKI binding, package name, 12-month os patch-gate) are hard-reject checks
+ * in validateAndroidAttestation and are NOT re-checked here. Note StrongBox
+ * is NOT required for AL2: A.3.1 accepts 1 (TrustedEnvironment) or
+ * 2 (StrongBox) for both security levels, and the baseline SOFTWARE reject
+ * is exactly that row — an android-tee device passing this table is
+ * AL2-eligible by design.
+ *
+ * Pure function; failures accumulate (never throws) so one log line shows
+ * everything keeping a device at AL1.
+ */
+export function evaluateAl2Evidence(
+  desc: KeyDescription,
+  opts: Al2EvidenceOpts & { packageName: string },
+): Al2Evaluation {
+  const failures: string[] = [];
+
+  // attestationApplicationID row: registered signing cert + version floor.
+  if (opts.signingCertSha256Digests.length === 0) {
+    failures.push("AL2_APP_SIGNING_CONFIG_MISSING");
+  } else if (
+    !desc.appSigningCertDigests.some((got) =>
+      opts.signingCertSha256Digests.some((want) => ctEqual(got, want))
+    )
+  ) {
+    failures.push("AL2_APP_SIGNING_CERT_MISMATCH");
+  }
+  if (opts.minAppVersionCode !== undefined) {
+    const versions = desc.appPackages
+      .filter((p) => p.name === opts.packageName)
+      .map((p) => p.version)
+      .filter((v): v is number => v !== null);
+    if (!versions.length || Math.max(...versions) < opts.minAppVersionCode) {
+      failures.push("AL2_APP_VERSION_BELOW_FLOOR");
+    }
+  }
+
+  // Key-parameter rows (hardwareEnforced only; null = row fails).
+  if (!desc.purposes?.includes(KM_PURPOSE_SIGN)) {
+    failures.push("AL2_KEY_PURPOSE");
+  }
+  if (desc.algorithm !== KM_ALGORITHM_EC) failures.push("AL2_KEY_ALGORITHM");
+  if (desc.keySize !== 256) failures.push("AL2_KEY_SIZE");
+  if (!desc.digests?.includes(KM_DIGEST_SHA_2_256)) {
+    failures.push("AL2_KEY_DIGEST");
+  }
+  if (desc.ecCurve !== KM_EC_CURVE_P_256) failures.push("AL2_KEY_CURVE");
+  if (desc.origin !== KM_ORIGIN_GENERATED) failures.push("AL2_KEY_ORIGIN");
+
+  // rootOfTrust rows.
+  if (!desc.rootOfTrust) {
+    failures.push("AL2_ROOT_OF_TRUST_MISSING");
+  } else {
+    if (!desc.rootOfTrust.deviceLocked) failures.push("AL2_DEVICE_NOT_LOCKED");
+    if (desc.rootOfTrust.verifiedBootState !== VERIFIED_BOOT_STATE_VERIFIED) {
+      failures.push("AL2_VERIFIED_BOOT_NOT_VERIFIED");
+    }
+  }
+
+  // Patch-currency rows. A.3.1's os window is the CSR month plus the three
+  // before it ("for August 2026: 202608, 202607, 202606, or 202605") — a
+  // floor of monthsBack=3, not 4. Vendor/boot are ≤ 90 days. All three rows
+  // also say the value cannot be in the future.
+  const monthNow = yyyymmFloor(opts.now, 0);
+  if (
+    desc.osPatchLevelHw === null ||
+    desc.osPatchLevelHw < yyyymmFloor(opts.now, 3)
+  ) {
+    failures.push("AL2_OS_PATCH_STALE");
+  } else if (desc.osPatchLevelHw > monthNow) {
+    failures.push("AL2_OS_PATCH_FUTURE");
+  }
+  const dayFloor = yyyymmddFloor(opts.now, 90);
+  const dayNow = yyyymmddFloor(opts.now, 0);
+  if (desc.vendorPatchLevel === null || desc.vendorPatchLevel < dayFloor) {
+    failures.push("AL2_VENDOR_PATCH_STALE");
+  } else if (desc.vendorPatchLevel > dayNow) {
+    failures.push("AL2_VENDOR_PATCH_FUTURE");
+  }
+  if (desc.bootPatchLevel === null || desc.bootPatchLevel < dayFloor) {
+    failures.push("AL2_BOOT_PATCH_STALE");
+  } else if (desc.bootPatchLevel > dayNow) {
+    failures.push("AL2_BOOT_PATCH_FUTURE");
+  }
+
+  return { eligible: failures.length === 0, failures };
 }
 
 // Walks an AuthorizationList SEQUENCE looking for the [706] context-class

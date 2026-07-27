@@ -47,3 +47,6 @@ native/ios/build/
 
 # Verifier deploy config (non-secret env-specific values; copy from deploy.env.example)
 verifier/deploy.env
+
+# Ceremony cert-builder scratch output (build-ca-certs --out; runbook convention)
+out/

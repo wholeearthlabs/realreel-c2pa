@@ -15,7 +15,7 @@ import { p256, p384, p521 } from "npm:@noble/curves@1.9.7/nist.js";
 // loudly instead of corrupting global state.
 if (typeof Deno === "undefined") {
   throw new Error(
-    "ca/_shared/attestation/pki.ts is Deno-only. Do not import from React Native or other non-Deno runtimes.",
+    "_shared/attestation/pki.ts is Deno-only. Do not import from React Native or other non-Deno runtimes.",
   );
 }
 
@@ -487,6 +487,11 @@ export async function sha256(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
+export async function sha384(data: Uint8Array): Promise<Uint8Array> {
+  const buf = await crypto.subtle.digest("SHA-384", data as BufferSource);
+  return new Uint8Array(buf);
+}
+
 export function concat(...parts: Uint8Array[]): Uint8Array {
   const total = parts.reduce((n, p) => n + p.length, 0);
   const out = new Uint8Array(total);
@@ -607,22 +612,133 @@ const OID = {
   extKeyUsage: "2.5.29.37",
   subjectKeyIdentifier: "2.5.29.14",
   authorityKeyIdentifier: "2.5.29.35",
+  certificatePolicies: "2.5.29.32",
+  authorityInfoAccess: "1.3.6.1.5.5.7.1.1",
+  // AIA access methods
+  adOcsp: "1.3.6.1.5.5.7.48.1",
+  adCaIssuers: "1.3.6.1.5.5.7.48.2",
   // Signature algorithms
   ecdsaWithSHA256: "1.2.840.10045.4.3.2",
+  ecdsaWithSHA384: "1.2.840.10045.4.3.3",
   // Extended key usages
   ekuEmailProtection: "1.3.6.1.5.5.7.3.4",
   ekuDocumentSigning: "1.3.6.1.5.5.7.3.36",
   ekuC2PAClaimSigning: "1.3.6.1.4.1.62558.2.1",
+  // C2PA conformance-program OIDs (CP §7.1.2; 62558 is C2PA's IANA PEN)
+  c2paCertPolicy: "1.3.6.1.4.1.62558.1.1",
+  c2paAssuranceLevel: "1.3.6.1.4.1.62558.3",
+  c2paAssuranceLevel1: "1.3.6.1.4.1.62558.3.10",
+  c2paAssuranceLevel2: "1.3.6.1.4.1.62558.3.20",
+  c2paCplRecord: "1.3.6.1.4.1.62558.4",
 } as const;
+
+// --- Hierarchy selection (v1 legacy / v2 conformant) --------------------
+//
+// The CA can issue against two hierarchies:
+//   v1 — the legacy pre-conformance hierarchy (P-256 ICA, SHA-256 chain,
+//        `CN=RealReel-Device-Key` leaves, no CP §7.1.2 extensions). Default,
+//        and what production runs until the cutover gate clears.
+//   v2 — the conformant hierarchy (P-384 root+ICA signing with SHA-384,
+//        per-platform CPL-registered DNs, nonRepudiation KU, and the CP-required
+//        certificatePolicies / AIA / c2pa-al / c2pa-cpl-record extensions).
+// Selected by the CA_HIERARCHY env var so the production flip is a config
+// change (env + GCP_KMS_KEY_RESOURCE + REALREEL_INTERMEDIATE_CERT_PEM swapped
+// together), not a deploy. GUARDRAIL: do not set v2 in production until the
+// real CPL record UUIDs exist and the root is on the C2PA Trust List —
+// v2 leaves embed the UUID and are non-conformant with a placeholder.
+
+export type CaHierarchy = "v1" | "v2";
+
+export function caHierarchy(): CaHierarchy {
+  const v = Deno.env.get("CA_HIERARCHY") ?? "v1";
+  if (v !== "v1" && v !== "v2") {
+    throw new AttestationError(
+      "CA_CONFIG_INVALID",
+      `CA_HIERARCHY must be "v1" or "v2", got "${v}"`,
+    );
+  }
+  return v;
+}
+
+/** Platform group for leaf issuance. Collapses the enrollment platforms
+ * (`ios` / `android-strongbox` / `android-tee`) to the two CPL records. */
+export type LeafPlatform = "ios" | "android";
+
+/** C2PA conformance-program assurance level (CP §3.2.3): AL2 requires the
+ * full dynamic-evidence table and caps validity at 90 days; AL1 caps at
+ * 366 days. RealReel issues iOS at AL1 and Android at AL2-with-AL1-fallback. */
+export type AssuranceLevel = "AL1" | "AL2";
+
+// v2 issuance parameters. Resolved from env once per request by
+// resolveV2LeafOptions and carried explicitly, so buildLeafCertificate stays a
+// pure function of its template (tests construct these directly).
+export interface V2LeafOptions {
+  platform: LeafPlatform;
+  assuranceLevel: AssuranceLevel;
+  /** 36-char CPL record UUID embedded in c2pa-cpl-record (CP §7.1.2). */
+  cplRecordUuid: string;
+  /** HTTP URL of the leaf-status OCSP responder (AIA id-ad-ocsp). */
+  ocspUrl: string;
+  /** HTTP URL of the DER-encoded ICA cert (AIA id-ad-caIssuers). RFC 5280
+   * §4.2.2.1: caIssuers points at certs issued TO this cert's issuer — for a
+   * leaf that's the Claim ICA, not the root. */
+  caIssuersUrl: string;
+}
+
+const UUID_36 =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Resolve the v2 issuance parameters from env. The CPL record UUID is
+ * per-platform (C2PA issues one CPL record per registered product DN) and has
+ * NO default — v2 issuance without a configured UUID must fail closed rather
+ * than mint a leaf missing its CPL binding. Dark testing sets a placeholder
+ * UUID explicitly in the local env.
+ */
+export function resolveV2LeafOptions(
+  platform: LeafPlatform,
+  assuranceLevel: AssuranceLevel,
+): V2LeafOptions {
+  const uuidEnv = platform === "ios"
+    ? "LEAF_CPL_RECORD_UUID_IOS"
+    : "LEAF_CPL_RECORD_UUID_ANDROID";
+  const cplRecordUuid = Deno.env.get(uuidEnv) ?? "";
+  if (!UUID_36.test(cplRecordUuid)) {
+    throw new AttestationError(
+      "CA_CONFIG_INVALID",
+      `${uuidEnv} must hold the 36-char CPL record UUID for CA_HIERARCHY=v2 ` +
+        "issuance (unset or malformed)",
+    );
+  }
+  return {
+    platform,
+    assuranceLevel,
+    cplRecordUuid,
+    ocspUrl: Deno.env.get("LEAF_AIA_OCSP_URL") ?? "http://ocsp.realreel.xyz",
+    caIssuersUrl: Deno.env.get("LEAF_AIA_CA_ISSUERS_URL") ??
+      "http://pki.realreel.xyz/realreel-claim-signing-ca.cer",
+  };
+}
 
 // ===== PER-APP SWAP-POINT: leaf-certificate subject DN =====
 //
 // Fixed subject DN written into every issued leaf. A fork should set its own
 // organization name + CN here; the defaults below are RealReel's. Sourced from
-// env (`LEAF_SUBJECT_ORG`, `LEAF_SUBJECT_OU`, `LEAF_SUBJECT_CN`) when present so
-// a forker can override per-deployment without editing code, falling back to
-// the RealReel values so the test suite and the standard deploy run with no env
-// set. User identity is never embedded — the (user_id, public_key) binding
+// env when present so a forker can override per-deployment without editing
+// code, falling back to the RealReel values so the test suite and the standard
+// deploy run with no env set.
+//
+// The two hierarchies read DISJOINT env vars, because a v2 DN must byte-match
+// the DN registered in the C2PA CPL record and must not silently inherit any
+// v1 override:
+//   v1: LEAF_SUBJECT_COUNTRY, LEAF_SUBJECT_ORG, LEAF_SUBJECT_OU, LEAF_SUBJECT_CN
+//   v2: LEAF_SUBJECT_COUNTRY_V2, LEAF_SUBJECT_ORG_V2,
+//       LEAF_SUBJECT_CN_IOS / LEAF_SUBJECT_CN_ANDROID  (no OU)
+// A fork running v2 MUST set its own v2 DN vars AND the AIA URLs
+// (LEAF_AIA_OCSP_URL, LEAF_AIA_CA_ISSUERS_URL) — the AIA defaults point at
+// RealReel's responder/PKI hosts, which answer `unknown` for a fork's serials.
+//
+// User identity is never embedded — the (user_id, public_key) binding
 // lives in user_signing_keys — so any externally-published cert stays
 // privacy-respecting. Note the leaf's *issuer* DN (the "...Issuing CA" string
 // the verifier surfaces as `signature_info.issuer`) comes from the
@@ -637,37 +753,63 @@ const OID = {
 // one attribute per RDN by default — the canonical form. We match the
 // canonical form by overriding `toSchema` on the instance, so downstream
 // PKIX validators that only exercise the common path don't trip on shape.
-function realReelLeafSubject(): pkijs.RelativeDistinguishedNames {
+function realReelLeafSubject(
+  v2?: V2LeafOptions,
+): pkijs.RelativeDistinguishedNames {
   // Source-of-truth table — one row per attribute, in the order they appear
   // in the DN. Both the pkijs typesAndValues array (for programmatic reads
   // of `cert.subject`) and the overridden toSchema (for serialization) are
   // derived from this so the two stay in sync.
+  //
+  // v2 emits the CPL-registered DN: exactly C, O, and a per-platform CN
+  // (CP §7.1.2 requires C/O/CN and the DN must byte-match the CPL record —
+  // no OU). v1 keeps the legacy four-attribute DN.
   const attrs: ReadonlyArray<{
     type: string;
     value: string;
     stringClass: typeof asn1js.PrintableString | typeof asn1js.Utf8String;
-  }> = [
-    {
-      type: OID.countryName,
-      value: Deno.env.get("LEAF_SUBJECT_COUNTRY") ?? "US",
-      stringClass: asn1js.PrintableString,
-    },
-    {
-      type: OID.organizationName,
-      value: Deno.env.get("LEAF_SUBJECT_ORG") ?? "RealReel",
-      stringClass: asn1js.Utf8String,
-    },
-    {
-      type: OID.organizationalUnitName,
-      value: Deno.env.get("LEAF_SUBJECT_OU") ?? "Production",
-      stringClass: asn1js.Utf8String,
-    },
-    {
-      type: OID.commonName,
-      value: Deno.env.get("LEAF_SUBJECT_CN") ?? "RealReel-Device-Key",
-      stringClass: asn1js.Utf8String,
-    },
-  ];
+  }> = v2
+    ? [
+      {
+        type: OID.countryName,
+        value: Deno.env.get("LEAF_SUBJECT_COUNTRY_V2") ?? "US",
+        stringClass: asn1js.PrintableString,
+      },
+      {
+        type: OID.organizationName,
+        value: Deno.env.get("LEAF_SUBJECT_ORG_V2") ?? "Whole Earth Labs LLC",
+        stringClass: asn1js.Utf8String,
+      },
+      {
+        type: OID.commonName,
+        value: v2.platform === "ios"
+          ? (Deno.env.get("LEAF_SUBJECT_CN_IOS") ?? "RealReel iOS")
+          : (Deno.env.get("LEAF_SUBJECT_CN_ANDROID") ?? "RealReel Android"),
+        stringClass: asn1js.Utf8String,
+      },
+    ]
+    : [
+      {
+        type: OID.countryName,
+        value: Deno.env.get("LEAF_SUBJECT_COUNTRY") ?? "US",
+        stringClass: asn1js.PrintableString,
+      },
+      {
+        type: OID.organizationName,
+        value: Deno.env.get("LEAF_SUBJECT_ORG") ?? "RealReel",
+        stringClass: asn1js.Utf8String,
+      },
+      {
+        type: OID.organizationalUnitName,
+        value: Deno.env.get("LEAF_SUBJECT_OU") ?? "Production",
+        stringClass: asn1js.Utf8String,
+      },
+      {
+        type: OID.commonName,
+        value: Deno.env.get("LEAF_SUBJECT_CN") ?? "RealReel-Device-Key",
+        stringClass: asn1js.Utf8String,
+      },
+    ];
 
   const dn = new pkijs.RelativeDistinguishedNames({
     typesAndValues: attrs.map((a) =>
@@ -703,8 +845,12 @@ function realReelLeafSubject(): pkijs.RelativeDistinguishedNames {
 export interface LeafTemplate {
   csr: pkijs.CertificationRequest;
   intermediate: pkijs.Certificate;
-  validityDays: number; // see register-signing-key LEAF_VALIDITY_DAYS
+  validityDays: number; // see register-signing-key leafValidityDays()
   serialNumber: Uint8Array; // typically 20 random bytes
+  // Present iff issuing against the v2 (conformant) hierarchy: selects the
+  // per-platform DN, SHA-384 signature declaration, nonRepudiation KU, and
+  // the CP §7.1.2 extensions. Absent → legacy v1 shape.
+  v2?: V2LeafOptions;
 }
 
 // Build a fully-populated leaf Certificate object ready to be TBS-encoded,
@@ -756,7 +902,7 @@ export async function buildLeafCertificate(
   });
 
   cert.issuer = template.intermediate.subject;
-  cert.subject = realReelLeafSubject();
+  cert.subject = realReelLeafSubject(template.v2);
 
   const now = new Date();
   // Trim sub-second precision; UTCTime has 1-second resolution and pkijs's
@@ -767,14 +913,26 @@ export async function buildLeafCertificate(
   // slightly behind, so without this the FIRST sign after enrollment can fail
   // "certificate not yet valid" (c2pa-rs surfaces it as "certificate invalid").
   const notBefore = new Date(now.getTime() - 5 * 60_000);
-  const notAfter = new Date(now.getTime() + template.validityDays * 86_400_000);
+  // Anchor to notBefore (not now) and pull in one second: RFC 5280 counts the
+  // validity period inclusively, so anchoring to now would add the 5-minute
+  // backdate on top of validityDays — over the CP cap when validityDays sits
+  // exactly at one (90d AL2 / 366d AL1).
+  const notAfter = new Date(
+    notBefore.getTime() + template.validityDays * 86_400_000 - 1_000,
+  );
   cert.notBefore = new pkijs.Time({ type: 0, value: notBefore });
   cert.notAfter = new pkijs.Time({ type: 0, value: notAfter });
 
   cert.subjectPublicKeyInfo = template.csr.subjectPublicKeyInfo;
 
+  // v2 chains sign with the P-384 ICA (KMS ec-sign-p384-sha384) →
+  // ecdsa-with-SHA384; v1 with the P-256 intermediate → ecdsa-with-SHA256.
+  // The leaf KEY stays P-256 either way (mixed-curve chains are CP-allowed
+  // and validate in c2pa-rs). Must agree with the digest issueLeafChainFromCSR
+  // hashes and the KMS key algorithm — kms.ts's expected-algorithm gate pins
+  // that at cold start.
   const sigAlg = new pkijs.AlgorithmIdentifier({
-    algorithmId: OID.ecdsaWithSHA256,
+    algorithmId: template.v2 ? OID.ecdsaWithSHA384 : OID.ecdsaWithSHA256,
   });
   // X.509 requires the AlgorithmIdentifier inside the TBS (`signature`) and
   // outside the TBS (`signatureAlgorithm`) to match byte-for-byte. Verifiers
@@ -797,18 +955,21 @@ export async function buildLeafCertificate(
     }),
   );
 
-  // keyUsage: digitalSignature only (bit 0), critical. c2pa-rs's claim-signing
-  // validator requires digitalSignature; adding nonRepudiation made c2pa-rs
-  // reject the cert as "invalid" during signing.
-  // BIT STRING bits are MSB-first: 0b10000000 = 0x80, with 7 unused trailing bits.
-  const kuBytes = new Uint8Array([0x80]);
+  // keyUsage, critical. BIT STRING bits are MSB-first: digitalSignature is
+  // bit 0, nonRepudiation bit 1. v2 sets both (0b11000000 = 0xC0, 6 unused
+  // bits) — CP §7.1.2 requires digitalSignature + nonRepudiation, and current
+  // c2pa-rs accepts the pair (re-tested 2026-07-27 against c2patool 0.26.60;
+  // an earlier rejection blamed on c2pa-rs was a KU unusedBits encoding bug
+  // on our side). v1 stays digitalSignature-only (0x80, 7 unused) so the
+  // fielded legacy shape doesn't shift.
+  const kuBytes = new Uint8Array([template.v2 ? 0xc0 : 0x80]);
   cert.extensions.push(
     new pkijs.Extension({
       extnID: OID.keyUsage,
       critical: true,
       extnValue: new asn1js.BitString({
         valueHex: kuBytes.buffer,
-        unusedBits: 7,
+        unusedBits: template.v2 ? 6 : 7,
       }).toBER(false),
     }),
   );
@@ -887,6 +1048,84 @@ export async function buildLeafCertificate(
       extnValue: akiSeq.toBER(false),
     }),
   );
+
+  // CP §7.1.2 leaf extensions, v2 only. All four are non-critical.
+  if (template.v2) {
+    // certificatePolicies: the c2pa-certificate-policy OID, no qualifiers.
+    cert.extensions.push(
+      new pkijs.Extension({
+        extnID: OID.certificatePolicies,
+        critical: false,
+        extnValue: new pkijs.CertificatePolicies({
+          certificatePolicies: [
+            new pkijs.PolicyInformation({
+              policyIdentifier: OID.c2paCertPolicy,
+            }),
+          ],
+        }).toSchema().toBER(false),
+      }),
+    );
+
+    // AIA: OCSP (MUST) + caIssuers (SHOULD), both plain-HTTP URIs per
+    // OCSP/AIA convention. GeneralName type 6 = uniformResourceIdentifier.
+    cert.extensions.push(
+      new pkijs.Extension({
+        extnID: OID.authorityInfoAccess,
+        critical: false,
+        extnValue: new pkijs.InfoAccess({
+          accessDescriptions: [
+            new pkijs.AccessDescription({
+              accessMethod: OID.adOcsp,
+              accessLocation: new pkijs.GeneralName({
+                type: 6,
+                value: template.v2.ocspUrl,
+              }),
+            }),
+            new pkijs.AccessDescription({
+              accessMethod: OID.adCaIssuers,
+              accessLocation: new pkijs.GeneralName({
+                type: 6,
+                value: template.v2.caIssuersUrl,
+              }),
+            }),
+          ],
+        }).toSchema().toBER(false),
+      }),
+    );
+
+    // c2pa-al: the granted assurance level, encoded as a bare OBJECT
+    // IDENTIFIER (…3.10 = AL1, …3.20 = AL2).
+    cert.extensions.push(
+      new pkijs.Extension({
+        extnID: OID.c2paAssuranceLevel,
+        critical: false,
+        extnValue: new asn1js.ObjectIdentifier({
+          value: template.v2.assuranceLevel === "AL2"
+            ? OID.c2paAssuranceLevel2
+            : OID.c2paAssuranceLevel1,
+        }).toBER(false),
+      }),
+    );
+
+    // c2pa-cpl-record: UTF8String (SIZE 36) carrying the CPL record UUID.
+    // resolveV2LeafOptions validated the shape; re-assert here so a caller
+    // constructing V2LeafOptions directly can't mint a malformed record.
+    if (!UUID_36.test(template.v2.cplRecordUuid)) {
+      throw new AttestationError(
+        "LEAF_BUILD_FAILED",
+        "v2 cplRecordUuid is not a 36-char UUID",
+      );
+    }
+    cert.extensions.push(
+      new pkijs.Extension({
+        extnID: OID.c2paCplRecord,
+        critical: false,
+        extnValue: new asn1js.Utf8String({
+          value: template.v2.cplRecordUuid,
+        }).toBER(false),
+      }),
+    );
+  }
 
   return cert;
 }
@@ -1009,10 +1248,11 @@ export async function verifyChainToRealReelRoot(
 
 // --- Leaf issuance orchestrator ----------------------------------------
 
-// Pluggable signer: takes the SHA-256 digest of the leaf's TBSCertificate and
-// returns the DER ECDSA signature (SEQUENCE { r INTEGER, s INTEGER }) — the
-// exact shape Cloud KMS's `ec-sign-p256-sha256` returns and the exact shape
-// X.509 `signatureValue` carries. Pluggable so tests can substitute
+// Pluggable signer: takes the digest of the leaf's TBSCertificate — SHA-256
+// under v1, SHA-384 under v2, matching the declared signatureAlgorithm — and
+// returns the DER ECDSA signature (SEQUENCE { r INTEGER, s INTEGER }): the
+// exact shape Cloud KMS's `ec-sign-*` returns and the exact shape X.509
+// `signatureValue` carries. Pluggable so tests can substitute
 // `crypto.subtle.sign` + `p1363ToDer` without hitting real KMS.
 export type LeafTbsSigner = (digest: Uint8Array) => Promise<Uint8Array>;
 
@@ -1023,6 +1263,9 @@ export interface IssueLeafChainOpts {
   intermediatePem: string;
   validityDays: number;
   signer: LeafTbsSigner;
+  // Present iff issuing against the v2 hierarchy (see LeafTemplate.v2).
+  // Also switches the TBS digest handed to `signer` to SHA-384.
+  v2?: V2LeafOptions;
 }
 
 /**
@@ -1078,10 +1321,11 @@ export async function issueLeafChainFromCSR(
     intermediate,
     validityDays: opts.validityDays,
     serialNumber,
+    v2: opts.v2,
   });
 
   const tbs = encodeTBS(leaf);
-  const digest = await sha256(tbs);
+  const digest = opts.v2 ? await sha384(tbs) : await sha256(tbs);
   const signatureDer = await opts.signer(digest);
   const leafPem = finalizeLeafPEM(leaf, signatureDer);
 

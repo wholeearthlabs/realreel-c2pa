@@ -47,17 +47,25 @@ import {
   AttestationError,
   base64ToBytes,
   bytesToBase64,
+  caHierarchy,
   ctEqual,
   extractCSRSpkiDer,
   extractSpkiDer,
   issueLeafChainFromCSR,
   parseCertFromPem,
   parseCSRFromPem,
+  resolveV2LeafOptions,
   verifyCSRSignature,
+} from "../_shared/attestation/pki.ts";
+import type {
+  AssuranceLevel,
+  CaHierarchy,
+  LeafPlatform,
 } from "../_shared/attestation/pki.ts";
 import type { KmsCredentials } from "../_shared/kms.ts";
 import {
   KMS_EXPECTED_ALGORITHM,
+  KMS_EXPECTED_ALGORITHM_V2,
   kmsGetPublicKey,
   kmsSignDigest,
   loadKmsCredentials,
@@ -70,15 +78,34 @@ import {
   REQUIRE_PRODUCTION_APPATTEST,
 } from "../_shared/config.ts";
 
-// 180-day leaf validity. Short because TSA timestamping keeps a capture
-// stamped before its leaf expires verifiable past expiry, so a short leaf no
-// longer caps the offline-upload window. Buys rolling patch-currency (stale
-// devices age off) + a revocation TTL; healthy devices silently re-enroll
-// ~30 days before expiry via a non-destructive key rotation
-// (the app's enrollment client). MUST stay in sync with the
-// verifier's DEFAULT_CERT_LIFETIME_MS (verifier/src/cert-validity.ts) — no
-// programmatic drift check. See RealReel's internal CA custody documentation.
+// Leaf validity. Short because TSA timestamping keeps a capture stamped
+// before its leaf expires verifiable past expiry, so a short leaf no longer
+// caps the offline-upload window. Buys rolling patch-currency (stale devices
+// age off) + a revocation TTL; healthy devices silently re-enroll ~30 days
+// before expiry via a non-destructive key rotation (the app's enrollment
+// client).
+//
+// v1 issues a flat 180 days. v2 validity is per-platform/per-AL — CP §7.1.2
+// caps AL2 leaves at 90 days and AL1 at 366.
+//
+// STILL hand-synced with the verifier's DEFAULT_CERT_LIFETIME_MS
+// (verifier/src/cert-validity.ts) — no programmatic drift check. That gate is
+// a FLAT constant, not a per-leaf lookup: c2pa-node doesn't surface
+// cert.notAfter, so the verifier cannot read the issued lifetime off the
+// manifest. Dropping the shortest issued lifetime below it (e.g. the 90-day
+// AL2 leaves) widens the window in which an untimestamped asset is accepted
+// on the "cert was plausibly still valid at signing" assumption. Change one,
+// change the other. See RealReel's internal CA custody documentation.
 const LEAF_VALIDITY_DAYS = 180;
+
+export function leafValidityDays(
+  hierarchy: CaHierarchy,
+  platform: LeafPlatform,
+  assuranceLevel: AssuranceLevel,
+): number {
+  if (hierarchy === "v1") return LEAF_VALIDITY_DAYS;
+  return platform === "android" && assuranceLevel === "AL2" ? 90 : 180;
+}
 
 /**
  * Test-injection seams — production wires `defaultDeps`, tests inject mocks
@@ -144,18 +171,31 @@ export function buildCachedIntermediateCheck(deps: {
         cache = null;
         throw e;
       }
-      // Algorithm gate: the leaf cert's TBS declares `ecdsaWithSHA256`
-      // (pki.ts hardcodes OID.ecdsaWithSHA256). KMS signing with any
-      // other algorithm produces leaves whose declared signatureAlgorithm
-      // lies. Fail-fast at cold start so a misconfigured
-      // GCP_KMS_KEY_RESOURCE can never mint a single bad cert.
-      if (kmsPublicKey.algorithm !== KMS_EXPECTED_ALGORITHM) {
+      // Algorithm gate: the leaf's declared signatureAlgorithm tracks the
+      // active hierarchy (v1 → ecdsaWithSHA256 / P-256 intermediate, v2 →
+      // ecdsaWithSHA384 / P-384 claim ICA). KMS signing with any other
+      // algorithm produces leaves whose declared signatureAlgorithm lies.
+      // Fail-fast at cold start so a misconfigured GCP_KMS_KEY_RESOURCE —
+      // including a hierarchy flip that swapped only one of the paired env
+      // vars — can never mint a single bad cert.
+      let expectedAlgorithm: string;
+      try {
+        expectedAlgorithm = caHierarchy() === "v2"
+          ? KMS_EXPECTED_ALGORITHM_V2
+          : KMS_EXPECTED_ALGORITHM;
+      } catch (e) {
+        // A junk CA_HIERARCHY is a fixable misconfig like the two below —
+        // don't pin a rejected promise in the cache for the isolate's life.
+        cache = null;
+        throw e;
+      }
+      if (kmsPublicKey.algorithm !== expectedAlgorithm) {
         cache = null;
         throw new AttestationError(
           "KMS_ALGORITHM_MISMATCH",
-          `Cloud KMS algorithm is ${kmsPublicKey.algorithm}, expected ${KMS_EXPECTED_ALGORITHM} — ` +
-            "GCP_KMS_KEY_RESOURCE was likely rotated to the wrong algorithm. " +
-            "Repoint at a P-256 / SHA-256 key version.",
+          `Cloud KMS algorithm is ${kmsPublicKey.algorithm}, expected ${expectedAlgorithm} — ` +
+            "GCP_KMS_KEY_RESOURCE and CA_HIERARCHY are out of sync. " +
+            "Repoint at the matching key version.",
         );
       }
       let intCert;
@@ -241,7 +281,9 @@ interface RegisterBody {
 // stays in lockstep with revoke-signing-key's keyId validation.)
 
 // Bounded server-side. The client emits ~15-20 chars; 64 leaves margin
-// without enabling abuse vectors via large bodies.
+// without enabling abuse vectors via large bodies. An over-long label is
+// TRUNCATED to this many chars (not rejected) so this cosmetic display field
+// can never block enrollment — see the deviceLabel handling in handleRegister.
 const MAX_DEVICE_LABEL_CHARS = 64;
 
 // Defensive cap on the inbound CSR PEM. PEM is ASCII so character count
@@ -337,10 +379,32 @@ export async function handleRegister(
     return jsonResponse({ error: "Missing or malformed fields" }, { status: 400 });
   }
 
-  if (deviceLabel !== undefined) {
-    if (typeof deviceLabel !== "string" || deviceLabel.length > MAX_DEVICE_LABEL_CHARS) {
+  // deviceLabel is a COSMETIC display field (Devices-screen row label, never
+  // PII, persisted NULL when absent). It must never block enrollment — a user
+  // unable to capture authentic photos because a display string is too long is
+  // a disproportionate failure. So an over-long label is TRUNCATED to the cap
+  // rather than rejected. (Seen in the wild: expo-device's Android `osName`
+  // returns Build.VERSION.BASE_OS, which Samsung populates with a long
+  // fingerprint string that overflowed the cap; Pixel leaves it empty, so its
+  // "Android <ver>" label fit and only Samsung tripped the old 400.) A
+  // non-string value is still a client bug → 400.
+  let deviceLabelToPersist: string | null = null;
+  if (deviceLabel !== undefined && deviceLabel !== null) {
+    if (typeof deviceLabel !== "string") {
       return jsonResponse({ error: "Malformed deviceLabel" }, { status: 400 });
     }
+    // Slicing by UTF-16 code unit can split a surrogate pair at the boundary,
+    // leaving a dangling high surrogate. Drop it so we never persist an
+    // unpaired surrogate — that's invalid UTF-8 and Postgres would reject the
+    // text (turning this cosmetic field back into a hard failure, now a 500).
+    // Slice first so the surrogate scan is bounded by the cap even for a
+    // hostile oversized body. In practice the label is ASCII and the slice is
+    // a no-op; the surrogate trim is defense-in-depth. Whitespace is NOT
+    // normalized — the label is stored verbatim.
+    const clamped = deviceLabel.slice(0, MAX_DEVICE_LABEL_CHARS);
+    const lastUnit = clamped.charCodeAt(clamped.length - 1);
+    deviceLabelToPersist =
+      lastUnit >= 0xd800 && lastUnit <= 0xdbff ? clamped.slice(0, -1) : clamped;
   }
 
   // Accept both omitted (undefined) and explicit null. Today's client sends
@@ -459,6 +523,18 @@ export async function handleRegister(
     );
   }
 
+  // Platform group + granted assurance level for leaf issuance (v2 semantics;
+  // v1 ignores both). iOS is AL1 by policy (CP Apple-side CA validation
+  // guidance is still "under development"). Android starts at AL1 and is
+  // promoted to AL2 below iff the full CP Appendix A.3.1 evidence table
+  // passes (validateAndroidAttestation's al2 evaluation); AL2-only failures
+  // degrade, never reject. Promotion happens before issuance, so both
+  // consumers — leafValidityDays and resolveV2LeafOptions — see the same
+  // granted level (they must agree, or the leaf's c2pa-al OID and its
+  // notAfter disagree).
+  const leafPlatform: LeafPlatform = platform === "ios" ? "ios" : "android";
+  let grantedAssurance: AssuranceLevel = "AL1";
+
   let appAttestPublicKey: Uint8Array | null = null;
   try {
     if (platform === "ios") {
@@ -491,7 +567,7 @@ export async function handleRegister(
         new Date(),
         ANDROID_MIN_PATCH_LOOKBACK_MONTHS,
       );
-      await deps.validateAndroidAttestation({
+      const androidResult = await deps.validateAndroidAttestation({
         certChainBase64,
         challenge: challengeBytes,
         sePublicKey,
@@ -499,7 +575,23 @@ export async function handleRegister(
         expectedSecurityLevel:
           platform === "android-strongbox" ? "strongbox" : "tee",
         minOsPatchLevel,
+        // Always evaluate the AL2 evidence table (even under v1) so fleet
+        // AL2-eligibility is observable in logs before the v2 flip; the
+        // granted level only shapes issuance under v2.
+        al2: {
+          signingCertSha256Digests: androidSigningCertDigestsFromEnv(),
+          minAppVersionCode: androidMinAppVersionCodeFromEnv(),
+          now: new Date(),
+        },
       });
+      if (androidResult.al2?.eligible) {
+        grantedAssurance = "AL2";
+      } else {
+        console.log(
+          `[register-signing-key] AL2 degraded to AL1 user=${user.id} ` +
+            `failures=${androidResult.al2?.failures.join(",") ?? "not-evaluated"}`,
+        );
+      }
     }
   } catch (e) {
     if (e instanceof AttestationError) {
@@ -534,13 +626,30 @@ export async function handleRegister(
   let leafChainPEM: string;
   let certSerialDecimal: string;
   let leafExpiresAt: Date;
+  // Resolved inside the try: a junk CA_HIERARCHY throws CA_CONFIG_INVALID,
+  // which belongs in the structured 500 below rather than escaping the
+  // handler as an unshaped serve()-level error.
+  let hierarchy: CaHierarchy = "v1";
   try {
+    hierarchy = caHierarchy();
     const kmsCreds = await deps.loadKmsCredentials();
     await deps.ensureIntermediateMatchesKms(kmsCreds, intermediatePem);
     const issued = await deps.issueLeafChainFromCSR(csr, {
       intermediatePem,
-      validityDays: LEAF_VALIDITY_DAYS,
-      signer: (digest) => deps.kmsSignDigest(digest, kmsCreds),
+      validityDays: leafValidityDays(hierarchy, leafPlatform, grantedAssurance),
+      signer: (digest) =>
+        deps.kmsSignDigest(
+          digest,
+          kmsCreds,
+          hierarchy === "v2" ? "sha384" : "sha256",
+        ),
+      // Resolves the per-platform CPL record UUID + AIA URLs from env; throws
+      // CA_CONFIG_INVALID (→ 500 here) if v2 is active without a configured
+      // UUID, so a half-configured flip can't mint a leaf missing its CPL
+      // binding.
+      v2: hierarchy === "v2"
+        ? resolveV2LeafOptions(leafPlatform, grantedAssurance)
+        : undefined,
     });
     leafChainPEM = issued.pem;
     // Persist alongside the cert PEM so the verifier can look up the
@@ -596,7 +705,7 @@ export async function handleRegister(
     p_leaf_cert_pem: leafChainPEM,
     p_cert_serial_number: certSerialDecimal,
     p_expires_at: leafExpiresAt.toISOString(),
-    p_device_label: deviceLabel ?? null,
+    p_device_label: deviceLabelToPersist,
     // iOS only — Android rows stay NULL by design (no App Attest equivalent).
     p_app_attest_public_key: appAttestPublicKey
       ? "\\x" + bytesToHex(appAttestPublicKey)
@@ -645,9 +754,18 @@ export async function handleRegister(
   }
 
   console.log(
-    `[register-signing-key] enrolled user=${user.id} platform=${platform} key_version=${keyVersion}`,
+    `[register-signing-key] enrolled user=${user.id} platform=${platform} key_version=${keyVersion}` +
+      (hierarchy === "v2" ? ` assurance=${grantedAssurance}` : ""),
   );
-  return jsonResponse({ ok: true, leafChainPEM, keyId: dbKeyId });
+  // v2 surfaces the granted assurance level so the client can show which
+  // level this device actually enrolled at (AL2 evidence failures degrade to
+  // AL1 rather than rejecting; the user should be able to see that).
+  return jsonResponse({
+    ok: true,
+    leafChainPEM,
+    keyId: dbKeyId,
+    ...(hierarchy === "v2" ? { assuranceLevel: grantedAssurance } : {}),
+  });
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -656,6 +774,46 @@ function bytesToHex(bytes: Uint8Array): string {
     s += bytes[i].toString(16).padStart(2, "0");
   }
   return s;
+}
+
+// ANDROID_APP_SIGNING_CERT_SHA256: comma-separated hex SHA-256 digests of the
+// registered APK signing certificate(s) — Play App Signing cert in prod, the
+// debug keystore cert on a local stack. Malformed entries are dropped with a
+// warning; an empty result just means the AL2 signing-cert row can't pass
+// (degrade to AL1), never a rejection.
+export function androidSigningCertDigestsFromEnv(): Uint8Array[] {
+  const raw = Deno.env.get("ANDROID_APP_SIGNING_CERT_SHA256") ?? "";
+  const out: Uint8Array[] = [];
+  for (const entry of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
+    if (!/^[0-9a-fA-F]{64}$/.test(entry)) {
+      console.warn(
+        "[register-signing-key] ANDROID_APP_SIGNING_CERT_SHA256 entry is not 64 hex chars; ignoring",
+      );
+      continue;
+    }
+    const bytes = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) {
+      bytes[i] = parseInt(entry.slice(i * 2, i * 2 + 2), 16);
+    }
+    out.push(bytes);
+  }
+  return out;
+}
+
+// ANDROID_MIN_APP_VERSION_CODE: optional versionCode floor for the AL2
+// attestationApplicationID row. Doubles as the Gen Agmt §4.2 mandated-change
+// lever (raise it to retire non-conformant builds as their leaves expire).
+export function androidMinAppVersionCodeFromEnv(): number | undefined {
+  const raw = Deno.env.get("ANDROID_MIN_APP_VERSION_CODE");
+  if (!raw) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    console.warn(
+      "[register-signing-key] ANDROID_MIN_APP_VERSION_CODE is not a non-negative integer; ignoring",
+    );
+    return undefined;
+  }
+  return n;
 }
 
 /**

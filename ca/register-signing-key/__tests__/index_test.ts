@@ -378,13 +378,55 @@ Deno.test("register-signing-key — invalid platform → 400", async () => {
   assertEquals(res.status, 400);
 });
 
-Deno.test("register-signing-key — oversized deviceLabel → 400", async () => {
-  const { deps } = buildDeps();
+Deno.test("register-signing-key — oversized deviceLabel → 200, truncated to cap (not rejected)", async () => {
+  // A cosmetic display label must never block enrollment. Samsung's
+  // expo-device osName (Build.VERSION.BASE_OS) can overflow the 64-char cap;
+  // the server truncates rather than 400ing so the Galaxy still enrolls.
+  const { deps, mockClient } = buildDeps();
   const res = await handleRegister(
     buildRequest({
       bearer: "alice-jwt",
       // MAX_DEVICE_LABEL_CHARS = 64.
-      body: buildIosBody({ deviceLabel: "x".repeat(65) }),
+      body: buildIosBody({ deviceLabel: "x".repeat(200) }),
+    }),
+    deps,
+  );
+  assertEquals(res.status, 200);
+  // The persisted label is truncated to exactly the cap, not rejected.
+  const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
+  assertEquals((insertArgs.p_device_label as string).length, 64);
+  assertEquals(insertArgs.p_device_label, "x".repeat(64));
+});
+
+Deno.test("register-signing-key — truncation never persists a lone surrogate (astral char at boundary)", async () => {
+  // A crafted label whose astral-plane char straddles the 64th UTF-16 unit
+  // must not persist an unpaired surrogate — that's invalid UTF-8 and Postgres
+  // would reject the text, turning a cosmetic field back into a hard failure.
+  const { deps, mockClient } = buildDeps();
+  // 63 ASCII + a 2-code-unit emoji: units 64/65 are the surrogate pair, so a
+  // naive slice(0,64) would keep only the emoji's high half at index 63.
+  const label = "x".repeat(63) + "😀" + "y".repeat(50);
+  const res = await handleRegister(
+    buildRequest({ bearer: "alice-jwt", body: buildIosBody({ deviceLabel: label }) }),
+    deps,
+  );
+  assertEquals(res.status, 200);
+  const persisted = (mockClient.calls[1].values as Record<string, unknown>)
+    .p_device_label as string;
+  // Dangling high surrogate dropped → the 63 leading ASCII chars, no tail pair.
+  assertEquals(persisted, "x".repeat(63));
+  const lastUnit = persisted.charCodeAt(persisted.length - 1);
+  assertEquals(lastUnit >= 0xd800 && lastUnit <= 0xdbff, false);
+});
+
+Deno.test("register-signing-key — non-string deviceLabel → 400 Malformed deviceLabel", async () => {
+  // Truncation covers over-long strings; a non-string is still a client bug
+  // (wrong request shape), so that path stays a hard 400.
+  const { deps } = buildDeps();
+  const res = await handleRegister(
+    buildRequest({
+      bearer: "alice-jwt",
+      body: buildIosBody({ deviceLabel: 12345 as unknown as string }),
     }),
     deps,
   );
@@ -1125,3 +1167,112 @@ Deno.test(
     assertEquals(insertArgs.p_supersede_key_id, null);
   },
 );
+
+// ---------- v2 hierarchy wiring ---------------------------------------
+
+import { leafValidityDays } from "../index.ts";
+
+const PLACEHOLDER_CPL_UUID = "00000000-0000-4000-8000-000000000000";
+
+function withV2Env(
+  uuids: { ios?: string; android?: string },
+  fn: () => Promise<void>,
+): Promise<void> {
+  Deno.env.set("CA_HIERARCHY", "v2");
+  if (uuids.ios) Deno.env.set("LEAF_CPL_RECORD_UUID_IOS", uuids.ios);
+  if (uuids.android) {
+    Deno.env.set("LEAF_CPL_RECORD_UUID_ANDROID", uuids.android);
+  }
+  return fn().finally(() => {
+    Deno.env.delete("CA_HIERARCHY");
+    Deno.env.delete("LEAF_CPL_RECORD_UUID_IOS");
+    Deno.env.delete("LEAF_CPL_RECORD_UUID_ANDROID");
+  });
+}
+
+Deno.test("register-signing-key — v2 iOS: issuance gets v2 opts + 180d, response carries assuranceLevel AL1", () =>
+  withV2Env({ ios: PLACEHOLDER_CPL_UUID }, async () => {
+    const capturedOpts: Array<
+      Parameters<RegisterDeps["issueLeafChainFromCSR"]>[1]
+    > = [];
+    const { deps } = buildDeps({
+      issueLeafChainImpl: (_csr, opts) => {
+        capturedOpts.push(opts);
+        return Promise.resolve({
+          pem: "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
+          serialDecimal: "12345678",
+          serialBytes: new Uint8Array([1, 2, 3, 4]),
+          notAfter: new Date("2027-01-24T00:00:00Z"),
+        });
+      },
+    });
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<
+      { ok: boolean; assuranceLevel?: string }
+    >(res);
+    assertEquals(status, 200);
+    assertEquals(body.ok, true);
+    assertEquals(body.assuranceLevel, "AL1"); // iOS is AL1 by policy
+    assertEquals(capturedOpts.length, 1);
+    assertEquals(capturedOpts[0].validityDays, 180);
+    assertEquals(capturedOpts[0].v2?.platform, "ios");
+    assertEquals(capturedOpts[0].v2?.assuranceLevel, "AL1");
+    assertEquals(capturedOpts[0].v2?.cplRecordUuid, PLACEHOLDER_CPL_UUID);
+  }));
+
+Deno.test("register-signing-key — v2 with unset CPL UUID: 500, nothing persisted", () =>
+  withV2Env({}, async () => {
+    const { deps, mockClient } = buildDeps();
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<{ error: string }>(res);
+    assertEquals(status, 500);
+    assertEquals(body.error, "Issuance failed");
+    // Challenge burn ran, but the register RPC must not have.
+    assertEquals(
+      mockClient.calls.some((c) => c.table === "rpc:register_user_signing_key"),
+      false,
+    );
+  }));
+
+Deno.test("register-signing-key — v1 default: no v2 opts to issuance, no assuranceLevel in response", async () => {
+  const capturedOpts: Array<
+    Parameters<RegisterDeps["issueLeafChainFromCSR"]>[1]
+  > = [];
+  const { deps } = buildDeps({
+    issueLeafChainImpl: (_csr, opts) => {
+      capturedOpts.push(opts);
+      return Promise.resolve({
+        pem: "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
+        serialDecimal: "12345678",
+        serialBytes: new Uint8Array([1, 2, 3, 4]),
+        notAfter: new Date("2031-01-01T00:00:00Z"),
+      });
+    },
+  });
+  const res = await handleRegister(
+    buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
+    deps,
+  );
+  const { status, body } = await readJsonResponse<
+    { ok: boolean; assuranceLevel?: string }
+  >(res);
+  assertEquals(status, 200);
+  assertEquals("assuranceLevel" in body, false);
+  assertEquals(capturedOpts.length, 1);
+  assertEquals(capturedOpts[0].validityDays, 180);
+  assertEquals(capturedOpts[0].v2, undefined);
+});
+
+Deno.test("leafValidityDays — v2 per-platform/per-AL map; v1 flat 180", () => {
+  assertEquals(leafValidityDays("v1", "ios", "AL1"), 180);
+  assertEquals(leafValidityDays("v1", "android", "AL2"), 180);
+  assertEquals(leafValidityDays("v2", "ios", "AL1"), 180);
+  assertEquals(leafValidityDays("v2", "android", "AL1"), 180);
+  assertEquals(leafValidityDays("v2", "android", "AL2"), 90);
+});

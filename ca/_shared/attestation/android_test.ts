@@ -516,3 +516,386 @@ Deno.test(
     );
   },
 );
+
+// =====================================================================
+// AL2 evidence (CP Appendix A.3.1) — evaluateAl2Evidence + the new
+// AuthorizationList readers behind it.
+// =====================================================================
+
+import {
+  evaluateAl2Evidence,
+  extractAttestationApplicationId,
+  extractDayPatchLevel,
+  extractRootOfTrust,
+  readTaggedInt,
+  readTaggedIntSet,
+} from "./android.ts";
+import type { KeyDescription } from "./android.ts";
+
+const AL2_NOW = new Date("2026-07-27T00:00:00Z");
+const DIGEST_A = new Uint8Array(32).fill(0xaa);
+const DIGEST_B = new Uint8Array(32).fill(0xbb);
+
+/** A KeyDescription that passes every AL2 row at AL2_NOW. Tests mutate one
+ * field at a time and assert the exact failure code. */
+function passingDesc(over: Partial<KeyDescription> = {}): KeyDescription {
+  return {
+    attestationVersion: 300,
+    attestationSecurityLevel: 2,
+    keymasterVersion: 300,
+    keymasterSecurityLevel: 2,
+    attestationChallenge: new Uint8Array(),
+    packageNames: [ANDROID_PACKAGE_NAME],
+    osPatchLevel: 202607,
+    appPackages: [{ name: ANDROID_PACKAGE_NAME, version: 42 }],
+    appSigningCertDigests: [DIGEST_A],
+    purposes: [2], // SIGN
+    algorithm: 3, // EC
+    keySize: 256,
+    digests: [4], // SHA-2-256
+    ecCurve: 1, // P_256
+    origin: 0, // GENERATED
+    rootOfTrust: { deviceLocked: true, verifiedBootState: 0 },
+    osPatchLevelHw: 202607,
+    vendorPatchLevel: 20260701,
+    bootPatchLevel: 20260701,
+    ...over,
+  };
+}
+
+const AL2_OPTS = {
+  signingCertSha256Digests: [DIGEST_A],
+  minAppVersionCode: 40,
+  now: AL2_NOW,
+  packageName: ANDROID_PACKAGE_NAME,
+};
+
+Deno.test("evaluateAl2Evidence — full table passes → eligible, no failures", () => {
+  const r = evaluateAl2Evidence(passingDesc(), AL2_OPTS);
+  assertEquals(r.failures, []);
+  assertEquals(r.eligible, true);
+});
+
+Deno.test("evaluateAl2Evidence — signing-cert rows", () => {
+  // No registered digests configured → config-missing (not mismatch).
+  assertEquals(
+    evaluateAl2Evidence(passingDesc(), {
+      ...AL2_OPTS,
+      signingCertSha256Digests: [],
+    }).failures,
+    ["AL2_APP_SIGNING_CONFIG_MISSING"],
+  );
+  // Attested digest doesn't match any registered one.
+  assertEquals(
+    evaluateAl2Evidence(passingDesc({ appSigningCertDigests: [DIGEST_B] }), AL2_OPTS)
+      .failures,
+    ["AL2_APP_SIGNING_CERT_MISMATCH"],
+  );
+  // Any-of-several registered digests matching is enough.
+  assertEquals(
+    evaluateAl2Evidence(passingDesc(), {
+      ...AL2_OPTS,
+      signingCertSha256Digests: [DIGEST_B, DIGEST_A],
+    }).eligible,
+    true,
+  );
+});
+
+Deno.test("evaluateAl2Evidence — app version floor", () => {
+  assertEquals(
+    evaluateAl2Evidence(
+      passingDesc({ appPackages: [{ name: ANDROID_PACKAGE_NAME, version: 39 }] }),
+      AL2_OPTS,
+    ).failures,
+    ["AL2_APP_VERSION_BELOW_FLOOR"],
+  );
+  // Version missing from the attestation → same failure (can't prove floor).
+  assertEquals(
+    evaluateAl2Evidence(
+      passingDesc({ appPackages: [{ name: ANDROID_PACKAGE_NAME, version: null }] }),
+      AL2_OPTS,
+    ).failures,
+    ["AL2_APP_VERSION_BELOW_FLOOR"],
+  );
+  // No floor configured → version not checked.
+  assertEquals(
+    evaluateAl2Evidence(
+      passingDesc({ appPackages: [{ name: ANDROID_PACKAGE_NAME, version: null }] }),
+      { ...AL2_OPTS, minAppVersionCode: undefined },
+    ).eligible,
+    true,
+  );
+});
+
+Deno.test("evaluateAl2Evidence — key-parameter rows fail individually (null = fail)", () => {
+  const cases: Array<[Partial<KeyDescription>, string]> = [
+    [{ purposes: [0] }, "AL2_KEY_PURPOSE"],
+    [{ purposes: null }, "AL2_KEY_PURPOSE"],
+    [{ algorithm: 1 }, "AL2_KEY_ALGORITHM"],
+    [{ algorithm: null }, "AL2_KEY_ALGORITHM"],
+    [{ keySize: 384 }, "AL2_KEY_SIZE"],
+    [{ digests: [2] }, "AL2_KEY_DIGEST"],
+    [{ digests: null }, "AL2_KEY_DIGEST"],
+    [{ ecCurve: 2 }, "AL2_KEY_CURVE"],
+    [{ origin: 2 }, "AL2_KEY_ORIGIN"],
+    [{ origin: null }, "AL2_KEY_ORIGIN"],
+  ];
+  for (const [over, code] of cases) {
+    const r = evaluateAl2Evidence(passingDesc(over), AL2_OPTS);
+    assertEquals(r.failures, [code], JSON.stringify(over));
+  }
+});
+
+Deno.test("evaluateAl2Evidence — rootOfTrust rows", () => {
+  assertEquals(
+    evaluateAl2Evidence(passingDesc({ rootOfTrust: null }), AL2_OPTS).failures,
+    ["AL2_ROOT_OF_TRUST_MISSING"],
+  );
+  assertEquals(
+    evaluateAl2Evidence(
+      passingDesc({ rootOfTrust: { deviceLocked: false, verifiedBootState: 0 } }),
+      AL2_OPTS,
+    ).failures,
+    ["AL2_DEVICE_NOT_LOCKED"],
+  );
+  assertEquals(
+    evaluateAl2Evidence(
+      passingDesc({ rootOfTrust: { deviceLocked: true, verifiedBootState: 2 } }),
+      AL2_OPTS,
+    ).failures,
+    ["AL2_VERIFIED_BOOT_NOT_VERIFIED"],
+  );
+});
+
+Deno.test("evaluateAl2Evidence — patch-currency rows and their exact boundaries", () => {
+  // os window per the A.3.1 worked example: CSR month + 3 back. At
+  // 2026-07-27 that's 202604..202607 inclusive.
+  assertEquals(
+    evaluateAl2Evidence(passingDesc({ osPatchLevelHw: 202604 }), AL2_OPTS)
+      .eligible,
+    true,
+  );
+  assertEquals(
+    evaluateAl2Evidence(passingDesc({ osPatchLevelHw: 202603 }), AL2_OPTS)
+      .failures,
+    ["AL2_OS_PATCH_STALE"],
+  );
+  assertEquals(
+    evaluateAl2Evidence(passingDesc({ osPatchLevelHw: 202608 }), AL2_OPTS)
+      .failures,
+    ["AL2_OS_PATCH_FUTURE"],
+  );
+  // vendor/boot ≤ 90 days and not future: window at 2026-07-27 is
+  // 20260428..20260727.
+  assertEquals(
+    evaluateAl2Evidence(passingDesc({ vendorPatchLevel: 20260428 }), AL2_OPTS)
+      .eligible,
+    true,
+  );
+  assertEquals(
+    evaluateAl2Evidence(passingDesc({ vendorPatchLevel: 20260427 }), AL2_OPTS)
+      .failures,
+    ["AL2_VENDOR_PATCH_STALE"],
+  );
+  assertEquals(
+    evaluateAl2Evidence(passingDesc({ vendorPatchLevel: 20260728 }), AL2_OPTS)
+      .failures,
+    ["AL2_VENDOR_PATCH_FUTURE"],
+  );
+  assertEquals(
+    evaluateAl2Evidence(passingDesc({ bootPatchLevel: null }), AL2_OPTS).failures,
+    ["AL2_BOOT_PATCH_STALE"],
+  );
+  assertEquals(
+    evaluateAl2Evidence(passingDesc({ bootPatchLevel: 20260728 }), AL2_OPTS)
+      .failures,
+    ["AL2_BOOT_PATCH_FUTURE"],
+  );
+});
+
+Deno.test("evaluateAl2Evidence — failures accumulate across rows", () => {
+  const r = evaluateAl2Evidence(
+    passingDesc({
+      rootOfTrust: { deviceLocked: false, verifiedBootState: 2 },
+      vendorPatchLevel: null,
+    }),
+    { ...AL2_OPTS, signingCertSha256Digests: [] },
+  );
+  assertEquals(r.eligible, false);
+  assertEquals(r.failures, [
+    "AL2_APP_SIGNING_CONFIG_MISSING",
+    "AL2_DEVICE_NOT_LOCKED",
+    "AL2_VERIFIED_BOOT_NOT_VERIFIED",
+    "AL2_VENDOR_PATCH_STALE",
+  ]);
+});
+
+// --- The new AuthorizationList readers (synthetic wire shapes) ----------
+
+Deno.test("readTaggedInt / readTaggedIntSet — EXPLICIT and IMPLICIT shapes", () => {
+  const list = new asn1js.Sequence({
+    value: [
+      // [1] EXPLICIT SET OF INTEGER {2}
+      new asn1js.Constructed({
+        idBlock: { tagClass: 3, tagNumber: 1 },
+        value: [
+          new asn1js.Set({
+            value: [new asn1js.Integer({ valueHex: new Uint8Array([2]).buffer })],
+          }),
+        ],
+      }),
+      // [3] EXPLICIT INTEGER 256
+      new asn1js.Constructed({
+        idBlock: { tagClass: 3, tagNumber: 3 },
+        value: [
+          new asn1js.Integer({ valueHex: new Uint8Array([0x01, 0x00]).buffer }),
+        ],
+      }),
+      // [702] IMPLICIT INTEGER 0 (fallback shape)
+      new asn1js.Primitive({
+        idBlock: { tagClass: 3, tagNumber: 702 },
+        valueHex: new Uint8Array([0]).buffer,
+      }),
+    ],
+  });
+  assertEquals(readTaggedIntSet(list, 1), [2]);
+  assertEquals(readTaggedInt(list, 3), 256);
+  assertEquals(readTaggedInt(list, 702), 0);
+  assertEquals(readTaggedInt(list, 10), null); // absent tag
+  assertEquals(readTaggedIntSet(list, 5), null); // absent tag
+});
+
+Deno.test("extractRootOfTrust — parses deviceLocked + verifiedBootState", () => {
+  const rot = (locked: boolean, state: number) =>
+    new asn1js.Sequence({
+      value: [
+        new asn1js.Constructed({
+          idBlock: { tagClass: 3, tagNumber: 704 },
+          value: [
+            new asn1js.Sequence({
+              value: [
+                new asn1js.OctetString({ valueHex: new Uint8Array(32).buffer }),
+                new asn1js.Boolean({ value: locked }),
+                new asn1js.Enumerated({ value: state }),
+                new asn1js.OctetString({ valueHex: new Uint8Array(32).buffer }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+  assertEquals(extractRootOfTrust(rot(true, 0)), {
+    deviceLocked: true,
+    verifiedBootState: 0,
+  });
+  assertEquals(extractRootOfTrust(rot(false, 2)), {
+    deviceLocked: false,
+    verifiedBootState: 2,
+  });
+  assertEquals(extractRootOfTrust(new asn1js.Sequence({ value: [] })), null);
+});
+
+Deno.test("extractDayPatchLevel — YYYYMMDD passthrough, YYYYMM→YYYYMM01, bounds", () => {
+  const mk = (bytes: number[]) =>
+    new asn1js.Sequence({
+      value: [
+        new asn1js.Constructed({
+          idBlock: { tagClass: 3, tagNumber: 718 },
+          value: [new asn1js.Integer({ valueHex: new Uint8Array(bytes).buffer })],
+        }),
+      ],
+    });
+  // 20260701 = 0x01 0x35 0x27 0x5D
+  assertEquals(extractDayPatchLevel(mk([0x01, 0x35, 0x27, 0x5d]), 718), 20260701);
+  // 202607 = 0x03 0x17 0x6F → normalized to 20260701
+  assertEquals(extractDayPatchLevel(mk([0x03, 0x17, 0x6f]), 718), 20260701);
+  // Absent tag / garbage value → null
+  assertEquals(extractDayPatchLevel(mk([0x01]), 719), null);
+  assertEquals(extractDayPatchLevel(mk([0x01]), 718), null);
+});
+
+Deno.test("extractAttestationApplicationId — packages with versions + signature digests", () => {
+  const inner = new asn1js.Sequence({
+    value: [
+      new asn1js.Set({
+        value: [
+          new asn1js.Sequence({
+            value: [
+              new asn1js.OctetString({
+                valueHex: new TextEncoder().encode("com.realreel.app").buffer as ArrayBuffer,
+              }),
+              new asn1js.Integer({ valueHex: new Uint8Array([42]).buffer }),
+            ],
+          }),
+        ],
+      }),
+      new asn1js.Set({
+        value: [
+          new asn1js.OctetString({ valueHex: DIGEST_A.slice().buffer }),
+        ],
+      }),
+    ],
+  });
+  const authList = new asn1js.Sequence({
+    value: [
+      new asn1js.Constructed({
+        idBlock: { tagClass: 3, tagNumber: 709 },
+        value: [
+          new asn1js.OctetString({ valueHex: inner.toBER(false) }),
+        ],
+      }),
+    ],
+  });
+  const aid = extractAttestationApplicationId(authList);
+  assertEquals(aid?.packages, [{ name: "com.realreel.app", version: 42 }]);
+  assertEquals(aid?.signatureDigests.length, 1);
+  assertEquals(aid?.signatureDigests[0], DIGEST_A);
+});
+
+Deno.test(
+  "validateAndroidAttestation — real fixture: AL2 evaluation runs, degrades (never throws), codes are known",
+  async () => {
+    const fix = await loadFixture("android_strongbox");
+    if (!fix) return; // fixture absent → covered environments still test above
+    const result = await validateAndroidAttestation({
+      certChainBase64: JSON.parse(fix.attestation),
+      validationTime: FIXTURE_VALIDATION_TIME,
+      challenge: base64ToBytes(fix.challenge),
+      sePublicKey: base64ToBytes(fix.publicKey),
+      packageName: ANDROID_PACKAGE_NAME,
+      expectedSecurityLevel: "strongbox",
+      al2: {
+        signingCertSha256Digests: [], // unset config → at minimum config-missing
+        now: FIXTURE_VALIDATION_TIME,
+      },
+    });
+    const al2 = result.al2!;
+    assertEquals(al2.eligible, false);
+    assertEquals(al2.failures.includes("AL2_APP_SIGNING_CONFIG_MISSING"), true);
+    const KNOWN = new Set([
+      "AL2_APP_SIGNING_CONFIG_MISSING",
+      "AL2_APP_SIGNING_CERT_MISMATCH",
+      "AL2_APP_VERSION_BELOW_FLOOR",
+      "AL2_KEY_PURPOSE",
+      "AL2_KEY_ALGORITHM",
+      "AL2_KEY_SIZE",
+      "AL2_KEY_DIGEST",
+      "AL2_KEY_CURVE",
+      "AL2_KEY_ORIGIN",
+      "AL2_ROOT_OF_TRUST_MISSING",
+      "AL2_DEVICE_NOT_LOCKED",
+      "AL2_VERIFIED_BOOT_NOT_VERIFIED",
+      "AL2_OS_PATCH_STALE",
+      "AL2_OS_PATCH_FUTURE",
+      "AL2_VENDOR_PATCH_STALE",
+      "AL2_VENDOR_PATCH_FUTURE",
+      "AL2_BOOT_PATCH_STALE",
+      "AL2_BOOT_PATCH_FUTURE",
+    ]);
+    for (const f of al2.failures) {
+      assertEquals(KNOWN.has(f), true, `unknown failure code: ${f}`);
+    }
+    // Observability breadcrumb: what the committed real device evaluates to.
+    console.log(`[test] strongbox fixture AL2 failures: ${al2.failures.join(",")}`);
+  },
+);
