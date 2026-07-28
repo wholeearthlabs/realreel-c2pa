@@ -4,7 +4,7 @@
 # there's one entry point across the Node workspaces (trust-core, verifier,
 # native) and the Deno workspace (ca).
 
-.PHONY: test test-trust-core test-verifier test-ca typecheck verify-trust-anchors verify-attestation-roots verifier-dev deploy-verifier rollback-verifier
+.PHONY: test test-trust-core test-verifier test-ca typecheck verify-trust-anchors verify-attestation-roots verifier-dev deploy-verifier rollback-verifier deploy-ocsp-leaf rollback-ocsp-leaf
 
 # Run every test suite (trust-core + verifier + ca).
 test:
@@ -44,17 +44,26 @@ verifier-dev:
 		PORT=8787 \
 		npm run dev
 
-# Promote an already-published, attested verifier image (GHCR) to Artifact
-# Registry and deploy it to Cloud Run. Image-only — env/secrets are preserved
-# from the current revision. Config lives in verifier/deploy.env (copy from
-# verifier/deploy.env.example). Pass YES=1 to skip the confirmation prompt.
-#   make deploy-verifier TAG=verifier-v0.5.0
+# Promote an already-published, attested image (GHCR) to Artifact Registry and
+# deploy it to Cloud Run. Image-only — env/secrets are preserved from the current
+# revision. Config lives in <service>/deploy.env (copy from deploy.env.example).
+# Pass YES=1 to skip the confirmation prompt.
+#   make deploy-verifier  TAG=verifier-v0.5.0
+#   make deploy-ocsp-leaf TAG=ocsp-leaf-v0.1.0
 deploy-verifier:
 	@test -n "$(TAG)" || { echo "usage: make deploy-verifier TAG=<verifier-tag>   e.g. verifier-v0.5.0"; exit 1; }
-	verifier/scripts/deploy.sh "$(TAG)" $(if $(YES),-y,)
+	DEPLOY_ENV=verifier/deploy.env scripts/deploy-service.sh "$(TAG)" $(if $(YES),-y,)
+
+deploy-ocsp-leaf:
+	@test -n "$(TAG)" || { echo "usage: make deploy-ocsp-leaf TAG=<ocsp-leaf-tag>   e.g. ocsp-leaf-v0.1.0"; exit 1; }
+	DEPLOY_ENV=ocsp-leaf/deploy.env scripts/deploy-service.sh "$(TAG)" $(if $(YES),-y,)
 
 # Roll Cloud Run traffic back to a known-good revision. No REV lists revisions.
-#   make rollback-verifier                                   # list
-#   make rollback-verifier REV=realreel-verifier-00007-abc   # shift traffic
+#   make rollback-verifier                                    # list
+#   make rollback-verifier  REV=realreel-verifier-00007-abc   # shift traffic
+#   make rollback-ocsp-leaf [REV=realreel-ocsp-leaf-00007-abc]
 rollback-verifier:
-	verifier/scripts/rollback.sh $(REV)
+	DEPLOY_ENV=verifier/deploy.env scripts/rollback-service.sh $(REV)
+
+rollback-ocsp-leaf:
+	DEPLOY_ENV=ocsp-leaf/deploy.env scripts/rollback-service.sh $(REV)

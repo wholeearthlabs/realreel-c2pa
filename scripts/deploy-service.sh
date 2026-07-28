@@ -1,59 +1,62 @@
 #!/usr/bin/env bash
 #
-# Promote an attested verifier image (GHCR) to Artifact Registry and deploy it
-# to Cloud Run.
+# Promote an attested image (GHCR) to Artifact Registry and deploy it to Cloud
+# Run. Shared by every deployable service here; DEPLOY_ENV picks which one.
 #
 # This is an IMAGE-ONLY deploy: env vars, secrets, the runtime service account,
 # scaling, and IAM are all preserved from the current revision — `gcloud run
-# deploy` only changes the fields you pass. Use the full DEPLOY.md flow when you
-# need to change configuration, not just ship a new version.
+# deploy` only changes the fields you pass. Use the service's deploy doc when
+# you need to change configuration, not just ship a new version.
 #
-# It deploys the EXACT image your release workflow published and attested
-# (.github/workflows/publish-verifier-image.yml), verifying SLSA provenance
-# first, then copying GHCR -> Artifact Registry by digest (Cloud Run can't pull
-# GHCR directly). The deployed bytes are the audited bytes.
+# It deploys the EXACT image the publish workflow built and attested, verifying
+# SLSA provenance first, then copying GHCR -> Artifact Registry by digest (Cloud
+# Run can't pull GHCR directly). The deployed bytes are the audited bytes.
 #
 # Usage:
-#   verifier/scripts/deploy.sh <verifier-tag> [-y]    # e.g. verifier-v0.5.0
-#   make deploy-verifier TAG=verifier-v0.5.0
-#
-# Config: verifier/deploy.env (copy from verifier/deploy.env.example).
+#   DEPLOY_ENV=verifier/deploy.env scripts/deploy-service.sh verifier-v0.5.0 [-y]
+#   make deploy-verifier  TAG=verifier-v0.5.0
+#   make deploy-ocsp-leaf TAG=ocsp-leaf-v0.1.0
 #
 # Prerequisites (one-time, on your machine):
-#   - gcloud authenticated with deploy rights on the verifier project
+#   - gcloud authenticated with deploy rights on the target project
 #   - docker configured for Artifact Registry:
 #       gcloud auth configure-docker <region>-docker.pkg.dev
 #   - gh authenticated (for provenance verification)
 #   - read access to the GHCR image. If the package is private, log docker in:
 #       echo "$GHCR_TOKEN" | docker login ghcr.io -u <user> --password-stdin
 #     (a token with read:packages), or make the package public on GitHub. A
-#     public package also satisfies DEPLOY.md's "anyone can pull" transparency
-#     claim and needs no login.
+#     public package also satisfies the "anyone can pull" transparency claim
+#     and needs no login.
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${DEPLOY_ENV:-${SCRIPT_DIR}/../deploy.env}"
+ENV_FILE="${DEPLOY_ENV:-}"
 
 die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33mwarn:\033[0m %s\n' "$*" >&2; }
 
+[ -n "${ENV_FILE}" ] || die "set DEPLOY_ENV to the service's deploy.env (e.g.
+  DEPLOY_ENV=verifier/deploy.env), or use that service's make target
+  (make deploy-<service>), which sets it for you."
 [ -f "${ENV_FILE}" ] || die "config not found: ${ENV_FILE}
-  copy ${SCRIPT_DIR}/../deploy.env.example to deploy.env and fill it in."
+  copy ${ENV_FILE}.example to ${ENV_FILE} and fill it in."
 # shellcheck disable=SC1090
 set -a; . "${ENV_FILE}"; set +a
 
+: "${TAG_PREFIX:?set TAG_PREFIX in ${ENV_FILE}}"
+
 # --- args ---
 GIT_TAG="${1:-}"
-[ -n "${GIT_TAG}" ] || die "usage: $(basename "$0") <verifier-tag> [-y]   e.g. verifier-v0.5.0"
+[ -n "${GIT_TAG}" ] || die "usage: $(basename "$0") <${TAG_PREFIX}X.Y.Z> [-y]"
 case "${GIT_TAG}" in
-  verifier-v*) ;;
-  *) die "tag must be a full verifier release tag, e.g. verifier-v0.5.0 (got '${GIT_TAG}')" ;;
+  "${TAG_PREFIX}"*) ;;
+  *) die "tag must start with '${TAG_PREFIX}' (got '${GIT_TAG}')" ;;
 esac
 # VERSION is the bare semver the published image is tagged with
-# (docker/metadata-action strips the verifier-v prefix).
-VERSION="${GIT_TAG#verifier-v}"
+# (docker/metadata-action strips the prefix).
+VERSION="${GIT_TAG#"${TAG_PREFIX}"}"
+[ -n "${VERSION}" ] || die "tag '${GIT_TAG}' is just the prefix — no version after it"
 
 ASSUME_YES=0
 case "${2:-}" in -y|--yes) ASSUME_YES=1 ;; esac
@@ -81,7 +84,7 @@ GCLOUD_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(accoun
 info "Resolving digest of ${GHCR_IMAGE}:${VERSION}"
 DIGEST="$(docker buildx imagetools inspect "${GHCR_IMAGE}:${VERSION}" --format '{{.Manifest.Digest}}')" \
   || die "could not read ${GHCR_IMAGE}:${VERSION}. Check, in order:
-    - is '${GIT_TAG}' pushed and has the publish-verifier-image workflow finished?
+    - is '${GIT_TAG}' pushed and has its publish workflow finished?
     - if the GHCR package is private, log docker in:
         echo \"\$GHCR_TOKEN\" | docker login ghcr.io -u <user> --password-stdin"
 [ -n "${DIGEST}" ] || die "empty digest for ${GHCR_IMAGE}:${VERSION}"

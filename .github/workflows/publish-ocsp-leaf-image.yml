@@ -1,0 +1,95 @@
+name: Publish ocsp-leaf image (GHCR)
+
+# Builds the leaf-status OCSP responder image and publishes it to GHCR with SLSA
+# build provenance attached. The responder signs OCSP responses with the CA
+# hierarchy's delegated key, so the deployed bytes must be traceable to a commit
+# — scripts/deploy-service.sh refuses to ship a digest whose provenance doesn't
+# verify. See ocsp-leaf/README.md § Deploy.
+#
+# Mirrors publish-verifier-image.yml, minus the draft Release: ocsp-leaf has no
+# changelog to draw notes from (it's Deno, outside Changesets — see RELEASING.md).
+
+on:
+  push:
+    tags: ['ocsp-leaf-v*'] # operator tags a responder release, e.g. ocsp-leaf-v0.1.0
+  workflow_dispatch:
+
+concurrency:
+  group: publish-ocsp-leaf-image-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read # checkout (declaring any scope zeroes the rest)
+  packages: write # push to ghcr.io
+  id-token: write # OIDC for build-provenance attestation
+  attestations: write # actions/attest persists the attestation
+
+env:
+  IMAGE: ghcr.io/wholeearthlabs/realreel-ocsp-leaf
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # deno.json's hand-managed `version` is the only in-repo record of what a
+      # release is; the image tag comes from the git tag. Nothing else keeps
+      # them in step (no Changesets here), so assert it rather than publish
+      # bytes whose declared version disagrees with the tag that named them.
+      - name: Assert deno.json version matches the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tagged="${GITHUB_REF_NAME#ocsp-leaf-v}"
+          declared="$(jq -r '.version // ""' ocsp-leaf/deno.json)"
+          if [ "${tagged}" != "${declared}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} implies ${tagged}, but ocsp-leaf/deno.json says '${declared}' — bump it (RELEASING.md)"
+            exit 1
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags + labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          # ocsp-leaf-v0.1.0 -> 0.1.0 + sha-<full> + (on a tag) latest.
+          tags: |
+            type=match,pattern=ocsp-leaf-v(.*),group=1
+            type=sha,format=long
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Context is the MONOREPO ROOT (.): the image pulls in ../ocsp/ocsp.ts,
+      # ../ca/_shared/kms.ts, and the trust-source PEMs. provenance:false keeps a
+      # plain single-arch manifest, so the pushed digest is the image itself —
+      # the subject the attestation below signs.
+      - name: Build + push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ocsp-leaf/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+
+      # create-storage-record:false: the optional org-artifacts record would need
+      # an extra artifact-metadata:write permission the signed attestation doesn't.
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false

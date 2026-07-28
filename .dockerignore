@@ -1,11 +1,15 @@
-# Lean root build context for the verifier image (see verifier/Dockerfile):
-# everything here is reinstalled/recompiled in the image, or unused by the build.
+# Lean root build context for the images built from this repo root
+# (verifier/Dockerfile, ocsp-leaf/Dockerfile): everything here is
+# reinstalled/recompiled in the image, or unused by the build.
 **/node_modules
 **/dist
 **/build
 .git
 .github
 ca
+# …except the one CA file ocsp-leaf/Dockerfile COPYs (KMS signing helper).
+# Without this exception that COPY fails: the whole ca/ tree is excluded above.
+!ca/_shared/kms.ts
 examples
 docs
 **/__tests__

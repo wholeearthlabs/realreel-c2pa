@@ -58,14 +58,44 @@ without a ledger lookup or a KMS signature spent.
 
 ## Deploy (Cloud Run)
 
-Build from the **repo root** (the image needs `../ocsp/ocsp.ts`,
-`../ca/_shared/kms.ts`, and the trust-source PEMs):
+Images are built in CI, never locally: this service signs with the CA
+hierarchy's delegated OCSP key, so the deployed bytes must be traceable to a
+commit. Tagging `ocsp-leaf-v<semver>` (matching `deno.json`'s `version`) runs
+[`publish-ocsp-leaf-image.yml`](../.github/workflows/publish-ocsp-leaf-image.yml),
+which pushes `ghcr.io/wholeearthlabs/realreel-ocsp-leaf:<semver>` with SLSA
+build provenance.
 
 ```sh
-docker build -f ocsp-leaf/Dockerfile -t <region>-docker.pkg.dev/<project>/realreel/ocsp-leaf .
-docker push <region>-docker.pkg.dev/<project>/realreel/ocsp-leaf
+git tag ocsp-leaf-v0.1.0 && git push origin ocsp-leaf-v0.1.0
+make deploy-ocsp-leaf TAG=ocsp-leaf-v0.1.0   # config: ocsp-leaf/deploy.env
+```
+
+`make deploy-ocsp-leaf` verifies that provenance, copies GHCR → Artifact
+Registry by digest, and deploys — image-only, so env/secrets/SA survive. Anyone
+can check the same image (make the GHCR package public first — a newly
+published package starts private):
+
+```sh
+gh attestation verify oci://ghcr.io/wholeearthlabs/realreel-ocsp-leaf:<semver> \
+  --repo wholeearthlabs/realreel-c2pa
+```
+
+The **first** deploy can't go through `make deploy-ocsp-leaf`: an image-only
+deploy would create the service with no `DATABASE_URL` / `GCP_KMS_KEY_RESOURCE`,
+and `main.ts` refuses to start without them. Copy the attested image across by
+digest yourself, then deploy it with the configuration every later image-only
+deploy preserves:
+
+```sh
+digest=$(docker buildx imagetools inspect \
+  ghcr.io/wholeearthlabs/realreel-ocsp-leaf:<semver> --format '{{.Manifest.Digest}}')
+docker buildx imagetools create \
+  --tag <region>-docker.pkg.dev/<ca-project>/<repo>/ocsp-leaf:<semver> \
+  "ghcr.io/wholeearthlabs/realreel-ocsp-leaf@${digest}"
+
 gcloud run deploy realreel-ocsp-leaf \
-  --image <…>/ocsp-leaf --region <region> --project <project> \
+  --image <region>-docker.pkg.dev/<ca-project>/<repo>/ocsp-leaf:<semver> \
+  --region <region> --project <ca-project> \
   --service-account <ocsp-leaf-sa> \
   --set-env-vars GCP_KMS_KEY_RESOURCE=<leaf-ocsp-signing-key-version-resource> \
   --set-secrets DATABASE_URL=<readonly-url-secret>:latest \

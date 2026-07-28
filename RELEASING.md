@@ -8,6 +8,7 @@ release output. Know which one you're cutting.
 | `@realreel/c2pa-trust-core` | `trust-core/` | npm package | Changesets | merge the "Version Packages" PR | npm publish (OIDC provenance) |
 | `@realreel/photo-attest` | `native/` | npm package | Changesets | merge the "Version Packages" PR | npm publish (OIDC provenance) |
 | verifier | `verifier/` | container image | Changesets (private, no publish) | push `verifier-v<semver>` | GHCR image + SLSA provenance |
+| ocsp-leaf | `ocsp-leaf/` | container image | manual (`deno.json` `version`) | push `ocsp-leaf-v<semver>` | GHCR image + SLSA provenance |
 | ca | `ca/` | Deno functions | — (not a workspace) | deploy-from-source | no versioned release |
 
 ## npm packages (Changesets)
@@ -60,6 +61,21 @@ it manual means a human decides when a production image is cut.
 Tagging publishes the attested image; it does **not** deploy to production.
 Cloud Run pulls from Artifact Registry — build, push, and deploy per
 [`verifier/DEPLOY.md`](verifier/DEPLOY.md).
+
+## ocsp-leaf image (git tag)
+
+Deno, so outside Changesets. Bump `version` in `ocsp-leaf/deno.json`, then tag
+the same semver:
+
+```bash
+git tag ocsp-leaf-v0.1.0
+git push origin ocsp-leaf-v0.1.0
+```
+
+That triggers
+[`publish-ocsp-leaf-image.yml`](.github/workflows/publish-ocsp-leaf-image.yml)
+→ `ghcr.io/wholeearthlabs/realreel-ocsp-leaf:0.1.0` with SLSA provenance.
+Deploy with `make deploy-ocsp-leaf TAG=ocsp-leaf-v0.1.0`.
 
 ## ca
 

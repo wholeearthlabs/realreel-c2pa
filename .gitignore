@@ -45,8 +45,9 @@ native/ios/build/
 .env.local
 .env.*.local
 
-# Verifier deploy config (non-secret env-specific values; copy from deploy.env.example)
-verifier/deploy.env
+# Service deploy config (non-secret env-specific values; copy from the
+# deploy.env.example beside it). One rule for every service, present and future.
+**/deploy.env
 
 # Ceremony cert-builder scratch output (build-ca-certs --out; runbook convention)
 out/
