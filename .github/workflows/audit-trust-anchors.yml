@@ -26,8 +26,8 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'   # match this repo's other workflows (ci.yml)
 
@@ -50,7 +50,7 @@ jobs:
 
       - name: Ensure tracking labels exist
         if: steps.audit.outcome == 'failure' && github.event_name != 'pull_request'
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const labels = [
@@ -68,7 +68,7 @@ jobs:
 
       - name: Open or comment on tracking issue
         if: steps.audit.outcome == 'failure' && github.event_name != 'pull_request'
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const fs = require('fs');

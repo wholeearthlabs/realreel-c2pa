@@ -51,3 +51,8 @@ native/ios/build/
 
 # Ceremony cert-builder scratch output (build-ca-certs --out; runbook convention)
 out/
+
+# There is no Supabase project here, but verifier/DEPLOY.md has operators run
+# `supabase secrets set` — which links a project and drops .temp state carrying
+# the app project's ref + org id. This repo is public.
+/supabase/

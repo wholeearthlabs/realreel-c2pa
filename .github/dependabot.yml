@@ -1,0 +1,17 @@
+version: 2
+
+# Actions are pinned by commit SHA (a mutable tag in a job holding
+# packages:write + id-token:write could mint a signed attestation for
+# attacker-controlled bytes). Dependabot is what keeps those pins current —
+# it rewrites both the SHA and the trailing `# vN` comment.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      # One PR a month for the routine SHA moves. Majors are left ungrouped so a
+      # breaking bump can't hold the rest of the pins back behind a red check.
+      actions:
+        patterns: ['*']
+        update-types: ['minor', 'patch']

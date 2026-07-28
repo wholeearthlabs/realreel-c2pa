@@ -44,7 +44,10 @@ warn() { printf '\033[33mwarn:\033[0m %s\n' "$*" >&2; }
 # shellcheck disable=SC1090
 set -a; . "${ENV_FILE}"; set +a
 
-: "${TAG_PREFIX:?set TAG_PREFIX in ${ENV_FILE}}"
+# Supplied by the service's make target — it's fixed by that service's publish
+# workflow, so it doesn't belong in a per-operator deploy.env.
+[ -n "${TAG_PREFIX:-}" ] || die "no TAG_PREFIX — invoke via the service's make
+  target (make deploy-<service>), or set TAG_PREFIX in ${ENV_FILE}"
 
 # --- args ---
 GIT_TAG="${1:-}"

@@ -50,13 +50,16 @@ verifier-dev:
 # Pass YES=1 to skip the confirmation prompt.
 #   make deploy-verifier  TAG=verifier-v0.5.0
 #   make deploy-ocsp-leaf TAG=ocsp-leaf-v0.1.0
+# TAG_PREFIX is set here, not in deploy.env: it's fixed by the service's publish
+# workflow (its tag trigger + metadata-action pattern), both tracked — so it
+# belongs beside them, not in a gitignored per-operator file.
 deploy-verifier:
 	@test -n "$(TAG)" || { echo "usage: make deploy-verifier TAG=<verifier-tag>   e.g. verifier-v0.5.0"; exit 1; }
-	DEPLOY_ENV=verifier/deploy.env scripts/deploy-service.sh "$(TAG)" $(if $(YES),-y,)
+	TAG_PREFIX=verifier-v DEPLOY_ENV=verifier/deploy.env scripts/deploy-service.sh "$(TAG)" $(if $(YES),-y,)
 
 deploy-ocsp-leaf:
 	@test -n "$(TAG)" || { echo "usage: make deploy-ocsp-leaf TAG=<ocsp-leaf-tag>   e.g. ocsp-leaf-v0.1.0"; exit 1; }
-	DEPLOY_ENV=ocsp-leaf/deploy.env scripts/deploy-service.sh "$(TAG)" $(if $(YES),-y,)
+	TAG_PREFIX=ocsp-leaf-v DEPLOY_ENV=ocsp-leaf/deploy.env scripts/deploy-service.sh "$(TAG)" $(if $(YES),-y,)
 
 # Roll Cloud Run traffic back to a known-good revision. No REV lists revisions.
 #   make rollback-verifier                                    # list
