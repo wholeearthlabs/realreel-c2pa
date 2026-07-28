@@ -1,5 +1,15 @@
 # @realreel/verifier
 
+## 0.7.0
+
+### Minor Changes
+
+- [`416e1a8`](https://github.com/wholeearthlabs/realreel-c2pa/commit/416e1a89e17b7b6ab87fbb529e62aae4081eabf0) Thanks [@boojamya](https://github.com/boojamya)! - Dual trust anchors (v2 `realreel` + `realreel-legacy`) and ledger-backed leaf
+  validity. checkLedgerTimeBounds replaces the flat 180-day cert-lifetime ceiling
+  with per-leaf issued_at/expires_at from lookup_signing_key_revocation — apply the
+  app-side RPC reshape before deploying this image. Adds the ocsp-leaf leaf-status
+  OCSP responder.
+
 ## 0.6.2
 
 ### Patch Changes
