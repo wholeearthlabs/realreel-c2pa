@@ -1,5 +1,5 @@
 ---
-"@realreel/verifier": patch
+"@realreel/verifier": minor
 ---
 
 Dual trust anchors (v2 `realreel` + `realreel-legacy`) and ledger-backed leaf
