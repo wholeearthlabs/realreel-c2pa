@@ -12,12 +12,19 @@ import * as asn1js from "asn1js";
 
 export const OID_SHA1 = "1.3.14.3.2.26";
 export const OID_SHA256 = "2.16.840.1.101.3.4.2.1";
+export const OID_SHA384 = "2.16.840.1.101.3.4.2.2";
+export const OID_SHA512 = "2.16.840.1.101.3.4.2.3";
 export const OID_ECDSA_WITH_SHA256 = "1.2.840.10045.4.3.2";
 export const OID_OCSP_BASIC = "1.3.6.1.5.5.7.48.1.1";
 
 // KV keys the refresh tool writes and the Worker reads, one pre-signed
 // response per CertID hash algorithm a client may use. SHA-1 is what nearly
-// every OCSP client sends (openssl, c2pa-rs); SHA-256 is covered for the rest.
+// every OCSP client sends (openssl, c2pa-rs — and RFC 5019 §2.1.1 mandates it
+// for lightweight clients); SHA-256 is covered for the rest. A SHA-384/512
+// ICA CertID answers `unauthorized` — an accepted gap: no known client sends
+// one, and closing it means pre-signing two more responses in the daily
+// refresh, not a Worker change. (Leaf CertIDs cover all four hashes because
+// the live leaf responder signs per request — see LEAF_WEBCRYPTO_BY_HASH_OID.)
 export const KV_KEY_BY_HASH_OID: Record<string, string> = {
   [OID_SHA1]: "response:sha1",
   [OID_SHA256]: "response:sha256",
@@ -121,6 +128,56 @@ export function certIdMatches(a: CertIdValues, b: CertIdValues): boolean {
     bytesEqual(a.issuerNameHash, b.issuerNameHash) &&
     bytesEqual(a.issuerKeyHash, b.issuerKeyHash) &&
     bytesEqual(a.serialNumber, b.serialNumber)
+  );
+}
+
+// --- Leaf CertIDs (issuer = the ICA) ---------------------------------------
+
+// The issuer half of every leaf CertID: hashes of the ICA's subject DN and
+// subjectPublicKey bits (RFC 6960 §4.1.1 — a leaf's OCSP request names its
+// ISSUER, which for RealReel leaves is always the Claim Signing ICA). Used by
+// the live leaf-status responder (../ocsp-leaf/) to gate lookups, and by the
+// Worker to decide which requests to relay to it.
+export interface IssuerHashes {
+  hashOid: string;
+  issuerNameHash: Uint8Array;
+  issuerKeyHash: Uint8Array;
+}
+
+// All four RFC 6960-permitted CertID hash algorithms: a client may hash the
+// issuer with any of them (SHA-384 is the natural pairing for a SHA-384
+// hierarchy), and a matching target only ever asserts authority over OUR ICA.
+// Distinct from KV_KEY_BY_HASH_OID, which enumerates only the pre-signed
+// ICA-status responses the refresh job publishes.
+const LEAF_WEBCRYPTO_BY_HASH_OID: Record<string, string> = {
+  [OID_SHA1]: "SHA-1",
+  [OID_SHA256]: "SHA-256",
+  [OID_SHA384]: "SHA-384",
+  [OID_SHA512]: "SHA-512",
+};
+
+export async function leafIssuerTargets(icaPem: string): Promise<IssuerHashes[]> {
+  const ica = parseCert(icaPem);
+  const nameDer = new Uint8Array(ica.subject.toSchema().toBER(false));
+  const keyBits = subjectPublicKeyBits(ica);
+  return Promise.all(
+    Object.entries(LEAF_WEBCRYPTO_BY_HASH_OID).map(async ([hashOid, alg]) => ({
+      hashOid,
+      issuerNameHash: await digest(alg, nameDer),
+      issuerKeyHash: await digest(alg, keyBits),
+    })),
+  );
+}
+
+export function issuerMatches(
+  targets: IssuerHashes[],
+  certId: CertIdValues,
+): boolean {
+  return targets.some(
+    (t) =>
+      t.hashOid === certId.hashOid &&
+      bytesEqual(t.issuerNameHash, certId.issuerNameHash) &&
+      bytesEqual(t.issuerKeyHash, certId.issuerKeyHash),
   );
 }
 

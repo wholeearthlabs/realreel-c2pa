@@ -185,8 +185,9 @@ function makeSignTbs(): SignTbs {
 // Per-CertID LRU of signed responses, TTL = the response's own validity
 // window (a cached entry is never served past its nextUpdate; revocation
 // propagation is unchanged — see ResponseCache in responder.ts). Bounds
-// KMS/DB spend under serial enumeration on this public endpoint; Cloud Run
-// instance/concurrency caps bound the distinct-serial remainder.
+// KMS/DB spend for repeat queries of issued serials; never-issued serials
+// don't sign at all (responder.ts answers them unsigned unauthorized), so
+// serial enumeration on this public endpoint costs only cheap lookups.
 function makeLruCache(maxEntries: number, ttlMs: number): ResponseCache {
   const entries = new Map<string, { der: Uint8Array; expiresAtMs: number }>();
   return {

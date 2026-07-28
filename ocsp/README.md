@@ -21,7 +21,14 @@ ICA — whose status changes essentially never. So nothing signs at request time
    request (GET base64-in-path per RFC 6960 A.1, or POST
    `application/ocsp-request`), matches its CertID against the ICA — hashes
    are derived at runtime from the trust-source PEMs, never hardcoded — and:
-   - CertID names the ICA → serves the pre-signed response from KV;
+   - CertID names the ICA → serves the pre-signed response from KV (SHA-1 and
+     SHA-256 CertIDs — all known clients; RFC 5019 §2.1.1 mandates SHA-1. A
+     SHA-384/512 ICA CertID answers `unauthorized`; closing that gap means
+     pre-signing two more responses in the refresh job);
+   - CertID's **issuer is the ICA** (a RealReel leaf) → relayed to the live
+     leaf-status responder ([`../ocsp-leaf/`](../ocsp-leaf/), Cloud Run) when
+     `LEAF_RESPONDER_ORIGIN` is set in `wrangler.toml`; `unauthorized` until
+     then;
    - any other CertID (or a multi-cert request) → `unauthorized` (never `good`
      for arbitrary serials);
    - unparseable request → `malformedRequest`;
@@ -38,10 +45,12 @@ Responses to a nonexistent-status question are the unsigned 5-byte
 responders never sign for certs they don't answer for.
 
 **Why not a live signer?** Per-request KMS signing needs an always-on service
-holding a signing identity on the hot path — the right shape for future
-**leaf-status** OCSP (high cardinality, dynamic revocation), likely a Cloud Run
-sibling of the verifier. For one never-changing ICA, static pre-signed bytes
-are cheaper, safer, and keep private-key operations off the serving path.
+holding a signing identity on the hot path — the right shape for
+**leaf-status** OCSP (high cardinality, dynamic revocation), which is exactly
+what [`../ocsp-leaf/`](../ocsp-leaf/) is: a Cloud Run sibling of the verifier,
+reached through this Worker's leaf relay. For one never-changing ICA, static
+pre-signed bytes are cheaper, safer, and keep private-key operations off the
+serving path.
 
 ## Source of truth and tests
 

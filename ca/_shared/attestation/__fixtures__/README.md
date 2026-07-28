@@ -45,16 +45,10 @@ body and run it on a real device.
 
 ## Running tests
 
-From the repo root:
+From the directory holding the deno config:
 
 ```sh
-make test-ca
-```
-
-Or directly:
-
-```sh
-deno test --allow-read --allow-env ca/_shared/attestation/
+deno test --allow-read --allow-env <path to this attestation directory>
 ```
 
 Both `--allow-read` (to load fixtures) and `--allow-env` (cbor-x reads

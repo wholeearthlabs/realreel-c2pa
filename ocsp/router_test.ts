@@ -7,10 +7,14 @@
 //   deno test --allow-read ocsp/
 import { handleRequest, type ResponseStore } from "./router.ts";
 import {
+  buildOcspRequestDer,
   bytesEqual,
+  leafIssuerTargets,
   OCSP_INTERNAL_ERROR,
   OCSP_MALFORMED_REQUEST,
   OCSP_UNAUTHORIZED,
+  OID_SHA256,
+  OID_SHA384,
   toArrayBuffer,
 } from "./ocsp.ts";
 
@@ -183,6 +187,122 @@ Deno.test("PUT is rejected 405 with an Allow header", async () => {
   );
   assertEq(res.status, 405, "status");
   assert((res.headers.get("allow") ?? "").includes("POST"), "allow header");
+});
+
+// --- Leaf forwarding (LEAF_RESPONDER_ORIGIN configured) ---------------------
+
+const LEAF_TARGETS = await leafIssuerTargets(icaPem);
+// A CertID for an ICA-issued leaf: the ICA's issuer hashes with an arbitrary
+// serial (the origin, not this router, decides whether the serial is known).
+function leafRequest(hashOid: string): Uint8Array {
+  const t = LEAF_TARGETS.find((x) => x.hashOid === hashOid)!;
+  return buildOcspRequestDer({ ...t, serialNumber: new Uint8Array([0x0a, 0x1b, 0x2c]) });
+}
+const LEAF_STUB = new TextEncoder().encode("origin-signed leaf response");
+function stubForwarder(calls: Uint8Array[]): (der: Uint8Array) => Promise<Response> {
+  return (der) => {
+    calls.push(der);
+    return Promise.resolve(
+      new Response(toArrayBuffer(LEAF_STUB), {
+        headers: {
+          "content-type": "application/ocsp-response",
+          "cache-control": "public, max-age=300",
+        },
+      }),
+    );
+  };
+}
+
+Deno.test("a leaf CertID is relayed to the leaf responder verbatim, response + caching pass through", async () => {
+  const calls: Uint8Array[] = [];
+  const der = leafRequest(OID_SHA256);
+  const res = await handleRequest(post(der), assets, store, stubForwarder(calls));
+  await expectOcsp(res, LEAF_STUB, "leaf-relay");
+  assertEq(res.headers.get("cache-control"), "public, max-age=300", "origin cache-control");
+  assertEq(calls.length, 1, "forwarder calls");
+  assert(bytesEqual(calls[0], der), "request DER relayed unmodified");
+});
+
+Deno.test("a SHA-384 leaf CertID is relayed (all four CertID hashes recognized)", async () => {
+  const calls: Uint8Array[] = [];
+  const res = await handleRequest(
+    post(leafRequest(OID_SHA384)),
+    assets,
+    store,
+    stubForwarder(calls),
+  );
+  await expectOcsp(res, LEAF_STUB, "leaf-sha384");
+  assertEq(calls.length, 1, "forwarder calls");
+});
+
+Deno.test("origin content-type parameters / casing don't break the relay", async () => {
+  const res = await handleRequest(
+    post(leafRequest(OID_SHA256)),
+    assets,
+    store,
+    () =>
+      Promise.resolve(
+        new Response(toArrayBuffer(LEAF_STUB), {
+          headers: { "content-type": "Application/OCSP-Response; charset=binary" },
+        }),
+      ),
+  );
+  await expectOcsp(res, LEAF_STUB, "media-type-normalized");
+});
+
+Deno.test("HEAD leaf requests are not relayed (body would be discarded)", async () => {
+  const calls: Uint8Array[] = [];
+  const b64 = bytesToB64(leafRequest(OID_SHA256));
+  const res = await handleRequest(
+    new Request(`http://ocsp.realreel.xyz/${encodeURIComponent(b64)}`, { method: "HEAD" }),
+    assets,
+    store,
+    stubForwarder(calls),
+  );
+  await expectOcsp(res, OCSP_UNAUTHORIZED, "head-not-relayed");
+  assertEq(calls.length, 0, "forwarder untouched");
+});
+
+Deno.test("a leaf CertID with no forwarder configured is unauthorized (pre-cutover)", async () => {
+  const res = await handleRequest(post(leafRequest(OID_SHA256)), assets, store);
+  await expectOcsp(res, OCSP_UNAUTHORIZED, "leaf-no-forwarder");
+});
+
+Deno.test("a non-leaf CertID is never relayed even with a forwarder", async () => {
+  const calls: Uint8Array[] = [];
+  const res = await handleRequest(
+    post(hexToBytes(REQ_WRONG_KEYHASH_HEX)),
+    assets,
+    store,
+    stubForwarder(calls),
+  );
+  await expectOcsp(res, OCSP_UNAUTHORIZED, "foreign-not-relayed");
+  assertEq(calls.length, 0, "forwarder untouched");
+});
+
+Deno.test("forwarder failure (throw / non-OCSP reply) is internalError, no-store", async () => {
+  const thrown = await handleRequest(
+    post(leafRequest(OID_SHA256)),
+    assets,
+    store,
+    () => Promise.reject(new Error("origin down")),
+  );
+  await expectOcsp(thrown, OCSP_INTERNAL_ERROR, "origin-throw");
+  assertEq(thrown.headers.get("cache-control"), "no-store", "uncacheable");
+
+  const html = await handleRequest(
+    post(leafRequest(OID_SHA256)),
+    assets,
+    store,
+    () =>
+      Promise.resolve(
+        new Response("<html>404</html>", {
+          status: 404,
+          headers: { "content-type": "text/html" },
+        }),
+      ),
+  );
+  await expectOcsp(html, OCSP_INTERNAL_ERROR, "origin-not-ocsp");
 });
 
 Deno.test("OPTIONS preflight returns 204 with CORS incl. content-type header allowance", async () => {

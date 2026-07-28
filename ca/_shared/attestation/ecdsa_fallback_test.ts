@@ -6,7 +6,8 @@
 // Deno CLI implements those pairs, so these tests install a scoped patch that
 // makes crypto.subtle.verify reject them the way the edge runtime does.
 //
-// Run: cd ca && deno test --allow-read --allow-env _shared/attestation/ecdsa_fallback_test.ts
+// Run: deno test --allow-read --allow-env <path to this file>, from the
+// directory holding the deno config.
 
 import {
   assertEquals,

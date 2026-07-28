@@ -12,9 +12,13 @@
 //
 // Soft-DELETE (not hard-DELETE): the verifier's lookup_signing_key_revocation
 // function checks `revoked_at IS NULL` on both Stage 1 and Stage 2 signing
-// keys. Preserves an audit trail ("when was this key revoked?") and leaves
-// room for a future RFC-3161-aware predicate (`revoked_at IS NULL OR
-// revoked_at > tsa_timestamp` — same column, more lenient check).
+// keys. The UPDATE here lands on user_signing_keys; an AFTER UPDATE trigger
+// mirrors the status into the issued_certificates ledger, which is what the
+// lookup actually reads — and what keeps the revocation visible after the
+// account (and its user_signing_keys rows) is deleted. Preserves an audit
+// trail ("when was this key revoked?") and leaves room for a future
+// RFC-3161-aware predicate (`revoked_at IS NULL OR revoked_at >
+// tsa_timestamp` — same column, more lenient check).
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors.ts";

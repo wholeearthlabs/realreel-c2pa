@@ -11,29 +11,33 @@
 //
 // Status semantics (source of record: the app-side issued_certificates
 // ledger, read through lookup_signing_key_revocation):
-//   row with revoked_at NULL     → good
-//   row with revoked_at set      → revoked (revocationTime = revoked_at)
-//   no row (never issued by us)  → unknown
+//   row with revoked_at NULL     → good (signed)
+//   row with revoked_at set      → revoked (signed, revocationTime = revoked_at)
+//   no row (never issued by us)  → unsigned `unauthorized` (RFC 5019 §2.2.3)
 // Superseded and expired leaves stay "good" — supersession is an app-fleet
 // concept, and expiry is judged from the certificate itself by clients.
 
 import * as pkijs from "pkijs";
 import * as asn1js from "asn1js";
 import {
-  bytesEqual,
   certIdToPkijs,
+  issuerMatches,
+  leafIssuerTargets,
   OCSP_MALFORMED_REQUEST,
   OCSP_UNAUTHORIZED,
   OID_ECDSA_WITH_SHA256,
   OID_OCSP_BASIC,
-  OID_SHA1,
-  OID_SHA256,
   parseCert,
   parseOcspRequestCertIds,
   subjectPublicKeyBits,
   toArrayBuffer,
 } from "../ocsp/ocsp.ts";
-import type { CertIdValues } from "../ocsp/ocsp.ts";
+import type { CertIdValues, IssuerHashes } from "../ocsp/ocsp.ts";
+
+// Re-exported for main.ts and the tests; the definitions live in the shared
+// module because the Worker also matches leaf CertIDs (to relay them here).
+export { issuerMatches, leafIssuerTargets };
+export type { IssuerHashes };
 
 export type SignTbs = (tbs: Uint8Array) => Promise<Uint8Array>;
 
@@ -41,56 +45,6 @@ export type LeafStatus =
   | { kind: "good" }
   | { kind: "revoked"; revokedAt: Date }
   | { kind: "unknown" };
-
-// The issuer half of every leaf CertID: hashes of the ICA's subject DN and
-// subjectPublicKey bits (RFC 6960 §4.1.1 — a leaf's OCSP request names its
-// ISSUER, which for RealReel leaves is always the Claim Signing ICA).
-export interface IssuerHashes {
-  hashOid: string;
-  issuerNameHash: Uint8Array;
-  issuerKeyHash: Uint8Array;
-}
-
-// All four RFC 6960-permitted CertID hash algorithms: a client may hash the
-// issuer with any of them (SHA-384 is the natural pairing for a SHA-384
-// hierarchy), and a matching target only ever asserts authority over OUR ICA.
-const OID_SHA384 = "2.16.840.1.101.3.4.2.2";
-const OID_SHA512 = "2.16.840.1.101.3.4.2.3";
-const WEBCRYPTO_BY_HASH_OID: Record<string, string> = {
-  [OID_SHA1]: "SHA-1",
-  [OID_SHA256]: "SHA-256",
-  [OID_SHA384]: "SHA-384",
-  [OID_SHA512]: "SHA-512",
-};
-
-export async function leafIssuerTargets(icaPem: string): Promise<IssuerHashes[]> {
-  const ica = parseCert(icaPem);
-  const nameDer = new Uint8Array(ica.subject.toSchema().toBER(false));
-  const keyBits = subjectPublicKeyBits(ica);
-  return Promise.all(
-    Object.entries(WEBCRYPTO_BY_HASH_OID).map(async ([hashOid, alg]) => ({
-      hashOid,
-      issuerNameHash: new Uint8Array(
-        await crypto.subtle.digest(alg, toArrayBuffer(nameDer)),
-      ),
-      issuerKeyHash: new Uint8Array(
-        await crypto.subtle.digest(alg, toArrayBuffer(keyBits)),
-      ),
-    })),
-  );
-}
-
-export function issuerMatches(
-  targets: IssuerHashes[],
-  certId: CertIdValues,
-): boolean {
-  return targets.some(
-    (t) =>
-      t.hashOid === certId.hashOid &&
-      bytesEqual(t.issuerNameHash, certId.issuerNameHash) &&
-      bytesEqual(t.issuerKeyHash, certId.issuerKeyHash),
-  );
-}
 
 /** OCSP-request serial bytes → the canonical-decimal string the ledger keys
  * on (a DER INTEGER's optional 0x00 high-bit pad doesn't change the value). */
@@ -278,6 +232,14 @@ export async function respond(
   if (cached) return { der: cached, signed: true };
 
   const status = await deps.lookupStatus(serialToDecimal(certId.serialNumber));
+  if (status.kind === "unknown") {
+    // Never-issued serial → unsigned `unauthorized` (RFC 5019 §2.2.3), not a
+    // KMS-signed `unknown`. Every genuinely issued leaf has a ledger row
+    // before the cert leaves the CA, so real leaves always get a signed
+    // answer — and random-serial enumeration on this public endpoint costs
+    // one cheap indexed lookup instead of a Cloud KMS signature per serial.
+    return { der: OCSP_UNAUTHORIZED, signed: false };
+  }
   const der = await buildLeafOcspResponseDer({
     certId,
     status,

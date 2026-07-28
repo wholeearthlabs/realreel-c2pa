@@ -69,6 +69,22 @@ export function resolveDevAttestation(
 ): DevAttestationPins {
   const appleBase = env("APPLE_BUNDLE_ID") ?? "com.realreel.app";
   const androidBase = env("ANDROID_PACKAGE_NAME") ?? "com.realreel.app";
+  // These are BASE ids — the dev gate below appends `.dev` itself. Other
+  // components (e.g. a verifier deployment) use the same variable names for
+  // the fully-resolved id, so a copied `<base>.dev` value here would pin
+  // `<base>.dev.dev` and every dev enrollment would fail looking like a
+  // device problem. Fail fast instead.
+  for (const [name, value] of [
+    ["APPLE_BUNDLE_ID", appleBase],
+    ["ANDROID_PACKAGE_NAME", androidBase],
+  ]) {
+    if (value.endsWith(".dev")) {
+      throw new Error(
+        `${name}='${value}' ends in .dev — this env var is the BASE app id; ` +
+          "the local-dev gate appends .dev itself. Set the canonical id.",
+      );
+    }
+  }
   const optIn = env("ALLOW_DEV_BUILD_ATTESTATION") === "true";
   const supabaseUrl = env("SUPABASE_URL") ?? "";
   const isLocal = LOCAL_SUPABASE_HOST.test(supabaseUrl);

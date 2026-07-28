@@ -151,11 +151,10 @@ Deno.test("leafIssuerTargets / issuerMatches — leaf CertIDs name the ICA, not 
   assert(!issuerMatches(TARGETS, wrong), "foreign issuerKeyHash does not match");
 });
 
-Deno.test("respond — good / revoked / unknown statuses round-trip, signed by the injected key", async () => {
+Deno.test("respond — good / revoked statuses round-trip, signed by the injected key", async () => {
   const cases: Array<[LeafStatus, number]> = [
     [{ kind: "good" }, 0],
     [{ kind: "revoked", revokedAt: new Date("2026-07-01T00:00:00Z") }, 1],
-    [{ kind: "unknown" }, 2],
   ];
   for (const [status, wantTag] of cases) {
     const reqDer = buildOcspRequestDer(await leafCertId([0x0a, 0xbc]));
@@ -201,6 +200,23 @@ Deno.test("respond — good / revoked / unknown statuses round-trip, signed by t
       "embedded certs[0] is the leaf-status responder cert",
     );
   }
+});
+
+Deno.test("respond — a never-issued serial is unsigned unauthorized, no signature spent", async () => {
+  let signs = 0;
+  const reqDer = buildOcspRequestDer(await leafCertId([0x0a, 0xbc]));
+  const { der, signed } = await respond(
+    reqDer,
+    makeDeps({ kind: "unknown" }, {
+      signTbs: (tbs) => {
+        signs++;
+        return testSignTbs(tbs);
+      },
+    }),
+  );
+  assertEquals(Array.from(der), Array.from(OCSP_UNAUTHORIZED), "unauthorized bytes");
+  assert(!signed, "not marked cacheable");
+  assertEquals(signs, 0, "no KMS signature for serial enumeration");
 });
 
 Deno.test("respond — revoked response carries the revocation time", async () => {

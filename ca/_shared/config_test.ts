@@ -4,8 +4,8 @@
 // resolveDevAttestation takes its `env` as a parameter so these cases are pure
 // function calls — no process-env mutation or module-cache busting.
 //
-// Run with:
-//   deno test --allow-env --allow-read ca/_shared/config_test.ts
+// Run: deno test --allow-env --allow-read <path to this file>, from the
+// directory holding the deno config.
 
 import {
   assertEquals,
@@ -73,6 +73,33 @@ Deno.test("resolveDevAttestation — fork env overrides feed both the canonical 
   );
   assertEquals(relaxed.appleBundleId, "com.example.fork.dev");
   assertEquals(relaxed.androidPackageName, "com.example.forkdroid.dev");
+});
+
+Deno.test("resolveDevAttestation — THROWS when the env base id already ends in .dev", () => {
+  // Other components use the same variable names for the fully-resolved id
+  // (e.g. a verifier deployment sets APPLE_BUNDLE_ID=com.realreel.app.dev);
+  // copying that value here would double the suffix. Must fail loud, in
+  // every mode — not silently pin `<base>.dev.dev`.
+  for (
+    const env of [
+      { APPLE_BUNDLE_ID: "com.realreel.app.dev" },
+      { ANDROID_PACKAGE_NAME: "com.realreel.app.dev" },
+    ]
+  ) {
+    assertThrows(() => resolveDevAttestation(envFrom(env)), Error, "BASE");
+    assertThrows(
+      () =>
+        resolveDevAttestation(
+          envFrom({
+            ...env,
+            ALLOW_DEV_BUILD_ATTESTATION: "true",
+            SUPABASE_URL: "http://kong:8000",
+          }),
+        ),
+      Error,
+      "BASE",
+    );
+  }
 });
 
 Deno.test("resolveDevAttestation — THROWS when opt-in is set against a hosted *.supabase.co project", () => {

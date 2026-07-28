@@ -1,5 +1,14 @@
 // Reusable Deno-KV rate limiter for edge functions.
 //
+// ⚠️ NOT ENFORCED ON SUPABASE EDGE RUNTIME. Supabase's edge runtime (local
+// and hosted) does not implement `Deno.openKv`, so every call here throws and
+// the fail-open path below waves the request through — on Supabase this
+// limiter is a NO-OP and the CA endpoints it guards are effectively
+// unthrottled. Before exposing a deployment publicly, replace the store with
+// one your runtime actually has (RealReel's production deployment uses a
+// Postgres-backed limiter: an atomic check_rate_limit RPC over a buckets
+// table, same enforceRateLimit signature).
+//
 // Pattern follows get-watermark-token's inline implementation: multiple sliding
 // windows, atomic check-and-set on each bucket, fail-open on KV outages.
 //

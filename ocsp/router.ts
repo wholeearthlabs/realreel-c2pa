@@ -6,16 +6,22 @@
 // The Worker never signs anything: a scheduled job pre-signs `good` responses
 // for the ICA via Cloud KMS and publishes them to KV (see
 // build-ocsp-responses.ts). This router only decides which bytes to serve:
-//   - request's CertID names the ICA  → the pre-signed response (KV)
-//   - any other CertID, or >1 request → unauthorized (unsigned, RFC 6960 §2.3)
-//   - unparseable request             → malformedRequest
-//   - KV empty (refresh never ran)    → internalError
+//   - request's CertID names the ICA        → the pre-signed response (KV)
+//   - CertID's issuer is the ICA (a leaf)   → relayed to the live leaf-status
+//     responder (../ocsp-leaf/ on Cloud Run) when a forwarder is configured;
+//     unauthorized otherwise (pre-cutover: no v2 leaf carries an OCSP URL yet)
+//   - any other CertID, or >1 request       → unauthorized (unsigned, RFC 6960 §2.3)
+//   - unparseable request                   → malformedRequest
+//   - KV empty (refresh never ran)          → internalError
 
 import {
   certIdMatches,
   type CertIdValues,
   icaCertIdTargets,
+  type IssuerHashes,
+  issuerMatches,
   KV_KEY_BY_HASH_OID,
+  leafIssuerTargets,
   OCSP_INTERNAL_ERROR,
   OCSP_MALFORMED_REQUEST,
   OCSP_UNAUTHORIZED,
@@ -32,6 +38,10 @@ export interface CertAssets {
 export interface ResponseStore {
   get(key: string): Promise<ArrayBuffer | null>;
 }
+
+// POSTs a leaf-status OCSP request to the live responder and returns its raw
+// HTTP response; index.ts builds one from LEAF_RESPONDER_ORIGIN when set.
+export type LeafForwarder = (der: Uint8Array) => Promise<Response>;
 
 const ALLOW = "GET, POST, HEAD, OPTIONS";
 const OCSP_CONTENT_TYPE = "application/ocsp-response";
@@ -96,10 +106,49 @@ function targets(assets: CertAssets): Promise<CertIdValues[]> {
   return cached;
 }
 
+const leafTargetsCache = new WeakMap<CertAssets, Promise<IssuerHashes[]>>();
+function leafTargets(assets: CertAssets): Promise<IssuerHashes[]> {
+  let cached = leafTargetsCache.get(assets);
+  if (!cached) {
+    cached = leafIssuerTargets(assets.icaPem);
+    leafTargetsCache.set(assets, cached);
+  }
+  return cached;
+}
+
+// Relay a leaf-status request. The origin speaks OCSP-over-HTTP (status 200
+// with the OCSP status inside the body), so anything else — network failure,
+// non-200, wrong media type — is OUR internal error, never unauthorized:
+// this responder IS authoritative for leaf serials. Its cache-control passes
+// through for browser/intermediary caches (Cloudflare's edge cache does NOT
+// store Worker-constructed responses; repeat-query absorption lives in the
+// origin's per-CertID cache instead).
+async function relayLeaf(der: Uint8Array, forward: LeafForwarder): Promise<Response> {
+  try {
+    const upstream = await forward(der);
+    // Media type only — parameters (charset=…) and case are normalization
+    // noise a proxy may add, and must not black-hole leaf revocation.
+    const mediaType = (upstream.headers.get("content-type") ?? "")
+      .split(";")[0].trim().toLowerCase();
+    if (!upstream.ok || mediaType !== OCSP_CONTENT_TYPE) {
+      return ocspBytes(OCSP_INTERNAL_ERROR, "no-store");
+    }
+    return new Response(await upstream.arrayBuffer(), {
+      headers: headers({
+        "content-type": OCSP_CONTENT_TYPE,
+        "cache-control": upstream.headers.get("cache-control") ?? "no-store",
+      }),
+    });
+  } catch {
+    return ocspBytes(OCSP_INTERNAL_ERROR, "no-store");
+  }
+}
+
 export async function handleRequest(
   req: Request,
   assets: CertAssets,
   store: ResponseStore,
+  forwardLeaf?: LeafForwarder,
 ): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -159,6 +208,16 @@ export async function handleRequest(
   }
   const match = (await targets(assets)).find((t) => certIdMatches(t, certIds[0]));
   if (!match) {
+    // A CertID whose issuer hashes name the ICA is a RealReel leaf — only
+    // those are relayed, so this Worker never proxies arbitrary third-party
+    // CertIDs to the origin. HEAD is excluded: the runtime discards the
+    // body, so relaying would spend an origin lookup for nothing.
+    if (
+      forwardLeaf && req.method !== "HEAD" &&
+      issuerMatches(await leafTargets(assets), certIds[0])
+    ) {
+      return relayLeaf(der, forwardLeaf);
+    }
     return ocspBytes(OCSP_UNAUTHORIZED, "no-store");
   }
 

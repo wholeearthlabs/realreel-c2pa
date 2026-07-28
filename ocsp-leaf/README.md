@@ -20,10 +20,13 @@ issued the certificate in question — hence the ICA-signed responder cert.
 Read from `public.lookup_signing_key_revocation(serial)` over the app-side
 `issued_certificates` ledger (survives account deletion; system of record):
 
-- row, `revoked_at IS NULL` → **good**
-- row, `revoked_at` set → **revoked** (revocationTime = `revoked_at`; the
-  ledger's free-text `revoked_reason` is not a CRLReason and is omitted)
-- no row → **unknown** (serial we never issued)
+- row, `revoked_at IS NULL` → **good** (signed)
+- row, `revoked_at` set → **revoked** (signed; revocationTime = `revoked_at`;
+  the ledger's free-text `revoked_reason` is not a CRLReason and is omitted)
+- no row → unsigned **unauthorized** (RFC 5019 §2.2.3). Every genuinely
+  issued leaf has a ledger row before the cert leaves the CA, so real leaves
+  always get a signed answer — and enumerating random serials against this
+  public endpoint costs a cheap indexed lookup, never a KMS signature.
 
 Superseded and expired leaves answer **good**: supersession is app-fleet
 state, and expiry is judged from the certificate itself by relying parties.
@@ -37,10 +40,11 @@ unsigned error forms are `no-store`.
 
 New-hierarchy leaves carry `AIA id-ad-ocsp = http://ocsp.realreel.xyz` — the
 same host as the ICA-status Worker. The Worker stays the public front door:
-it answers ICA CertIDs from KV as today, and **forwards any other
-well-formed CertID to this service** (origin URL via a Worker env var).
-That routing change lands with the verifier-cutover workstream; until then
-the service is reachable directly at its Cloud Run URL for testing.
+it answers ICA CertIDs from KV as today and relays **single-CertID requests
+whose issuer hashes name the ICA** (i.e. RealReel leaves) to this service —
+never arbitrary third-party CertIDs. The relay activates when
+`LEAF_RESPONDER_ORIGIN` is set in the Worker's `wrangler.toml` (the cutover
+deploy); until then the service is reachable directly at its Cloud Run URL.
 
 ## Endpoints
 

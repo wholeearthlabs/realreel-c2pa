@@ -12,7 +12,7 @@ reusable, what's RealReel-specific, and exactly what you'd change.
 | Workspace | Reuse value |
 |---|---|
 | `native/` | A strong reference for hardware-backed C2PA capture signing: generate a key in the Secure Enclave / StrongBox, attest it (App Attest / Key Attestation), build a CSR, and sign a C2PA manifest on-device. The crypto patterns transfer to any app. |
-| `ca/` attestation validators | `ca/_shared/attestation/{apple,android}.ts` are largely generic server-side validators for Apple App Attest and Android Key Attestation. Reusable with little change. |
+| `ca/` attestation validators | `ca/_shared/attestation/{apple,android}.ts` are largely generic server-side validators for Apple App Attest and Android Key Attestation. Reusable with little change. Caveat: `ca/_shared/rate_limit.ts` is a NO-OP on the Supabase edge runtime (no `Deno.openKv` — it fails open); swap in a store your runtime has before a public deploy. |
 | `verifier/` | The validation *patterns* — cert-chain trust against a configurable trust list, App Attest / Play Integrity server checks, RFC 3161 timestamp validation, and the pluggable datastore port — are reusable. The two-stage + force-wrap + RealReel-CA *policy* is RealReel-specific. |
 | `trust-core/` | Mostly RealReel-specific (it encodes RealReel's trust list + policies), but a clean example of sharing one policy source between a client and a server. |
 
@@ -26,8 +26,8 @@ build-time constants.
 | What | Where | How to change |
 |---|---|---|
 | Apple Team ID | `ca/_shared/config.ts`, `verifier/src/attestation/apple.ts` | env `APPLE_TEAM_ID` |
-| Apple bundle ID | `ca/_shared/config.ts`, `verifier/src/attestation/apple.ts` | env `APPLE_BUNDLE_ID` |
-| Android package | `ca/_shared/config.ts` | env `ANDROID_PACKAGE_NAME` |
+| Apple bundle ID | `ca/_shared/config.ts`, `verifier/src/attestation/apple.ts` | env `APPLE_BUNDLE_ID` — on the CA side this is the BASE id (the local-dev gate appends `.dev` itself and rejects a value already ending in `.dev`); a verifier dev deployment may instead take the fully-resolved `.dev` id |
+| Android package | `ca/_shared/config.ts` | env `ANDROID_PACKAGE_NAME` — BASE id, same rule as the Apple bundle ID |
 | Play Integrity package + project (verifier) | verifier config | env `PLAY_INTEGRITY_PACKAGE_NAME`, `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` |
 | Play Integrity project (native) | `native/android/.../PhotoAttestModule.kt` (`CLOUD_PROJECT_NUMBER`) | edit the constant (native build-time) |
 | CSR subject DN (native) | `native/{android,ios}/...` constants | edit the constants — but note the CA overwrites the leaf subject at issuance, so these never reach a published cert |
