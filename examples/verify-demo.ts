@@ -10,8 +10,8 @@
 //     left false) so it needs NO Google Play Integrity API call.
 //
 // Everything else is the production path: c2pa-node parses + chain-validates
-// the embedded manifest against the RealReel CA root in
-// verifier/trust-sources/realreel/root.pem, the realreel profile enforces the
+// the embedded manifest against the RealReel CA roots declared in
+// verifier/trust-sources.yaml, the realreel profile enforces the
 // two-stage structure + the revocation denylist + the action allowlist, and
 // the result is sanitized exactly as the Cloud Run service would return it.
 //
@@ -62,6 +62,11 @@ const inMemoryDatastore: VerifierDatastore = {
       platform: "android", // the sample is a Pixel 10 capture
       public_key: Buffer.alloc(0),
       app_attest_public_key: null,
+      // Ledger validity window bracketing the sample's 2026-05-28 signature
+      // time — the ledger-backed time gate compares the signing time to
+      // these, never to the wall clock.
+      issued_at: "2026-05-01T00:00:00.000Z",
+      expires_at: "2026-10-28T00:00:00.000Z",
     };
   },
   async burn(): Promise<void> {

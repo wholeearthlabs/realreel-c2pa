@@ -12,7 +12,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { loadConfig } from "../src/config.js";
-import { DEFAULT_CERT_LIFETIME_MS } from "../src/cert-validity.js";
 
 // Snapshot the env vars we mutate so each test starts from a clean
 // process.env. Restoring after each test avoids cross-test pollution
@@ -355,23 +354,6 @@ describe("loadConfig — HOST_ALLOWLIST parsing", () => {
 // ---------------------------------------------------------------
 // isProduction flag
 // ---------------------------------------------------------------
-
-// ---------------------------------------------------------------
-// certLifetimeMs — required-TSA gate ceiling (code constant, no env)
-// ---------------------------------------------------------------
-
-describe("loadConfig — certLifetimeMs", () => {
-  it("is the DEFAULT_CERT_LIFETIME_MS constant (180 days)", () => {
-    // Not env-overridable: the ceiling MUST track the CA's
-    // LEAF_VALIDITY_DAYS (180 days after the 5y → 180d shortening), so it
-    // lives in exactly one code constant. Pinning the literal catches an
-    // accidental drift.
-    withMinimumValidEnv();
-    const config = loadConfig();
-    expect(config.certLifetimeMs).toBe(DEFAULT_CERT_LIFETIME_MS);
-    expect(config.certLifetimeMs).toBe(180 * 24 * 60 * 60 * 1000);
-  });
-});
 
 // ---------------------------------------------------------------
 // maxAssetBytes — fetch/buffer ceiling (env MAX_ASSET_MIB)

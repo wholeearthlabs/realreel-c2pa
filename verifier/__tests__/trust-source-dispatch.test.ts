@@ -34,7 +34,9 @@ function source(id: string): TrustSource {
     name: id,
     description: "",
     root_cert: `trust-sources/${id}/root.pem`,
-    verification_profile: id === "realreel" ? "realreel" : "wrap_parent_only",
+    verification_profile: id.startsWith("realreel")
+      ? "realreel"
+      : "wrap_parent_only",
     rootCertPem: "",
   };
 }
@@ -56,25 +58,48 @@ function configWithLoaded(...ids: string[]): TrustConfig {
 // varies by cert chain shape; the substring match works either way.
 
 describe("identifyTrustSource — routing", () => {
-  it("matches the RealReel substring inside a full DN (no common_name pin)", () => {
+  it("routes v2-hierarchy leaves (subject O) to 'realreel'", () => {
     expect(
       identifyTrustSource(
-        "CN=RealReel Issuing CA, O=RealReel Inc, C=US",
-        "RealReel-Device-Key",
-        configWithLoaded("realreel", "pixel"),
+        "Whole Earth Labs LLC",
+        "RealReel iOS",
+        configWithLoaded("realreel", "realreel-legacy", "pixel"),
       ),
     ).toBe("realreel");
   });
 
-  it("matches RealReel even with null common_name (entry is unopinionated)", () => {
-    // RealReel has no commonNameMatch — routes on issuer alone.
+  it("routes legacy-hierarchy leaves to 'realreel-legacy', never 'realreel'", () => {
+    expect(
+      identifyTrustSource(
+        "CN=RealReel Issuing CA, O=RealReel Inc, C=US",
+        "RealReel-Device-Key",
+        configWithLoaded("realreel", "realreel-legacy", "pixel"),
+      ),
+    ).toBe("realreel-legacy");
+  });
+
+  it("full-DN v2 surface routes to 'realreel' via declaration order", () => {
+    // The full v2 DN contains "RealReel" via its CN; `realreel` being
+    // declared before `realreel-legacy` in TRUSTED_ISSUERS is what keeps
+    // this on the v2 source (first-match). See trusted-issuers.ts.
+    expect(
+      identifyTrustSource(
+        "CN=RealReel Android, O=Whole Earth Labs LLC, C=US",
+        "RealReel Android",
+        configWithLoaded("realreel", "realreel-legacy", "pixel"),
+      ),
+    ).toBe("realreel");
+  });
+
+  it("matches RealReel even with null common_name (entries are unopinionated)", () => {
+    // Neither RealReel entry has a commonNameMatch — routes on issuer alone.
     expect(
       identifyTrustSource(
         "CN=RealReel Issuing CA, O=RealReel Inc, C=US",
         null,
-        configWithLoaded("realreel", "pixel"),
+        configWithLoaded("realreel", "realreel-legacy", "pixel"),
       ),
-    ).toBe("realreel");
+    ).toBe("realreel-legacy");
   });
 
   it("matches Pixel only when issuer AND Pixel-Camera common_name both match", () => {
@@ -82,7 +107,7 @@ describe("identifyTrustSource — routing", () => {
       identifyTrustSource(
         "Google LLC",
         "Pixel Camera",
-        configWithLoaded("realreel", "pixel"),
+        configWithLoaded("realreel", "realreel-legacy", "pixel"),
       ),
     ).toBe("pixel");
   });
@@ -159,9 +184,28 @@ describe("identifyTrustSource — loaded-source filter", () => {
       identifyTrustSource(
         "CN=RealReel Issuing CA, O=RealReel Inc, C=US",
         null,
+        configWithLoaded("realreel-legacy"),
+      ),
+    ).toBe("realreel-legacy");
+  });
+
+  it("does not fall back across hierarchies when one PEM is unloaded", () => {
+    // A legacy-signed manifest with only the v2 source loaded (or vice
+    // versa) must return null, not route to the other RealReel entry.
+    expect(
+      identifyTrustSource(
+        "CN=RealReel Issuing CA, O=RealReel Inc, C=US",
+        null,
         configWithLoaded("realreel"),
       ),
-    ).toBe("realreel");
+    ).toBeNull();
+    expect(
+      identifyTrustSource(
+        "Whole Earth Labs LLC",
+        "RealReel Android",
+        configWithLoaded("realreel-legacy"),
+      ),
+    ).toBeNull();
   });
 
   it("returns null when no sources are loaded at all", () => {
@@ -198,9 +242,9 @@ describe("identifyTrustSource — substring contract", () => {
       identifyTrustSource(
         "CN=RealReel Issuing CA Evil Twin, O=Attacker",
         null,
-        configWithLoaded("realreel", "pixel"),
+        configWithLoaded("realreel", "realreel-legacy", "pixel"),
       ),
-    ).toBe("realreel");
+    ).toBe("realreel-legacy");
     // ← Confirms substring routing fires. Real-world protection: this
     //   only ever happens on certs c2pa-node already accepted, which
     //   means they chain to our root, which means they ARE our certs.

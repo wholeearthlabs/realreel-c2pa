@@ -88,22 +88,16 @@ import {
 // v1 issues a flat 180 days. v2 validity is per-platform/per-AL — CP §7.1.2
 // caps AL2 leaves at 90 days and AL1 at 366.
 //
-// STILL hand-synced with the verifier's DEFAULT_CERT_LIFETIME_MS
-// (verifier/src/cert-validity.ts) — no programmatic drift check. That gate is
-// a FLAT constant, not a per-leaf lookup: c2pa-node doesn't surface
-// cert.notAfter, so the verifier cannot read the issued lifetime off the
-// manifest. Dropping the shortest issued lifetime below it (e.g. the 90-day
-// AL2 leaves) widens the window in which an untimestamped asset is accepted
-// on the "cert was plausibly still valid at signing" assumption. Change one,
-// change the other. See RealReel's internal CA custody documentation.
-const LEAF_VALIDITY_DAYS = 180;
-
+// No verifier-side sync needed: the verifier's time gate reads each leaf's
+// actual issued_at/expires_at from the issued_certificates ledger
+// (checkLedgerTimeBounds in verifier/src/cert-validity.ts), so changing a
+// lifetime here propagates through the ledger rows automatically.
 export function leafValidityDays(
   hierarchy: CaHierarchy,
   platform: LeafPlatform,
   assuranceLevel: AssuranceLevel,
 ): number {
-  if (hierarchy === "v1") return LEAF_VALIDITY_DAYS;
+  if (hierarchy === "v1") return 180;
   return platform === "android" && assuranceLevel === "AL2" ? 90 : 180;
 }
 

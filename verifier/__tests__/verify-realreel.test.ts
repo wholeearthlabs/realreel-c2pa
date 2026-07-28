@@ -3,15 +3,17 @@
 //
 // Fixture: __tests__/fixtures/realreel-uploaded.jpg — Pixel 10, captured
 // 2026-05-28, two-stage signed (capture + upload), trust-rooted at the
-// RealReel CA root in trust-sources/realreel/root.pem. Stage 2 carries
-// an RFC 3161 sigTst2 token (DigiCert TSA).
+// LEGACY RealReel root (trust-sources/realreel-legacy/root.pem) — the
+// pre-conformance hierarchy every fixture predates. New-hierarchy
+// fixtures land with the fixture regeneration pass after the v2 flip.
+// Stage 2 carries an RFC 3161 sigTst2 token (DigiCert TSA).
 //
 // Pipeline exercised:
-//   1. loadTrustConfig — reads trust-sources.yaml + the realreel root.pem.
+//   1. loadTrustConfig — reads trust-sources.yaml + the root PEMs.
 //   2. verify() — Reader.fromAsset with our trust anchors.
 //   3. identifyTrustSource — matches signature_info.issuer "RealReel"
-//      against @realreel/c2pa-trust-core's TRUSTED_ISSUERS[id=realreel]
-//      issuerMatch substring; force-wrap accepts it (active = RealReel).
+//      against TRUSTED_ISSUERS[id=realreel-legacy]; force-wrap accepts it
+//      (dispatch is by verification_profile, shared with `realreel`).
 //   4. verifyRealReel — extracts cert_serial_number from Stage 2, looks
 //      up via mocked lookupSigningKeyRevocation, enforces Stage-2
 //      revocation + user_id binding. Stage 1 = structural checks only
@@ -84,6 +86,11 @@ function defaultRevocationRow(opts: {
     platform: opts.platform ?? "android",
     public_key: Buffer.alloc(0),
     app_attest_public_key: null,
+    // Ledger validity window bracketing every fixture's signature time
+    // (time-stable: the ledger gate compares signature_time to these,
+    // never to now).
+    issued_at: "2026-05-01T00:00:00.000Z",
+    expires_at: "2026-10-28T00:00:00.000Z",
   };
 }
 
@@ -113,7 +120,8 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     });
 
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
-    expect(result.sanitizedManifest.trust_source).toBe("realreel");
+    // Legacy-hierarchy fixture → the transitional legacy source id.
+    expect(result.sanitizedManifest.trust_source).toBe("realreel-legacy");
 
     // The active manifest is Stage 2 (the upload); its parent_label
     // points at Stage 1 (the capture). This is the canonical
@@ -562,24 +570,51 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
     });
   });
 
-  it("passes with a deliberately tiny certLifetimeMs because TSA is trusted (Gate 3 skipped)", async () => {
-    // A trusted TSA stamp lifts the required-TSA gate entirely. The
-    // fixture has a trusted DigiCert sigTst2, so even a 1ms cert
-    // lifetime ceiling should NOT cause rejection.
-    //
-    // Inject a fixed clock ~30 minutes past the fixture's
-    // signature_info.time (2026-05-28T19:46:41Z) so Gate 2 (future-
-    // dated, with 5-min skew tolerance) passes deterministically. Without
-    // the injection this test would silently couple "Gate 3 skipped" to
-    // "real now happens to be past the fixture's signature time" — true
-    // today but a brittle assumption to bake into a regression test.
+  // ----- Gate 3 wiring (ledger-backed time bounds) -----
+  //
+  // checkLedgerTimeBounds has its own unit suite (cert-validity.test.ts);
+  // these two cases pin that verifyRealReel actually CALLS it with the
+  // Stage-2 ledger row + the real tsaState — deleting the wiring must
+  // fail here, not just leave unit tests green.
+
+  it("Gate 3 wiring: a ledger window excluding the signature time rejects (time-warp)", async () => {
+    // issued_at AFTER the fixture's 2026-05-28T19:46:41Z signature time —
+    // the time-warp branch fires regardless of the fixture's trusted TSA
+    // (a genuine pre-issuance timestamp is damning, not exculpatory).
+    vi.mocked(lookupSigningKeyRevocation).mockResolvedValue({
+      ...defaultRevocationRow(),
+      issued_at: "2026-06-15T00:00:00.000Z",
+      expires_at: "2026-12-01T00:00:00.000Z",
+    });
+    await expect(
+      verify({
+        assetBytes: fixtureBytes,
+        mimeType: "image/jpeg",
+        expectedUserId: FIXTURE_CAPTURER_UUID,
+        trustConfig,
+        declaredLocation: "precise",
+      }),
+    ).rejects.toMatchObject({
+      code: VerifyErrorCode.SIGNATURE_INVALID,
+      detail: expect.stringMatching(/predates/),
+    });
+  });
+
+  it("Gate 3 wiring: expiry before the signature time is lifted by the fixture's trusted TSA", async () => {
+    // Post-expiry-claim bound only applies WITHOUT a trusted TSA; the
+    // fixture's DigiCert sigTst2 is trusted, so an expires_at before the
+    // signature time must still verify (C2PA §15.7 governs). Replaces the
+    // pre-ledger "tiny certLifetimeMs + trusted TSA" case.
+    vi.mocked(lookupSigningKeyRevocation).mockResolvedValue({
+      ...defaultRevocationRow(),
+      issued_at: "2026-03-01T00:00:00.000Z",
+      expires_at: "2026-05-01T00:00:00.000Z",
+    });
     const result = await verify({
       assetBytes: fixtureBytes,
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      clock: { now: () => new Date("2026-05-28T20:16:00Z") },
-      certLifetimeMs: 1,
       declaredLocation: "precise",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");

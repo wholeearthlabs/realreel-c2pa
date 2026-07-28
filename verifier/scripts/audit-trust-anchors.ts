@@ -80,6 +80,16 @@ export const OPERATIONAL_CERTS: TrustSource[] = [
     warnDays: 60,
     critDays: 21,
   },
+  {
+    // Leaf-status responder (ICA-signed, serves ocsp-leaf/). Same annual
+    // re-issue cadence and ocsp-nocheck rationale as the root-signed
+    // responder above.
+    id: "realreel-leaf-ocsp-responder",
+    root_cert: "trust-sources/realreel/realreel-leaf-ocsp-responder-1.pem",
+    selfSigned: false,
+    warnDays: 60,
+    critDays: 21,
+  },
 ];
 
 export interface CertInfo {

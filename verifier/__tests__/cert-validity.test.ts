@@ -11,8 +11,9 @@ import {
   readTsaState,
   readSignatureTime,
   checkCertValidityTimeBounds,
+  checkLedgerTimeBounds,
   CLOCK_SKEW_TOLERANCE_MS,
-  DEFAULT_CERT_LIFETIME_MS,
+  ISSUANCE_TOLERANCE_MS,
   type Clock,
   type TsaState,
 } from "../src/cert-validity.js";
@@ -131,7 +132,6 @@ describe("checkCertValidityTimeBounds — Gate 1 (trusted-TSA-when-present)", ()
   const baseArgs = {
     active: buildActive({ time: "2026-05-28T16:31:37+00:00" }),
     clock: clockAt("2026-05-28T17:00:00Z"),
-    certLifetimeMs: DEFAULT_CERT_LIFETIME_MS,
   };
 
   it("rejects SIGNATURE_INVALID when sigTst2 is present but untrusted", () => {
@@ -188,7 +188,6 @@ describe("checkCertValidityTimeBounds — Gate 2 (future-dated signature)", () =
         active: buildActive({ time: "2027-01-01T00:00:00Z" }),
         tsaState: trustedState,
         clock: clockAt("2026-05-28T17:00:00Z"),
-        certLifetimeMs: DEFAULT_CERT_LIFETIME_MS,
       }),
     ).toThrowError(/in the future/);
   });
@@ -204,7 +203,6 @@ describe("checkCertValidityTimeBounds — Gate 2 (future-dated signature)", () =
         active: buildActive({ time: within.toISOString() }),
         tsaState: trustedState,
         clock: { now: () => now },
-        certLifetimeMs: DEFAULT_CERT_LIFETIME_MS,
       }),
     ).not.toThrow();
   });
@@ -217,7 +215,6 @@ describe("checkCertValidityTimeBounds — Gate 2 (future-dated signature)", () =
         active: buildActive({ time: beyond.toISOString() }),
         tsaState: trustedState,
         clock: { now: () => now },
-        certLifetimeMs: DEFAULT_CERT_LIFETIME_MS,
       }),
     ).toThrowError(/in the future/);
   });
@@ -228,126 +225,120 @@ describe("checkCertValidityTimeBounds — Gate 2 (future-dated signature)", () =
         active: buildActive(),
         tsaState: { hasStamp: false, trusted: false },
         clock: clockAt("2026-05-28T17:00:00Z"),
-        certLifetimeMs: DEFAULT_CERT_LIFETIME_MS,
       }),
     ).not.toThrow();
   });
 });
 
-// ----- checkCertValidityTimeBounds — Gate 3 (required-TSA for old assets) -----
+// ----- checkLedgerTimeBounds — Gate 3 (ledger-backed validity window) -----
 
-describe("checkCertValidityTimeBounds — Gate 3 (required-TSA for old assets)", () => {
-  // 6mo in ms — useful for testing under the planned shorter-lifetime
-  // CA cutover without rebuilding the rest of the harness.
-  const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
+describe("checkLedgerTimeBounds — Gate 3 (ledger-backed validity window)", () => {
+  const NO_TSA: TsaState = { hasStamp: false, trusted: false };
+  const TRUSTED_TSA: TsaState = { hasStamp: true, trusted: true };
+  const ISSUED_AT = "2026-05-01T00:00:00.000Z";
+  const EXPIRES_AT = "2026-10-28T00:00:00.000Z"; // 180d leaf
 
-  it("rejects CERT_EXPIRED when signature is older than certLifetimeMs and no trusted TSA", () => {
-    expect(() =>
-      checkCertValidityTimeBounds({
-        active: buildActive({ time: "2026-01-01T00:00:00Z" }),
-        tsaState: { hasStamp: false, trusted: false },
-        clock: clockAt("2026-12-01T00:00:00Z"), // 11 months later
-        certLifetimeMs: SIX_MONTHS_MS,
+  function ledgerArgs(over: {
+    time?: string | null;
+    tsaState?: TsaState;
+    issuedAt?: string;
+    expiresAt?: string;
+  } = {}) {
+    return {
+      active: buildActive({
+        time: over.time === undefined ? "2026-05-28T16:31:37+00:00" : over.time,
       }),
-    ).toThrowError(/older than the cert-lifetime ceiling/);
+      tsaState: over.tsaState ?? NO_TSA,
+      issuedAt: over.issuedAt ?? ISSUED_AT,
+      expiresAt: over.expiresAt ?? EXPIRES_AT,
+    };
+  }
+
+  it("accepts a signature time inside the ledger window", () => {
+    expect(() => checkLedgerTimeBounds(ledgerArgs())).not.toThrow();
   });
 
-  it("accepts when signature is within certLifetimeMs and no trusted TSA", () => {
-    expect(() =>
-      checkCertValidityTimeBounds({
-        active: buildActive({ time: "2026-05-01T00:00:00Z" }),
-        tsaState: { hasStamp: false, trusted: false },
-        clock: clockAt("2026-05-28T00:00:00Z"), // < 6mo later
-        certLifetimeMs: SIX_MONTHS_MS,
-      }),
-    ).not.toThrow();
+  it("rejects SIGNATURE_INVALID when the signature predates ledger issuance (time-warp)", () => {
+    try {
+      checkLedgerTimeBounds(ledgerArgs({ time: "2026-04-30T00:00:00Z" }));
+      expect.unreachable("expected throw");
+    } catch (e) {
+      expect((e as { code: string }).code).toBe(VerifyErrorCode.SIGNATURE_INVALID);
+      expect((e as { detail?: string }).detail).toMatch(/predates/);
+    }
   });
 
-  it("accepts when trusted TSA is present even if signature is older than certLifetimeMs", () => {
-    // The whole point of TSA: prove the signature existed before cert
-    // expiry. A trusted timestamp lifts the required-TSA gate entirely.
+  it("time-warp rejects even with a trusted TSA — a genuine pre-issuance timestamp is damning", () => {
     expect(() =>
-      checkCertValidityTimeBounds({
-        active: buildActive({ time: "2020-01-01T00:00:00Z" }), // 6 years old
-        tsaState: { hasStamp: true, trusted: true },
-        clock: clockAt("2026-05-28T00:00:00Z"),
-        certLifetimeMs: DEFAULT_CERT_LIFETIME_MS,
-      }),
+      checkLedgerTimeBounds(
+        ledgerArgs({ time: "2026-04-30T00:00:00Z", tsaState: TRUSTED_TSA }),
+      ),
+    ).toThrowError(/predates/);
+  });
+
+  it("tolerates the CA notBefore backdate + clock skew just before issuance", () => {
+    // ISSUANCE_TOLERANCE_MS covers the 5-min notBefore backdate plus 5-min
+    // device skew: a first signature moments after enrollment may carry a
+    // time slightly before the ledger write.
+    const justInside = new Date(
+      new Date(ISSUED_AT).getTime() - ISSUANCE_TOLERANCE_MS + 1_000,
+    ).toISOString();
+    expect(() => checkLedgerTimeBounds(ledgerArgs({ time: justInside }))).not.toThrow();
+    const justOutside = new Date(
+      new Date(ISSUED_AT).getTime() - ISSUANCE_TOLERANCE_MS - 1_000,
+    ).toISOString();
+    expect(() => checkLedgerTimeBounds(ledgerArgs({ time: justOutside }))).toThrowError(
+      /predates/,
+    );
+  });
+
+  it("rejects CERT_EXPIRED when the signature postdates ledger expiry with no trusted TSA", () => {
+    try {
+      checkLedgerTimeBounds(ledgerArgs({ time: "2026-11-15T00:00:00Z" }));
+      expect.unreachable("expected throw");
+    } catch (e) {
+      expect((e as { code: string }).code).toBe(VerifyErrorCode.CERT_EXPIRED);
+      expect((e as { detail?: string }).detail).toMatch(/ledger expiry/);
+    }
+  });
+
+  it("a trusted TSA lifts the post-expiry bound (C2PA §15.7 governs instead)", () => {
+    expect(() =>
+      checkLedgerTimeBounds(
+        ledgerArgs({ time: "2026-11-15T00:00:00Z", tsaState: TRUSTED_TSA }),
+      ),
     ).not.toThrow();
   });
 
   it("accepts when signature_info.time is absent (legacy untimestamped assets)", () => {
-    // c2pa-rs leaves signature_info.time out when neither sigTst2 nor a
-    // claim-internal time is present. The committed wrap-mode fixture
-    // (pixel-uploaded.jpg) hits this path because it carries no sigTst2;
-    // RealReel signs — including wrap-mode — always embed
-    // sigTst2 in production, so a real wrap-mode upload reaches Gate 3
-    // with a trusted TSA and is skipped via the !trusted branch instead.
-    // We accept here and lean on c2pa-rs's cert-chain check against
-    // `now`. The required-TSA gate only adds protection when the manifest
-    // itself CLAIMS to be older than cert lifetime.
+    // No time claim = nothing to bound; c2pa-rs's cert-chain check against
+    // now remains binding. Production RealReel signs always embed sigTst2.
+    expect(() => checkLedgerTimeBounds(ledgerArgs({ time: null }))).not.toThrow();
+  });
+
+  it("fails closed on unparseable ledger timestamps", () => {
+    // NaN comparisons would silently disable both bounds — a broken custom
+    // adapter must reject, not pass-open.
     expect(() =>
-      checkCertValidityTimeBounds({
-        active: buildActive(),
-        tsaState: { hasStamp: false, trusted: false },
-        clock: clockAt("2026-05-28T00:00:00Z"),
-        certLifetimeMs: DEFAULT_CERT_LIFETIME_MS,
-      }),
+      checkLedgerTimeBounds(ledgerArgs({ issuedAt: "not-a-date" })),
+    ).toThrowError(/unparseable/);
+    expect(() =>
+      checkLedgerTimeBounds(ledgerArgs({ expiresAt: "" })),
+    ).toThrowError(/unparseable/);
+  });
+
+  it("supports the 90-day AL2 window as-is (per-leaf, no constant)", () => {
+    // The gate reads whatever window the ledger recorded — a 90-day AL2
+    // leaf needs no verifier-side configuration.
+    const al2 = {
+      issuedAt: "2026-08-01T00:00:00.000Z",
+      expiresAt: "2026-10-30T00:00:00.000Z",
+    };
+    expect(() =>
+      checkLedgerTimeBounds(ledgerArgs({ ...al2, time: "2026-09-15T00:00:00Z" })),
     ).not.toThrow();
-  });
-
-  it("CERT_EXPIRED error message includes age and limit in days for triage", () => {
-    try {
-      checkCertValidityTimeBounds({
-        active: buildActive({ time: "2026-01-01T00:00:00Z" }),
-        tsaState: { hasStamp: false, trusted: false },
-        clock: clockAt("2026-08-01T00:00:00Z"), // ~7 months later
-        certLifetimeMs: SIX_MONTHS_MS,
-      });
-      expect.unreachable("expected throw");
-    } catch (e) {
-      const detail = (e as { detail?: string }).detail ?? "";
-      // ~212 days > ~180 days. Exact value depends on month lengths;
-      // assert the day-comparison wording is present rather than fixed
-      // numbers — keeps the test robust across a leap year.
-      expect(detail).toMatch(/\d+ days > \d+ days/);
-      expect((e as { code: string }).code).toBe(VerifyErrorCode.CERT_EXPIRED);
-    }
-  });
-});
-
-// ----- Interaction between gates -----
-
-describe("checkCertValidityTimeBounds — gate ordering", () => {
-  it("Gate 1 (untrusted TSA) fires before Gate 3 (old asset)", () => {
-    // An old, untrusted-TSA asset is rejected for the untrusted-TSA
-    // reason, NOT the age reason. The Sentry tag should reflect what
-    // actually broke (SIGNATURE_INVALID, not CERT_EXPIRED).
-    try {
-      checkCertValidityTimeBounds({
-        active: buildActive({ time: "2020-01-01T00:00:00Z" }),
-        tsaState: { hasStamp: true, trusted: false },
-        clock: clockAt("2026-05-28T00:00:00Z"),
-        certLifetimeMs: DEFAULT_CERT_LIFETIME_MS,
-      });
-      expect.unreachable("expected throw");
-    } catch (e) {
-      expect((e as { code: string }).code).toBe(VerifyErrorCode.SIGNATURE_INVALID);
-    }
-  });
-
-  it("Gate 2 (future-dated) fires before Gate 3 (old asset) — irrelevant in practice but pins ordering", () => {
-    // A future-dated signature with no TSA hits Gate 2 first.
-    try {
-      checkCertValidityTimeBounds({
-        active: buildActive({ time: "2030-01-01T00:00:00Z" }),
-        tsaState: { hasStamp: false, trusted: false },
-        clock: clockAt("2026-05-28T00:00:00Z"),
-        certLifetimeMs: DEFAULT_CERT_LIFETIME_MS,
-      });
-      expect.unreachable("expected throw");
-    } catch (e) {
-      expect((e as { code: string }).code).toBe(VerifyErrorCode.SIGNATURE_INVALID);
-    }
+    expect(() =>
+      checkLedgerTimeBounds(ledgerArgs({ ...al2, time: "2026-11-05T00:00:00Z" })),
+    ).toThrowError(/ledger expiry/);
   });
 });

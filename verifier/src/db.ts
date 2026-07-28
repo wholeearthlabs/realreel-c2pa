@@ -60,6 +60,11 @@ export interface RevocationRow {
    * NULL for Android. The Stage-2 validator uses this to verify the
    * upload assertion's ECDSA signature. */
   app_attest_public_key: Buffer | null;
+  /** Ledger-recorded validity window of the leaf (issued_certificates
+   * issued_at / expires_at, both NOT NULL there). Drives the profile's
+   * ledger-backed Gate 3 — the claimed signing time must fall inside it. */
+  issued_at: string;
+  expires_at: string;
 }
 
 let sqlClient: postgres.Sql | null = null;
@@ -122,7 +127,9 @@ export async function lookupSigningKeyRevocation(
       cert_serial_number,
       platform,
       public_key,
-      app_attest_public_key
+      app_attest_public_key,
+      issued_at::text AS issued_at,
+      expires_at::text AS expires_at
     FROM public.lookup_signing_key_revocation(${certSerialNumber})
   `;
   return rows.length === 0 ? null : rows[0]!;
@@ -164,7 +171,7 @@ export async function pingDb(): Promise<void> {
     // we only care that the column references resolve.
     await tx`
       SELECT key_id, user_id, revoked_at, cert_serial_number, platform,
-             public_key, app_attest_public_key
+             public_key, app_attest_public_key, issued_at, expires_at
       FROM public.lookup_signing_key_revocation('healthcheck-sentinel-no-match')
     `;
   });

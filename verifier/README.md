@@ -15,7 +15,8 @@ verifier/
 ├── Dockerfile
 ├── trust-sources.yaml          ← curated list of trusted C2PA content sources
 ├── trust-sources/
-│   ├── realreel/root.pem       ← the RealReel CA root certificate
+│   ├── realreel/               ← RealReel C2PA root + ICA + OCSP responder certs
+│   ├── realreel-legacy/root.pem← pre-conformance RealReel root (legacy leaves)
 │   └── pixel/root.pem          ← Google Content Credentials root (Pixel Camera)
 ├── src/
 │   ├── server.ts               ← Fastify entrypoint + auth + SSRF guard

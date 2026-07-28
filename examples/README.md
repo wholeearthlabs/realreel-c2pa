@@ -52,8 +52,8 @@ The process exits `0` on a Trusted verdict and `1` on a rejection.
 ### What it does (and what it fakes)
 
 It runs the **real** `verify()` orchestrator: c2pa-node parses the embedded
-manifest and chain-validates it against the RealReel CA root in
-`verifier/trust-sources/realreel/root.pem`, then the `realreel` profile enforces
+manifest and chain-validates it against the RealReel CA roots declared in
+`verifier/trust-sources.yaml`, then the `realreel` profile enforces
 the two-stage structure, the revocation denylist, and the action allowlist. The
 output is sanitized exactly as the Cloud Run service would return it.
 

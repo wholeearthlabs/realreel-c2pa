@@ -239,6 +239,11 @@ function stubBothKeysValid(): void {
       platform: "ios",
       public_key: Buffer.alloc(0),
       app_attest_public_key: null,
+      // Ledger validity window bracketing every fixture's signature time
+      // (time-stable: the ledger gate compares signature_time to these,
+      // never to now).
+      issued_at: "2026-05-01T00:00:00.000Z",
+      expires_at: "2026-10-28T00:00:00.000Z",
     })
     .mockResolvedValueOnce({
       key_id: "device-hw-key",
@@ -248,6 +253,11 @@ function stubBothKeysValid(): void {
       platform: "ios",
       public_key: Buffer.alloc(0),
       app_attest_public_key: null,
+      // Ledger validity window bracketing every fixture's signature time
+      // (time-stable: the ledger gate compares signature_time to these,
+      // never to now).
+      issued_at: "2026-05-01T00:00:00.000Z",
+      expires_at: "2026-10-28T00:00:00.000Z",
     });
 }
 
@@ -461,6 +471,11 @@ function stubBothKeysWithPlatform(
       platform: stage1Platform,
       public_key: Buffer.alloc(0),
       app_attest_public_key: null,
+      // Ledger validity window bracketing every fixture's signature time
+      // (time-stable: the ledger gate compares signature_time to these,
+      // never to now).
+      issued_at: "2026-05-01T00:00:00.000Z",
+      expires_at: "2026-10-28T00:00:00.000Z",
     })
     .mockResolvedValueOnce({
       key_id: "device-hw-key",
@@ -470,6 +485,11 @@ function stubBothKeysWithPlatform(
       platform: stage2Platform,
       public_key: Buffer.alloc(0),
       app_attest_public_key: null,
+      // Ledger validity window bracketing every fixture's signature time
+      // (time-stable: the ledger gate compares signature_time to these,
+      // never to now).
+      issued_at: "2026-05-01T00:00:00.000Z",
+      expires_at: "2026-10-28T00:00:00.000Z",
     });
 }
 
@@ -877,6 +897,11 @@ describe("Policy — TSA Update Manifest walk-through", () => {
       platform: "ios",
       public_key: Buffer.alloc(0),
       app_attest_public_key: null,
+      // Ledger validity window bracketing every fixture's signature time
+      // (time-stable: the ledger gate compares signature_time to these,
+      // never to now).
+      issued_at: "2026-05-01T00:00:00.000Z",
+      expires_at: "2026-10-28T00:00:00.000Z",
     });
     const store = makeDrainedStore();
     await expect(verifyRealReel(store, "realreel")).rejects.toMatchObject({

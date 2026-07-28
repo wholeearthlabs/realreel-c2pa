@@ -322,7 +322,6 @@ function registerRoutes(
       trustConfig,
       playIntegrityConfig: config.playIntegrity,
       attestationRequired: config.attestationRequired,
-      certLifetimeMs: config.certLifetimeMs,
     });
 
     reply.status(200).send({

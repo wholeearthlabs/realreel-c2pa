@@ -71,6 +71,11 @@ function deviceRow() {
     platform: "android", // Stage 2 carries org.realreel.play_integrity
     public_key: Buffer.alloc(0),
     app_attest_public_key: null,
+    // Ledger validity window bracketing every fixture's signature time
+    // (time-stable: the ledger gate compares signature_time to these,
+    // never to now).
+    issued_at: "2026-05-01T00:00:00.000Z",
+    expires_at: "2026-10-28T00:00:00.000Z",
   };
 }
 
@@ -100,7 +105,7 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
     });
 
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
-    expect(result.sanitizedManifest.trust_source).toBe("realreel");
+    expect(result.sanitizedManifest.trust_source).toBe("realreel-legacy");
 
     const store = result.sanitizedManifest;
     const active = store.active_manifest!;

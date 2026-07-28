@@ -67,6 +67,7 @@ import {
   validatePlayIntegrityStructure,
 } from "../attestation/play_integrity.js";
 import type { PlayIntegrityConfig } from "../config.js";
+import { checkLedgerTimeBounds, type TsaState } from "../cert-validity.js";
 import { buildContentIdentity } from "@realreel/c2pa-trust-core";
 import { createHash } from "node:crypto";
 
@@ -100,6 +101,11 @@ export interface RealReelVerifyResult {
  *   nonce burn (see src/ports.ts). Defaults to the Postgres-backed
  *   `postgresAdapter`; injected from verify() so an OSS integrator can swap
  *   the backend.
+ * @param tsaState Trust state of any embedded sigTst2, computed by
+ *   verify.ts before sanitize drops validation_results. Consumed by the
+ *   ledger-backed Gate 3 (a trusted TSA lifts the post-expiry bound; C2PA
+ *   §15.7 then governs). The no-stamp default keeps direct callers and the
+ *   gate fail-closed.
  */
 export async function verifyRealReel(
   storeUnknown: unknown,
@@ -107,6 +113,7 @@ export async function verifyRealReel(
   playIntegrityConfig?: PlayIntegrityConfig,
   attestationRequired: boolean = false,
   datastore: VerifierDatastore = postgresAdapter,
+  tsaState: TsaState = { hasStamp: false, trusted: false },
 ): Promise<RealReelVerifyResult> {
   const store = storeUnknown as ManifestStoreShape;
 
@@ -199,6 +206,17 @@ export async function verifyRealReel(
       `stage 2 signing key revoked at ${stage2Row.revoked_at}`,
     );
   }
+
+  // Gate 3 — bound the claimed signing time by this leaf's ledger-recorded
+  // validity window (see cert-validity.ts). Runs here, not in verify.ts,
+  // so the row fetched for the revocation gates above is reused and
+  // structural checks stay ahead of every DB read.
+  checkLedgerTimeBounds({
+    active,
+    tsaState,
+    issuedAt: stage2Row.issued_at,
+    expiresAt: stage2Row.expires_at,
+  });
 
   // Resolve the Stage 2 envelope STRUCTURE first (cheap), before any nonce
   // is burned. Stage 2 attestation is the upload-time proof:

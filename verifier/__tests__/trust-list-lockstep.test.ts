@@ -1,35 +1,46 @@
 // Lockstep guard between the shared trust-list metadata
 // (@realreel/c2pa-trust-core/trust-list) and the actual PEM files this
-// verifier reads at startup (verifier/trust-sources/<id>/root.pem).
+// verifier reads at startup (the `root_cert` paths declared in
+// trust-sources.yaml — the same paths the production loader resolves).
 //
 // The shared metadata declares a `rootCommonName` for each trusted
 // issuer — a string the client gate and other shared consumers rely on
-// without parsing the PEM. This test reads each PEM, parses it with
-// node:crypto.X509Certificate, and asserts the subject CN equals the
-// shared metadata. Two failure classes it catches:
+// without parsing the PEM. This test resolves each issuer's PEM through
+// the YAML, parses it with node:crypto.X509Certificate, and asserts the
+// subject CN equals the shared metadata. Failure classes it catches:
 //
 //   - Someone updates the shared metadata's rootCommonName without
 //     swapping the PEM (or vice versa). The strings drift; the client
 //     starts trusting issuers whose actual root has a different name.
-//   - A new entry is added to TRUSTED_ISSUERS without committing the
-//     matching root.pem (or the other way around).
+//   - A new entry is added to TRUSTED_ISSUERS without a matching YAML
+//     source + committed PEM (or the other way around).
 //
-// Also asserts the inverse: every trust-sources/<id>/ subdir has a
-// matching TRUSTED_ISSUERS entry — so the verifier can't silently
-// trust a root that isn't documented in the shared metadata.
+// Also asserts the inverse: every trust-sources/ subdir holding signer
+// PEMs is referenced by a YAML source — so the verifier can't silently
+// carry a root that isn't documented in the shared metadata.
 
 import { describe, it, expect } from "vitest";
 import { X509Certificate } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 
 import { TRUSTED_ISSUERS } from "@realreel/c2pa-trust-core";
 
 // Path is anchored at this test file's location so the test runs
 // correctly regardless of cwd (vitest, ide, etc.).
 const HERE = dirname(fileURLToPath(import.meta.url));
-const TRUST_SOURCES_DIR = resolve(HERE, "..", "trust-sources");
+const VERIFIER_DIR = resolve(HERE, "..");
+const TRUST_SOURCES_DIR = resolve(VERIFIER_DIR, "trust-sources");
+
+// The production trust config — sources resolve their PEMs via the
+// `root_cert` path each YAML entry declares, exactly like the loader.
+const YAML_SOURCES = (
+  parseYaml(
+    readFileSync(resolve(VERIFIER_DIR, "trust-sources.yaml"), "utf-8"),
+  ) as { sources: Array<{ id: string; root_cert: string }> }
+).sources;
 
 /**
  * Subdirectories of `verifier/trust-sources/` that hold non-signer
@@ -65,13 +76,28 @@ function readSubjectCn(pemPath: string): string {
 describe("trust list lockstep (shared metadata ↔ verifier PEMs)", () => {
   for (const issuer of TRUSTED_ISSUERS) {
     it(`PEM for '${issuer.id}' has subject CN '${issuer.rootCommonName}'`, () => {
-      const pemPath = resolve(TRUST_SOURCES_DIR, issuer.id, "root.pem");
+      const yamlSource = YAML_SOURCES.find((s) => s.id === issuer.id);
+      expect(
+        yamlSource,
+        `TRUSTED_ISSUERS entry '${issuer.id}' has no source in trust-sources.yaml`,
+      ).toBeDefined();
+      const pemPath = resolve(VERIFIER_DIR, yamlSource!.root_cert);
       const actualCn = readSubjectCn(pemPath);
       expect(actualCn).toBe(issuer.rootCommonName);
     });
   }
 
-  it("every trust-sources/<id>/root.pem has a matching TRUSTED_ISSUERS entry (excluding non-signer dirs)", () => {
+  it("every YAML source has a matching TRUSTED_ISSUERS entry", () => {
+    // The loader throws on this at startup; asserting it here catches the
+    // drift at test time instead of first deploy.
+    const knownIds = new Set(TRUSTED_ISSUERS.map((entry) => entry.id));
+    const undeclared = YAML_SOURCES.map((s) => s.id).filter(
+      (id) => !knownIds.has(id),
+    );
+    expect(undeclared).toEqual([]);
+  });
+
+  it("every signer dir under trust-sources/ is referenced by a YAML source", () => {
     // Inverse-direction check: the verifier shouldn't carry a SIGNER
     // trust anchor that isn't declared in the shared metadata. Forces
     // every new signer-PEM addition through the shared package's audit
@@ -81,8 +107,10 @@ describe("trust list lockstep (shared metadata ↔ verifier PEMs)", () => {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .filter((id) => !NON_SIGNER_TRUST_DIRS.has(id));
-    const knownIds = new Set(TRUSTED_ISSUERS.map((entry) => entry.id));
-    const undeclared = pemDirs.filter((id) => !knownIds.has(id));
+    const referencedDirs = new Set(
+      YAML_SOURCES.map((s) => s.root_cert.split("/")[1]),
+    );
+    const undeclared = pemDirs.filter((dir) => !referencedDirs.has(dir));
     expect(
       undeclared,
       `verifier/trust-sources/ contains undeclared PEM directories: ${undeclared.join(", ")}`,

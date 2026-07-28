@@ -75,8 +75,9 @@ export interface TrustedIssuer {
 }
 
 /**
- * The curated list. Order is significant for telemetry stability but not
- * for matching correctness (issuerMatch substrings are unique).
+ * The curated list. Order is matching-significant: findTrustedIssuer is
+ * first-match, and `realreel` must precede `realreel-legacy` (see that
+ * entry's comment).
  *
  * RealReel (our own captures) + Google Pixel (Pixel 8 and later, stock
  * Camera app with Content Credentials). Add Sony, Leica, Nikon, etc. as
@@ -86,10 +87,32 @@ export const TRUSTED_ISSUERS: ReadonlyArray<TrustedIssuer> = [
   {
     id: "realreel",
     displayName: "RealReel",
-    // Empirically pinned against verifier/__tests__/fixtures/realreel-uploaded.jpg
-    // (real iPhone capture). c2pa-rs surfaces the short string "RealReel"
-    // for certs issued by our CA — exact derivation isn't documented but
-    // the leaf's issuer DN is `CN=RealReel Issuing CA`.
+    // The conformant (v2) hierarchy: P-384 root + Claim Signing ICA, leaf
+    // subject O = "Whole Earth Labs LLC". c2pa-rs surfaces the leaf cert's
+    // subject O as `signature_info.issuer` (empirically pinned 2026-07-27
+    // against c2patool 0.26.60 with a production-encoder-issued leaf; real
+    // uploaded fixtures land with the fixture regeneration pass).
+    issuerMatch: "Whole Earth Labs LLC",
+    rootCommonName: "RealReel C2PA Root CA",
+  },
+  {
+    id: "realreel-legacy",
+    displayName: "RealReel",
+    // The pre-conformance hierarchy every fielded enrollment signs under
+    // until re-enrollment onto the v2 ICA. Same verification profile as
+    // `realreel`, different trust anchor. Empirically pinned against
+    // verifier/__tests__/fixtures/realreel-uploaded.jpg (real iPhone
+    // capture): c2pa-rs surfaces "RealReel" — the legacy leaf subject O.
+    //
+    // MUST stay declared AFTER `realreel`: the bare-O surfaces are
+    // mutually non-substring, but a full-DN v2 surface (c2pa-rs emits
+    // those for some chain shapes) contains "RealReel" via its CN
+    // ("RealReel iOS"/"RealReel Android"), so first-match order — not
+    // substring disjointness — is what keeps v2 leaves on `realreel`.
+    // Tests pin the order and the full-DN routing.
+    //
+    // Retire this entry once the last legacy leaf expires after the
+    // issuance flip (max one leaf lifetime).
     issuerMatch: "RealReel",
     rootCommonName: "RealReel Root CA",
   },

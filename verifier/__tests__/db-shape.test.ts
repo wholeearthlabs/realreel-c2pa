@@ -63,6 +63,8 @@ describe("lookupSigningKeyRevocation SELECT projection", () => {
     "platform",
     "public_key",
     "app_attest_public_key",
+    "issued_at",
+    "expires_at",
   ];
 
   it("declaredFields matches the RevocationRow interface in db.ts (self-check)", () => {

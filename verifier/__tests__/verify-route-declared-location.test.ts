@@ -38,7 +38,6 @@ const config: Config = {
   isProduction: true,
   playIntegrity: undefined,
   attestationRequired: false,
-  certLifetimeMs: 1000,
 };
 const trustConfig = {} as unknown as TrustConfig;
 

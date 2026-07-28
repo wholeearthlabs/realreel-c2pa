@@ -138,9 +138,11 @@ inspect and verify a RealReel file:
 # Show the manifest (no trust check)
 c2patool path/to/realreel-photo.jpg
 
-# Verify the certificate chain against the RealReel root (shipped in this repo).
+# Verify the certificate chain against the RealReel roots (shipped in this repo).
+# Photos signed before the conformant-CA cutover chain to the legacy root; use
+# trust-sources/realreel-legacy/root.pem for those.
 c2patool path/to/realreel-photo.jpg trust \
-  --trust_anchors verifier/trust-sources/realreel/root.pem
+  --trust_anchors verifier/trust-sources/realreel/realreel-c2pa-root.pem
 ```
 
 A RealReel file carries two stacked manifests — a Stage 1 capture manifest (the

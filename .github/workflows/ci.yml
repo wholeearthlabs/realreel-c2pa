@@ -89,6 +89,21 @@ jobs:
         run: deno test --allow-read .
         working-directory: ocsp
 
+  ocsp-leaf:
+    name: ocsp-leaf responder (Deno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # --allow-read reaches ../verifier/trust-sources/ (ICA + responder PEMs).
+      - name: ocsp-leaf — deno test
+        run: deno test --allow-read --allow-env -c deno.json .
+        working-directory: ocsp-leaf
+
   workflows:
     name: workflow lint (actionlint)
     runs-on: ubuntu-latest

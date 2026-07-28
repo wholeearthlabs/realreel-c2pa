@@ -2,7 +2,6 @@
 // fails fast on misconfiguration rather than crashing on the first
 // request.
 
-import { DEFAULT_CERT_LIFETIME_MS } from "./cert-validity.js";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -102,16 +101,6 @@ export interface Config {
    *  structurally but skips the JWS decode (lenient-degraded). */
   playIntegrity: PlayIntegrityConfig | undefined;
 
-  /** Cert-lifetime ceiling (ms) for the required-TSA gate. When
-   *  `now - signature_info.time` exceeds this AND no trusted sigTst2 stamp is
-   *  embedded, the verifier rejects with CERT_EXPIRED — past this age we
-   *  can't establish the leaf cert was valid at signing without a timestamp.
-   *
-   *  Always `DEFAULT_CERT_LIFETIME_MS` (180d). This constant and the CA's
-   *  LEAF_VALIDITY_DAYS MUST stay in sync; there's no programmatic drift
-   *  check (the verifier doesn't parse cert.notAfter from the x5chain). */
-  certLifetimeMs: number;
-
   /** Strict require-presence of Stage 2 upload-time attestation per
    *  signing key's platform. When true:
    *    - iOS-platform signing keys (`user_signing_keys.platform = 'ios'`)
@@ -153,9 +142,6 @@ export function loadConfig(): Config {
 
   const playIntegrity = loadPlayIntegrityConfig();
   const attestationRequired = parseAttestationRequired(playIntegrity, isProduction);
-  // Not env-overridable: lives in one place so it can't drift from the CA's
-  // LEAF_VALIDITY_DAYS.
-  const certLifetimeMs = DEFAULT_CERT_LIFETIME_MS;
 
   return {
     port,
@@ -173,7 +159,6 @@ export function loadConfig(): Config {
     isProduction,
     playIntegrity,
     attestationRequired,
-    certLifetimeMs,
   };
 }
 

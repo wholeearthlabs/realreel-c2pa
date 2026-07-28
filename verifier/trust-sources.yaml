@@ -51,8 +51,25 @@ sources:
       or Android StrongBox/TEE); re-signed at upload time with the same
       key. Two-stage manifest (Stage 1 capture + Stage 2 upload), per-user
       signing keys registered via the register-signing-key edge function,
-      revocation checked against user_signing_keys.revoked_at.
-    root_cert: trust-sources/realreel/root.pem
+      revocation checked against the issued-certificates ledger.
+
+      Anchored at the conformant hierarchy from the 2026-07-23 key
+      ceremony (P-384 "RealReel C2PA Root CA" + "RealReel Claim Signing
+      CA" intermediate). The same file is published at
+      https://pki.realreel.xyz.
+    root_cert: trust-sources/realreel/realreel-c2pa-root.pem
+    verification_profile: realreel
+
+  - id: realreel-legacy
+    name: RealReel (legacy hierarchy)
+    description: |
+      Same product and verification profile as `realreel`, anchored at the
+      pre-conformance P-256 root ("RealReel Root CA"). Every enrollment
+      fielded before the v2 issuance flip signs under this hierarchy until
+      the device re-enrolls. Remove this source (and its trust-core entry)
+      once the last legacy leaf has expired — at most one leaf lifetime
+      after the flip.
+    root_cert: trust-sources/realreel-legacy/root.pem
     verification_profile: realreel
 
   - id: pixel

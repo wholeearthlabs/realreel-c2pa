@@ -39,8 +39,8 @@ build-time constants.
 Three things aren't a config flip — they're the heart of what makes this
 *RealReel's* stack:
 
-1. **Your own CA.** Replace `verifier/trust-sources/realreel/root.pem` with your
-   CA's root, run your own issuing hierarchy (the `register-signing-key` function
+1. **Your own CA.** Replace the RealReel root PEMs under `verifier/trust-sources/`
+   (the `root_cert` paths in `verifier/trust-sources.yaml`) with your CA's root, run your own issuing hierarchy (the `register-signing-key` function
    signs leaves via a Cloud KMS HSM key), and update
    `trust-core/src/trust-list/trusted-issuers.ts` + `verifier/trust-sources.yaml`.
    **Note:** the verifier matches trust on the *issuer* DN (your CA's subject),

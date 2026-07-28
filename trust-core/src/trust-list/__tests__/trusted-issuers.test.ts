@@ -24,6 +24,7 @@ describe("TRUSTED_ISSUERS list invariants", () => {
     // and in server telemetry (the dispatcher's source-id tag stability).
     const ids = TRUSTED_ISSUERS.map((entry) => entry.id);
     expect(ids).toContain("realreel");
+    expect(ids).toContain("realreel-legacy");
     expect(ids).toContain("pixel");
   });
 
@@ -76,10 +77,31 @@ describe("findTrustedIssuer", () => {
     };
   }
 
-  it("matches RealReel via the issuer substring (common_name not required)", () => {
-    // RealReel has no commonNameMatch pin — its entry routes on
+  it("matches the v2 hierarchy via the leaf subject O (common_name not required)", () => {
+    // RealReel entries have no commonNameMatch pin — they route on
     // issuerMatch alone, accepting any common_name including missing.
+    const result = findTrustedIssuer(
+      manifestWithIssuer("Whole Earth Labs LLC"),
+    );
+    expect(result?.id).toBe("realreel");
+  });
+
+  it("matches legacy-hierarchy leaves to realreel-legacy, not realreel", () => {
+    // Fielded pre-conformance leaves surface issuer "RealReel", which is
+    // not a substring of "Whole Earth Labs LLC".
     const result = findTrustedIssuer(manifestWithIssuer("RealReel"));
+    expect(result?.id).toBe("realreel-legacy");
+  });
+
+  it("full-DN v2 surface routes to realreel — declaration order is load-bearing", () => {
+    // A full v2 subject DN contains "RealReel" via its CN, so this
+    // resolves correctly only because `realreel` is declared first.
+    // Reordering the list (alphabetizing, inserting) must fail here.
+    const ids = TRUSTED_ISSUERS.map((e) => e.id);
+    expect(ids.indexOf("realreel")).toBeLessThan(ids.indexOf("realreel-legacy"));
+    const result = findTrustedIssuer(
+      manifestWithIssuer("CN=RealReel Android, O=Whole Earth Labs LLC, C=US"),
+    );
     expect(result?.id).toBe("realreel");
   });
 
@@ -109,7 +131,7 @@ describe("findTrustedIssuer", () => {
     const result = findTrustedIssuer(
       manifestWithIssuer("Production / Issuing CA / RealReel"),
     );
-    expect(result?.id).toBe("realreel");
+    expect(result?.id).toBe("realreel-legacy");
   });
 
   it("returns null when issuer is not in the trust list", () => {

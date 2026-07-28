@@ -31,11 +31,11 @@ async function writeYamlFixture(yaml: string): Promise<string> {
   await mkdir(TMP_DIR, { recursive: true });
   // The loader resolves root_cert paths relative to the YAML's directory,
   // so we co-locate a real PEM next to the YAML to keep the load happy.
-  // Reuse the realreel root.pem — it's just bytes the loader read into
-  // the bundle; nothing in the invariant test path looks at its content.
+  // Reuse the legacy realreel root.pem — it's just bytes the loader reads
+  // into the bundle; nothing in the invariant test path looks at its content.
   await mkdir(resolve(TMP_DIR, "trust-sources", "realreel"), { recursive: true });
   await copyFile(
-    resolve(VERIFIER_ROOT, "trust-sources", "realreel", "root.pem"),
+    resolve(VERIFIER_ROOT, "trust-sources", "realreel-legacy", "root.pem"),
     resolve(TMP_DIR, "trust-sources", "realreel", "root.pem"),
   );
   const yamlPath = resolve(TMP_DIR, "trust-sources.yaml");
@@ -56,7 +56,7 @@ async function writeYamlFixtureWithTsa(yaml: string): Promise<string> {
   await mkdir(resolve(TMP_DIR, "trust-sources", "realreel"), { recursive: true });
   await mkdir(resolve(TMP_DIR, "trust-sources", "c2pa-tsa"), { recursive: true });
   await copyFile(
-    resolve(VERIFIER_ROOT, "trust-sources", "realreel", "root.pem"),
+    resolve(VERIFIER_ROOT, "trust-sources", "realreel-legacy", "root.pem"),
     resolve(TMP_DIR, "trust-sources", "realreel", "root.pem"),
   );
   await copyFile(

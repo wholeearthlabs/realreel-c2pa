@@ -35,7 +35,6 @@ import {
   checkCertValidityTimeBounds,
   readTsaState,
   SYSTEM_CLOCK,
-  DEFAULT_CERT_LIFETIME_MS,
   type Clock,
 } from "./cert-validity.js";
 import { deriveMetadata, type DerivedMetadata } from "./derive-metadata.js";
@@ -72,10 +71,6 @@ export interface VerifyArgs {
   /** Optional clock for the time-bound cert-validity gates. Tests inject a
    *  fixed `now`; production defaults to SYSTEM_CLOCK. */
   clock?: Clock;
-  /** Cert-lifetime ceiling (ms) for the required-TSA gate. Past this age with
-   *  no trusted sigTst2 stamp, the verifier rejects with CERT_EXPIRED.
-   *  Defaults to DEFAULT_CERT_LIFETIME_MS (180d). */
-  certLifetimeMs?: number;
   /** Datastore adapter for the revocation lookup + attestation nonce burn
    *  (see src/ports.ts). Defaults to the Postgres-backed `postgresAdapter`;
    *  an OSS integrator injects their own VerifierDatastore here. */
@@ -130,7 +125,6 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     playIntegrityConfig,
     attestationRequired = false,
     clock = SYSTEM_CLOCK,
-    certLifetimeMs = DEFAULT_CERT_LIFETIME_MS,
     datastore = postgresAdapter,
   } = args;
 
@@ -214,18 +208,15 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     );
   }
 
-  // Time-bound cert-validity gates: Trusted-TSA-when-present, future-dated
-  // signature, and required-TSA-for-old-assets. Reads
-  // validation_results.activeManifest BEFORE sanitize drops it. Active
-  // manifest is guaranteed present here — readActiveIssuer above would have
-  // thrown otherwise.
+  // Time-bound cert-validity gates 1+2: Trusted-TSA-when-present and
+  // future-dated signature. Reads validation_results.activeManifest BEFORE
+  // sanitize drops it. Active manifest is guaranteed present here —
+  // readActiveIssuer above would have thrown otherwise. Gate 3 (the
+  // ledger-backed validity window) runs inside verifyRealReel once the
+  // Stage-2 ledger row is fetched, so tsaState is threaded through.
   const active = getActiveManifest(store)!;
-  checkCertValidityTimeBounds({
-    active,
-    tsaState: readTsaState(store),
-    clock,
-    certLifetimeMs,
-  });
+  const tsaState = readTsaState(store);
+  checkCertValidityTimeBounds({ active, tsaState, clock });
 
   const { sanitized, contentHash } = await verifyRealReel(
     store,
@@ -233,6 +224,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     playIntegrityConfig,
     attestationRequired,
     datastore,
+    tsaState,
   );
 
   // Derive displayed metadata from the now-verified bytes + active manifest.

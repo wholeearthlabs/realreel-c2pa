@@ -30,7 +30,8 @@
 //   4. Stage 2 still runs full validation (cert lookup, revocation,
 //      attestation in lenient mode). The user_id == JWT binding was dropped
 //      — the verifier is user-anonymous.
-//   5. Sanitized output carries both manifests; trust_source = "realreel";
+//   5. Sanitized output carries both manifests; trust_source =
+//      "realreel-legacy" (fixtures predate the v2 hierarchy);
 //      parent_label resolves to the Pixel-signed Stage 1 manifest.
 //
 // Stage-2 rejection paths in wrap mode: the second describe.skipIf
@@ -120,6 +121,11 @@ function defaultStage2Row(opts: { userId?: string; revoked?: boolean } = {}) {
     platform: "android-strongbox",
     public_key: Buffer.alloc(0),
     app_attest_public_key: null,
+    // Ledger validity window bracketing every fixture's signature time
+    // (time-stable: the ledger gate compares signature_time to these,
+    // never to now).
+    issued_at: "2026-05-01T00:00:00.000Z",
+    expires_at: "2026-10-28T00:00:00.000Z",
   };
 }
 
@@ -145,7 +151,7 @@ describe.skipIf(!fixtureExists)(
       trustConfig = await loadTrustConfig(trustSourcesPath);
     });
 
-    it("happy path: accepts the wrap; trust_source='realreel'; parent_label populated", async () => {
+    it("happy path: accepts the wrap; trust_source='realreel-legacy'; parent_label populated", async () => {
       mockWrapKeys(defaultStage2Row());
 
       const result = await verify({
@@ -156,9 +162,10 @@ describe.skipIf(!fixtureExists)(
         declaredLocation: "precise",
       });
 
-      // Active manifest is RealReel-signed → dispatcher routes to the
-      // realreel profile, sanitize stamps trust_source accordingly.
-      expect(result.sanitizedManifest.trust_source).toBe("realreel");
+      // Active manifest is RealReel-signed (legacy-hierarchy fixture) →
+      // dispatcher routes to the realreel profile via the legacy source,
+      // sanitize stamps trust_source accordingly.
+      expect(result.sanitizedManifest.trust_source).toBe("realreel-legacy");
       expect(result.sanitizedManifest.validation_state).toBe("trusted");
       // parent_label is the load-bearing signal that the wrap structure
       // survived sanitization — the parent (Pixel) manifest is still in
