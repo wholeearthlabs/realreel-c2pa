@@ -23,8 +23,8 @@ kv_namespaces = [
 # Set at the cutover deploy to the ocsp-leaf Cloud Run URL; leaf-status
 # requests (CertID issuer = the ICA) are relayed there. Until then they
 # answer `unauthorized`.
-# [vars]
-# LEAF_RESPONDER_ORIGIN = "https://<ocsp-leaf>.run.app"
+[vars]
+LEAF_RESPONDER_ORIGIN = "https://realreel-ocsp-leaf-367547524247.us-central1.run.app"
 
 # Bundle the trust-source PEMs as string modules (imported by index.ts).
 [[rules]]
