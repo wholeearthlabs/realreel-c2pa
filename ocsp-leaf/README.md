@@ -50,7 +50,11 @@ deploy); until then the service is reachable directly at its Cloud Run URL.
 
 - `POST /` — DER `OCSPRequest` body (≤ 8 KiB)
 - `GET /{url-encoded base64 request}` — RFC 6960 A.1 form
-- `GET /healthz` — liveness; `GET /healthz/ready` — DB round-trip probe
+- `GET /healthz` — liveness; `GET /healthz/ready` — DB round-trip probe.
+  Point external uptime checks at `/healthz/ready`: on Cloud Run the frontend
+  was observed answering exactly `/healthz` itself with a 404, while
+  `/healthz/` and every other path reach the container. Container-side
+  startup/liveness probes are unaffected.
 
 Single-CertID requests only (multi-request → `unauthorized`, matching the
 Worker). CertIDs whose issuer hashes aren't the ICA's → `unauthorized`
@@ -71,9 +75,11 @@ make deploy-ocsp-leaf TAG=ocsp-leaf-v0.1.0   # config: ocsp-leaf/deploy.env
 ```
 
 `make deploy-ocsp-leaf` verifies that provenance, copies GHCR → Artifact
-Registry by digest, and deploys — image-only, so env/secrets/SA survive. Anyone
-can check the same image (make the GHCR package public first — a newly
-published package starts private):
+Registry by digest, and deploys — image-only: env, secrets, the service
+account, and the invoker-check setting below all carry over untouched
+(confirmed by deploying with none of them passed). Anyone can check the same
+image (make the GHCR package public first — a newly published package starts
+private):
 
 ```sh
 gh attestation verify oci://ghcr.io/wholeearthlabs/realreel-ocsp-leaf:<semver> \
@@ -99,8 +105,14 @@ gcloud run deploy realreel-ocsp-leaf \
   --service-account <ocsp-leaf-sa> \
   --set-env-vars GCP_KMS_KEY_RESOURCE=<leaf-ocsp-signing-key-version-resource> \
   --set-secrets DATABASE_URL=<readonly-url-secret>:latest \
-  --allow-unauthenticated
+  --startup-probe=httpGet.path=/healthz/ready,httpGet.port=8080,failureThreshold=6,periodSeconds=5,timeoutSeconds=4 \
+  --no-invoker-iam-check
 ```
+
+Not `--allow-unauthenticated`: that grants `roles/run.invoker` to `allUsers`,
+which a domain-restricted-sharing constraint will reject. Disabling the invoker
+check makes the service publicly reachable without any binding, and it persists
+across later image-only deploys.
 
 Service-account needs:
 - `roles/cloudkms.signer` on the leaf-OCSP signing key **only**.
