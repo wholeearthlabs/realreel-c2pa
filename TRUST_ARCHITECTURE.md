@@ -12,8 +12,8 @@ generated inside the device's Secure Enclave (iOS) or hardware-backed Android
 Keystore — StrongBox where available, TEE (TrustZone) otherwise; software-only
 keystores are rejected at enrollment. It's attested by Apple App Attest or Google
 Key Attestation **once at enrollment**, and wrapped in a certificate issued by
-RealReel's own Certificate Authority (root key offline; issuing key
-non-extractable inside a Cloud KMS HSM).
+RealReel's own Certificate Authority (root and issuing keys non-extractable
+inside a Cloud KMS HSM; the root carries no standing signer grants).
 
 The claim a signed RealReel photo makes is:
 
@@ -41,7 +41,7 @@ flowchart TB
   end
   subgraph CA["RealReel CA"]
     Issuing["Issuing CA<br/>(Cloud KMS HSM, non-extractable)"]
-    Leaf["Per-user leaf cert<br/>(ECDSA P-256, 180-day)"]
+    Leaf["Per-user leaf cert<br/>(ECDSA P-256, 90–180 day)"]
   end
   subgraph Backend["Backend"]
     Enroll["register-signing-key<br/>(validates attestation, issues leaf)"]
@@ -147,9 +147,9 @@ c2patool path/to/realreel-photo.jpg trust \
 
 A RealReel file carries two stacked manifests — a Stage 1 capture manifest (the
 `parentOf` ingredient) and a Stage 2 upload manifest (the active one). A trusted
-verify prints `validation_state: Trusted` for both. RealReel is not yet on the
-public C2PA Trust List, so third-party verifiers without the root will report
-`signingCredential.untrusted` — expected until that publication.
+verify prints `validation_state: Trusted` for both. The RealReel C2PA root is on
+the public C2PA Trust List; the legacy root is not, so a verifier that doesn't
+load it reports `signingCredential.untrusted` on pre-cutover content.
 
 ## Multi-source trust
 
@@ -230,9 +230,11 @@ What Pixel has that RealReel does not:
   Enclave / StrongBox / TEE: same residual class, lower assurance tier.
 - A **hardware-rooted timestamp** in silicon, offline at the moment of capture.
   RealReel uses external RFC 3161 timestamping authorities instead.
-- A **C2PA Assurance Level 2 audit**, and a **vendor-owned end-to-end stack** —
-  Google ships the SoC, the OS, the camera, and the trust chain as one. RealReel
-  is an app on someone else's OS.
+- A **C2PA Assurance Level 2 listing** — Pixel Camera is on the Conforming
+  Products List at AL2. RealReel's Android path is built to the AL2 evidence
+  requirements but is not listed yet; iOS targets AL1.
+- A **vendor-owned end-to-end stack** — Google ships the SoC, the OS, the camera,
+  and the trust chain as one. RealReel is an app on someone else's OS.
 
 Same architectural choice; lower assurance tier; defensible because the
 assumptions are explicit.
