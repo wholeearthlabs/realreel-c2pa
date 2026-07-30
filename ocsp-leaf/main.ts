@@ -11,6 +11,8 @@
 // Env:
 //   DATABASE_URL                 required — verifier_readonly connection
 //   GCP_KMS_KEY_RESOURCE         required — projects/…/cryptoKeys/realreel-ocsp-ica/cryptoKeyVersions/1
+//   LEAF_RELAY_SECRET            required — shared secret the ocsp Worker sends
+//                                (see relay-auth.ts); health probes are exempt
 //   GCP_KMS_SA_JSON              optional — local/off-GCP auth (else metadata server)
 //   OCSP_LEAF_VALIDITY_HOURS     optional — thisUpdate→nextUpdate window (default 24;
 //                                kept short so a revocation propagates well inside
@@ -19,6 +21,7 @@
 
 import { kmsSignDigest, loadKmsCredentials } from "../ca/_shared/kms.ts";
 import type { KmsCredentials } from "../ca/_shared/kms.ts";
+import { relayAuthorized } from "./relay-auth.ts";
 import {
   leafIssuerTargets,
   OCSP_INTERNAL_ERROR,
@@ -46,6 +49,13 @@ function requiredEnv(name: string): string {
 
 const databaseUrl = requiredEnv("DATABASE_URL");
 const kmsKeyResource = requiredEnv("GCP_KMS_KEY_RESOURCE");
+const relaySecret = requiredEnv("LEAF_RELAY_SECRET");
+// relayAuthorized() trims the expected value, so a whitespace-only secret would
+// compare equal to an empty `x-realreel-relay-secret` header — the gate would
+// fail open for anyone who sends the header blank. Refuse to start instead.
+if (relaySecret.trim() === "") {
+  throw new Error("LEAF_RELAY_SECRET must not be blank");
+}
 
 const validityHours = Number(Deno.env.get("OCSP_LEAF_VALIDITY_HOURS") ?? "24");
 if (!Number.isFinite(validityHours) || validityHours < 1 || validityHours > 72) {
@@ -280,6 +290,14 @@ Deno.serve({ port }, async (req) => {
       return new Response("db unavailable", { status: 503 });
     }
   }
+  // Gated: everything below spends a ledger lookup and maybe a KMS signature.
+  // The probes above stay open — gating them would carry the secret in the
+  // revision spec via the probe's httpGet.httpHeaders. README covers the
+  // residual that leaves (/healthz/ready is an unauthenticated DB round-trip).
+  if (!relayAuthorized(req, relaySecret)) {
+    return new Response("forbidden", { status: 403 });
+  }
+
   if (req.method !== "POST" && req.method !== "GET") {
     return new Response("method not allowed", { status: 405 });
   }

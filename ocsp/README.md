@@ -28,7 +28,10 @@ ICA — whose status changes essentially never. So nothing signs at request time
    - CertID's **issuer is the ICA** (a RealReel leaf) → relayed to the live
      leaf-status responder ([`../ocsp-leaf/`](../ocsp-leaf/), Cloud Run) when
      `LEAF_RESPONDER_ORIGIN` is set in `wrangler.toml`; `unauthorized` until
-     then;
+     then. That origin requires a shared secret, held here as the
+     `LEAF_RELAY_SECRET` Worker secret (`npx wrangler secret put
+     LEAF_RELAY_SECRET`) and sent as `x-realreel-relay-secret`; if it's missing
+     or stale the origin answers 403 and this Worker returns `internalError`;
    - any other CertID (or a multi-cert request) → `unauthorized` (never `good`
      for arbitrary serials);
    - unparseable request → `malformedRequest`;

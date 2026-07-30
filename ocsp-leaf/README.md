@@ -43,8 +43,15 @@ same host as the ICA-status Worker. The Worker stays the public front door:
 it answers ICA CertIDs from KV as today and relays **single-CertID requests
 whose issuer hashes name the ICA** (i.e. RealReel leaves) to this service —
 never arbitrary third-party CertIDs. The relay activates when
-`LEAF_RESPONDER_ORIGIN` is set in the Worker's `wrangler.toml` (the cutover
-deploy); until then the service is reachable directly at its Cloud Run URL.
+`LEAF_RESPONDER_ORIGIN` is set in the Worker's `wrangler.toml`.
+
+That relay hop carries a shared secret (`LEAF_RELAY_SECRET`, header
+`x-realreel-relay-secret`), and this service answers `403` without it. The AIA
+URL is the Worker, so the Worker is the OCSP repository RFC 6960 and CP §4.11
+describe and this service is only its backend — no OCSP client resolves it, so
+the secret costs no conformance claim. What it buys: the open internet can no
+longer spend a KMS signature per request. A missing or wrong secret makes the
+Worker answer `internalError`, never a wrong status.
 
 ## Endpoints
 
@@ -55,6 +62,13 @@ deploy); until then the service is reachable directly at its Cloud Run URL.
   was observed answering exactly `/healthz` itself with a 404, while
   `/healthz/` and every other path reach the container. Container-side
   startup/liveness probes are unaffected.
+
+The two probes are the only unauthenticated paths: gating them would put the
+secret in the revision spec via the probe's `httpGet.httpHeaders`, readable by
+any `run.viewer`. They reveal liveness and DB reachability only, but
+`/healthz/ready` is a round-trip against a `max: 4` pool — the one path an
+anonymous flood can still make this service spend on. To close it, point the
+startup probe at `/healthz` and gate `/healthz/ready` with the rest.
 
 Single-CertID requests only (multi-request → `unauthorized`, matching the
 Worker). CertIDs whose issuer hashes aren't the ICA's → `unauthorized`
@@ -104,7 +118,7 @@ gcloud run deploy realreel-ocsp-leaf \
   --region <region> --project <ca-project> \
   --service-account <ocsp-leaf-sa> \
   --set-env-vars GCP_KMS_KEY_RESOURCE=<leaf-ocsp-signing-key-version-resource> \
-  --set-secrets DATABASE_URL=<readonly-url-secret>:latest \
+  --set-secrets DATABASE_URL=<readonly-url-secret>:latest,LEAF_RELAY_SECRET=<relay-secret>:latest \
   --startup-probe=httpGet.path=/healthz/ready,httpGet.port=8080,failureThreshold=6,periodSeconds=5,timeoutSeconds=4 \
   --no-invoker-iam-check
 ```
@@ -118,6 +132,13 @@ Service-account needs:
 - `roles/cloudkms.signer` on the leaf-OCSP signing key **only**.
 - A read-only `DATABASE_URL` whose Postgres role has EXECUTE on
   `lookup_signing_key_revocation` (the same role the verifier uses).
+- `roles/secretmanager.secretAccessor` on both secrets above.
+
+Rotating the relay secret has no zero-downtime path, so order it to fail safe:
+add the new Secret Manager version, deploy the Worker's new secret first, then
+point this service at it. Between those two steps the Worker sends the new value
+and this service still expects the old one, so leaf status answers
+`internalError` — retriable, and never a wrong status.
 
 Auth: on Cloud Run the KMS call uses the ambient service-account identity
 (metadata server). Locally, set `GCP_KMS_SA_JSON` and it signs exactly like
@@ -128,12 +149,22 @@ the CA edge functions do.
 ```sh
 cd ocsp-leaf
 deno task test                 # pure-core tests (ephemeral signer)
-DATABASE_URL=… GCP_KMS_KEY_RESOURCE=… GCP_KMS_SA_JSON=… deno task start
-# then:
+DATABASE_URL=… GCP_KMS_KEY_RESOURCE=… GCP_KMS_SA_JSON=… LEAF_RELAY_SECRET=dev \
+  deno task start
+# then — openssl can't add headers, so curl the DER by hand:
 openssl ocsp -issuer ../verifier/trust-sources/realreel/realreel-claim-signing-ca.pem \
-  -serial 0x<hex> -url http://localhost:8080 -resp_text -no_nonce \
+  -serial 0x<hex> -reqout /tmp/req.der -no_nonce
+curl -sS --data-binary @/tmp/req.der -o /tmp/resp.der \
+  -H 'content-type: application/ocsp-request' \
+  -H 'x-realreel-relay-secret: dev' http://localhost:8080/
+openssl ocsp -respin /tmp/resp.der -resp_text -no_nonce \
+  -issuer ../verifier/trust-sources/realreel/realreel-claim-signing-ca.pem \
   -VAfile ../verifier/trust-sources/realreel/realreel-leaf-ocsp-responder-1.pem
 ```
+
+Against production, run the same `openssl ocsp -url http://ocsp.realreel.xyz`
+one-liner as before — the Worker holds the secret, so acceptance testing through
+the real AIA URL needs no header. Only direct-to-Cloud-Run calls do.
 
 ## Ops
 

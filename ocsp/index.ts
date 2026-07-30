@@ -18,6 +18,11 @@ interface Env {
   // Run). Unset until the cutover deploy: leaf CertIDs then answer
   // `unauthorized`, same as before that responder existed.
   LEAF_RESPONDER_ORIGIN?: string;
+  // Shared secret that origin requires (`wrangler secret put`). Required
+  // whenever LEAF_RESPONDER_ORIGIN is set; optional in the type only because
+  // it's bound per-environment. Wrong or missing → origin 403s → the router
+  // answers `internalError`, never a wrong status.
+  LEAF_RELAY_SECRET?: string;
 }
 
 // Module scope so the router's per-isolate CertID cache (keyed on this object)
@@ -31,6 +36,15 @@ export default {
     // rate-limit — per client; without it every relayed request looks like
     // Cloudflare.
     const clientIp = req.headers.get("cf-connecting-ip");
+    if (origin && !env.LEAF_RELAY_SECRET) {
+      // Otherwise a total leaf outage looks like the origin being down. Log
+      // rather than throw — throwing would take ICA status down with it.
+      console.error(
+        "[ocsp] LEAF_RESPONDER_ORIGIN is set but LEAF_RELAY_SECRET is not — " +
+          "the origin will 403 every relayed request (`wrangler secret put " +
+          "LEAF_RELAY_SECRET`)",
+      );
+    }
     return handleRequest(
       req,
       ASSETS,
@@ -42,6 +56,9 @@ export default {
             headers: {
               "content-type": "application/ocsp-request",
               ...(clientIp ? { "x-forwarded-for": clientIp } : {}),
+              ...(env.LEAF_RELAY_SECRET
+                ? { "x-realreel-relay-secret": env.LEAF_RELAY_SECRET }
+                : {}),
             },
             body: toArrayBuffer(der),
             signal: AbortSignal.timeout(10_000),
