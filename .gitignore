@@ -52,6 +52,12 @@ native/ios/build/
 # Ceremony cert-builder scratch output (build-ca-certs --out; runbook convention)
 out/
 
+# Local-dev CA trust material (throwaway `realreel-ca-dev` hierarchy). Its
+# subject DN matches the production root's, so a committed dev root would be
+# accepted as a trust anchor and the lockstep test would not catch it.
+verifier/dev-trust/
+verifier/trust-sources.dev.yaml
+
 # There is no Supabase project here, but verifier/DEPLOY.md has operators run
 # `supabase secrets set` — which links a project and drops .temp state carrying
 # the app project's ref + org id. This repo is public.
