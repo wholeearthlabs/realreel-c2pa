@@ -15,3 +15,28 @@ updates:
       actions:
         patterns: ['*']
         update-types: ['minor', 'patch']
+
+  # The npm workspaces. trust-core and native publish with zero runtime
+  # dependencies, so this covers the verifier's server-side tree and the
+  # build toolchain — nothing here reaches a consuming app's bundle. Not
+  # covered: the Deno services' npm pins in {ca,ocsp,ocsp-leaf}/deno.json
+  # import maps (no ecosystem reads those) — reviewed by hand at deploy.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # Workspace-linked (verifier depends on "*"); a registry range here
+      # would silently swap the in-repo trust-core for the published tarball.
+      - dependency-name: '@realreel/*'
+    groups:
+      minor-and-patch:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+
+  # Service base images — the SBOM lists no OS packages, so image CVE
+  # hygiene rides on these bumps.
+  - package-ecosystem: docker
+    directories: ['/verifier', '/ocsp-leaf']
+    schedule:
+      interval: monthly

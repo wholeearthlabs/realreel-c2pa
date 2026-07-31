@@ -1,0 +1,52 @@
+name: Security
+
+# Dependency audit + SBOM. Runs on a schedule as well as on commits because
+# advisories publish against dependencies we already ship. Audits report
+# rather than gate (continue-on-error): a finding marks the step, tracking
+# lives in Dependabot alerts.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '43 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sca:
+    name: dependencies (audit + SBOM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit (runtime tree)
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: npm audit (full tree)
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+      # npm's own emitter — no third-party action in a repo that SHA-pins for
+      # supply-chain reasons.
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          npm sbom --sbom-format cyclonedx --omit dev > sbom-runtime.cyclonedx.json
+          npm sbom --sbom-format cyclonedx > sbom-full.cyclonedx.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sbom
+          path: sbom-*.cyclonedx.json
+          retention-days: 90
