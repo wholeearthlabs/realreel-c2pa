@@ -1,10 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    // bundler resolution — `main` is TS source, consumed via vitest /
-    // jest / tsx / Metro which all treat extensionless relative imports
-    // as TS-or-JS. NodeNext would force `.js` extensions on every
-    // internal import, which the consumer tooling then has to map back.
+    // Base for both emit passes (tsconfig.esm.json / tsconfig.cjs.json).
+    // Not NodeNext: the CJS pass overrides `module` to CommonJS, and under
+    // NodeNext the root package's "type": "module" would win instead — so
+    // dist/commonjs would come out as ESM. Relative imports already carry
+    // explicit `.js` extensions (see the note in src/index.ts).
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,

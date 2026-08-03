@@ -69,7 +69,7 @@
     "@types/node": "^24.13.3",
     "expo-module-scripts": "~56.0.0",
     "expo-modules-core": "~57.0.8",
-    "typescript": "~5.9.2",
+    "typescript": "~7.0.2",
     "vitest": "^4.1.10"
   }
 }

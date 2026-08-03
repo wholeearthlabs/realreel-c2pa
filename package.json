@@ -14,7 +14,7 @@
   "scripts": {
     "test:trust-core": "npm test --workspace trust-core",
     "test:verifier": "npm test --workspace verifier",
-    "typecheck:verifier": "tsc -p verifier/tsconfig.json --noEmit",
+    "typecheck:verifier": "cd verifier && npx tsc --noEmit",
     "test:ca": "cd ca && deno test --allow-read --allow-env .",
     "test:pki": "cd pki && deno test --allow-read .",
     "test:ocsp": "cd ocsp && deno test --allow-read .",

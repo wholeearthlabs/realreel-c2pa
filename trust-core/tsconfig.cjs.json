@@ -2,7 +2,13 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "module": "CommonJS",
-    "moduleResolution": "Node10",
+    // TS 7 removed `node10`; `bundler` is the only mode it still accepts with
+    // `module: CommonJS`. Resolution-only change — emit is byte-identical.
+    // Sound because this package has zero runtime dependencies, so only
+    // relative `./x.js` specifiers are ever resolved. If one is ever added,
+    // revisit: `bundler` would type it against its ESM entry while we emit
+    // `require()`.
+    "moduleResolution": "Bundler",
     "outDir": "dist/commonjs",
     "declaration": true,
     "declarationMap": false,
