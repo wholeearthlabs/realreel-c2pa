@@ -30,6 +30,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The two emit configs exclude __tests__/ so it never reaches dist/ —
+      # which also left it checked by nothing. Same esbuild blind spot as the
+      # verifier's test config below; this one is noEmit, so dist/ is unchanged.
+      - name: trust-core — tsc (incl. tests)
+        run: npx tsc -p tsconfig.test.json --noEmit
+        working-directory: trust-core
+
       - name: trust-core — vitest
         run: npm test --workspace trust-core
 
