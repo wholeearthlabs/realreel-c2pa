@@ -40,3 +40,10 @@ updates:
     directories: ['/verifier', '/ocsp-leaf']
     schedule:
       interval: monthly
+    ignore:
+      # The verifier runs on Cloud Run, so it tracks node's LTS line, not its
+      # Current line — an odd major (25, 27, …) goes EOL months before the next
+      # LTS opens. Minors and patches still flow, which is what CVE hygiene
+      # actually needs; the LTS-to-LTS hop is a deliberate manual bump.
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
