@@ -3,7 +3,7 @@
 // plugin. Pack the tarball, extract, and assert that require resolves.
 import { execFileSync, execSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,7 +23,21 @@ try {
     process.exit(1);
   }
 
-  console.log("✓ packaging OK: tarball ships the compiled config plugin (plugin/build)");
+  // Both live in build/, so a change in tsc's emit root silently dangles them.
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  for (const field of ["main", "types"]) {
+    const target = join(tmp, "package", pkg[field]);
+    if (!existsSync(target)) {
+      console.error(
+        `✗ packaging check FAILED: package.json "${field}" points at ${pkg[field]}, which is not in the tarball — consumers would resolve nothing`,
+      );
+      process.exit(1);
+    }
+  }
+
+  console.log(
+    `✓ packaging OK: tarball ships the compiled config plugin (plugin/build) and both entry points (${pkg.main}, ${pkg.types})`,
+  );
 } finally {
   rmSync(tmp, { recursive: true, force: true });
 }
