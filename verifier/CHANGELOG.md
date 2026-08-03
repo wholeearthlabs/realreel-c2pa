@@ -1,5 +1,38 @@
 # @realreel/verifier
 
+## 0.8.0
+
+### Minor Changes
+
+- [#24](https://github.com/wholeearthlabs/realreel-c2pa/pull/24) [`879959e`](https://github.com/wholeearthlabs/realreel-c2pa/commit/879959e2c84a3b8d4edbdee29010bc3a0323cc2d) Thanks [@dependabot](https://github.com/apps/dependabot)! - Update the C2PA engine: `@contentauth/c2pa-node` 0.5.5 → 0.8.0 and `@contentauth/c2pa-types` 0.4.4 → 0.7.2, which carries `c2pa-rs` 0.89.x → 0.90.0.
+
+  The upstream changes are builder-side (archive-metadata stripping, experimental builder reduction methods, prebuilt-binary distribution fixes) — this service only reads and validates, and the full verification suite passes unchanged against the real fixture media. The `c2pa-rs` bump is the part worth a redeploy: validation behavior lives there.
+
+  The published tarball still bundles a single-arch `linux/amd64` prebuilt with a glibc 2.34 floor, so the image's `--platform=linux/amd64` + `--ignore-scripts` + bookworm assumptions are unchanged.
+
+  Also bumps `fastify` 5.8.5 → 5.11.0, `@peculiar/asn1-android` / `@peculiar/asn1-x509` 2.7.0 → 2.8.0, and `cbor-x` 1.6.4 → 1.6.5.
+
+### Patch Changes
+
+- [#29](https://github.com/wholeearthlabs/realreel-c2pa/pull/29) [`ac8ac9b`](https://github.com/wholeearthlabs/realreel-c2pa/commit/ac8ac9bb98bec927d03994924f88a5d17d852868) Thanks [@boojamya](https://github.com/boojamya)! - Read `signature_info.time` through its declared type instead of a local cast, and type-check the test suite in CI.
+
+  `readSignatureTime` — the input to the cert-validity gate — reached the field via `as { time?: string }` because `SignatureInfoShape` didn't declare it. It does now, so the cast is gone.
+
+  `tsconfig.test.json` was never gated, and five fixtures had drifted from the types they stand in for: `Config` grew `maxAssetBytes`, `TrustConfig` grew `tsaRoots`, `LocationLevel` moved to trust-core, and a fail-closed case deleted a property its inferred type marked required. vitest transpiles with esbuild, which strips types without checking them, so every one of those suites passed green throughout. CI now runs `tsc -p tsconfig.test.json` alongside the src typecheck.
+
+- [#27](https://github.com/wholeearthlabs/realreel-c2pa/pull/27) [`2f86592`](https://github.com/wholeearthlabs/realreel-c2pa/commit/2f8659245eb220a8832914445897a7d6690d4f6e) Thanks [@boojamya](https://github.com/boojamya)! - State the non-shared-`ArrayBuffer` requirement in the App Attest hash helpers' types instead of leaving it implicit.
+
+  `webcrypto.subtle.digest` rejects a view onto a `SharedArrayBuffer` at runtime (`TypeError: ... is a view on a SharedArrayBuffer, which is not allowed`). `sha256` in `src/attestation/pki-node.ts` declared its input as the unparameterised `Uint8Array`, which admits that shape, so the constraint was enforced only by Node — and only at request time. It now takes and returns `Uint8Array<ArrayBuffer>`, and `concat` reports the fresh, never-shared buffer it actually allocates. No cast, no copy, no change to what bytes are hashed.
+
+  This is also what `@types/node@26` began rejecting at compile time; the verifier now typechecks clean under both `^24` (what it ships on) and `26`.
+
+- [#26](https://github.com/wholeearthlabs/realreel-c2pa/pull/26) [`2bb4d97`](https://github.com/wholeearthlabs/realreel-c2pa/commit/2bb4d97005944bda7ca5c1dbd18eec7f011a12c8) Thanks [@boojamya](https://github.com/boojamya)! - Raise the supported Node floor to 24, matching the runtime the image has shipped since it moved to `node:24-bookworm-slim`.
+
+  `engines` said `>=22` and CI tested on 22 while the container ran 24, so the suite gating verification never exercised the runtime executing it — and 22 entered maintenance-only in October 2025. Node 24 is Active LTS through 2026-10-20 and supported to 2028-04-30. `@types/node` moves to `^24` to match.
+
+- Updated dependencies [[`a6f8caa`](https://github.com/wholeearthlabs/realreel-c2pa/commit/a6f8caa2f34c925425f5f19af49c8dc775548617), [`ac8ac9b`](https://github.com/wholeearthlabs/realreel-c2pa/commit/ac8ac9bb98bec927d03994924f88a5d17d852868)]:
+  - @realreel/c2pa-trust-core@0.4.1
+
 ## 0.7.0
 
 ### Minor Changes
