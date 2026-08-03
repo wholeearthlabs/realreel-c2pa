@@ -19,6 +19,15 @@ export interface SignatureInfoShape {
   issuer?: string;
   common_name?: string;
   cert_serial_number?: string;
+  /** Signing algorithm, e.g. "es256". Surfaced verbatim to viewers. */
+  alg?: string;
+  /** Signing time, ISO-8601. With sigTst2 this is the TSA token's `genTime`;
+   * without it, the claim's internal signature time. Absent on legacy
+   * manifests carrying neither. Read by the verifier's cert-validity gate. */
+  time?: string;
+  /** Some bindings surface the signing time as a Date instead of a string;
+   * callers check `instanceof Date` before falling back to `time`. */
+  timeObject?: Date;
 }
 
 /** Assertion entries inside manifest.assertions[]. The `data` payload is

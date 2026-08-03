@@ -99,7 +99,7 @@ export function readTsaState(store: ManifestStoreShape): TsaState {
  * against `now`.
  */
 export function readSignatureTime(active: ManifestShape): Date | null {
-  const t = (active.signature_info as { time?: string } | undefined)?.time;
+  const t = active.signature_info?.time;
   if (typeof t !== "string") return null;
   const d = new Date(t);
   return Number.isNaN(d.getTime()) ? null : d;

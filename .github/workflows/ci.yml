@@ -39,12 +39,18 @@ jobs:
       - name: trust-core — dual-format publish guard
         run: npm run verify:dual-format --workspace trust-core
 
-      # Type-checks src/ only (production build). The test-config typecheck
-      # (tsconfig.test.json) is intentionally not gated here: it includes the
-      # __tests__/ partial-object fixtures, which vitest transpiles with
-      # esbuild rather than tsc. This mirrors the upstream repo.
+      # Type-checks src/ only (production build).
       - name: verifier — tsc (src)
         run: npx tsc --noEmit
+        working-directory: verifier
+
+      # Type-checks __tests__/ + vitest.config.ts too. vitest transpiles with
+      # esbuild, which strips types without checking them, so nothing else
+      # catches a fixture drifting from the type it stands in for — Config,
+      # TrustConfig and SignatureInfoShape had each grown a field the fixtures
+      # never got. Gating it is what keeps that from silently recurring.
+      - name: verifier — tsc (tests)
+        run: npx tsc -p tsconfig.test.json --noEmit
         working-directory: verifier
 
       # ffprobe (from ffmpeg) is a hard dependency of the verifier: it
@@ -103,6 +109,26 @@ jobs:
       - name: ocsp-leaf — deno test
         run: deno test --allow-read --allow-env -c deno.json .
         working-directory: ocsp-leaf
+
+  # pki/ deploys as a Cloudflare Worker, but index.ts is only a thin wrapper
+  # that hands wrangler's bundled PEMs to the pure router in router.ts — so the
+  # routing, content-types and served bytes are all testable under Deno, the
+  # same as the other edge services. --allow-read reaches
+  # ../verifier/trust-sources/ (the canonical root + ICA PEMs the Worker
+  # serves); router_test.ts pins their SHA-256 against the key ceremony.
+  pki:
+    name: pki Worker (Deno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: v2.x
+
+      - name: pki — deno test
+        run: deno test --allow-read .
+        working-directory: pki
 
   workflows:
     name: workflow lint (actionlint)

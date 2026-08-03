@@ -69,7 +69,16 @@ import {
   hasPlayIntegrityAssertion,
   validatePlayIntegrityStructure,
   __resetAuthClientForTests,
+  type PlayIntegrityDecodedPayload,
 } from "../src/attestation/play_integrity.js";
+
+// The deviceIntegrity subtree as production declares it — notably with
+// `deviceAttributes` optional, which is what the fail-closed cases delete.
+type DeviceIntegrity = NonNullable<
+  NonNullable<
+    PlayIntegrityDecodedPayload["tokenPayloadExternal"]
+  >["deviceIntegrity"]
+>;
 import { VerifyError, VerifyErrorCode } from "../src/errors.js";
 import type { PlayIntegrityConfig } from "../src/config.js";
 import type { ManifestShape } from "../src/c2pa-shape.js";
@@ -111,7 +120,7 @@ const CONFIG: PlayIntegrityConfig = {
 // other; pass `deviceIntegrity` directly to replace the whole subtree.
 function freshDecodedPayload(overrides: Record<string, unknown> = {}) {
   const { deviceIntegrity: deviceIntegrityOverride, ...rest } = overrides;
-  const deviceIntegrity = {
+  const deviceIntegrity: DeviceIntegrity = {
     // A STRONG device reports the full ladder of met levels; the gate
     // requires MEETS_STRONG_INTEGRITY.
     deviceRecognitionVerdict: [

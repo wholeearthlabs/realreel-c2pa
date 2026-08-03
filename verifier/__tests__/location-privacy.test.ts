@@ -8,10 +8,10 @@
 // derive-metadata.test.ts.
 
 import { describe, it, expect } from "vitest";
-import {
-  enforceLocationPrivacy,
-  type LocationLevel,
-} from "../src/location-privacy.js";
+import { enforceLocationPrivacy } from "../src/location-privacy.js";
+// LocationLevel is trust-core's, not the gate's — location-privacy.ts imports
+// it from there too, so take it from the same place rather than re-exporting.
+import type { LocationLevel } from "@realreel/c2pa-trust-core";
 import { VerifyError, VerifyErrorCode } from "../src/errors.js";
 import type { DerivedMetadata } from "../src/derive-metadata.js";
 
