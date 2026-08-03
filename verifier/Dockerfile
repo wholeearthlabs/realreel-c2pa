@@ -6,7 +6,7 @@
 # bookworm (not alpine): that prebuilt is glibc, not musl.
 
 # ---------- Stage 1: build ----------
-FROM --platform=linux/amd64 node:24-bookworm-slim AS builder
+FROM --platform=linux/amd64 node:26-bookworm-slim AS builder
 WORKDIR /app
 
 # build-essential: fallback if c2pa-node has no prebuilt for this arch/libc.
@@ -29,7 +29,7 @@ RUN npm run build -w trust-core
 RUN npm run build -w verifier
 
 # ---------- Stage 2: runtime ----------
-FROM --platform=linux/amd64 node:24-bookworm-slim AS runtime
+FROM --platform=linux/amd64 node:26-bookworm-slim AS runtime
 WORKDIR /app
 
 # ffprobe — video metadata probe (src/derive-metadata.ts). GPL: separate
