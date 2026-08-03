@@ -1,7 +1,7 @@
 // Crypto primitives for the Node-side Stage-2 App Attest validator.
 //
 // Independent of ca/_shared/attestation/pki.ts, which is
-// Deno-only (pkijs + asn1js). The verifier runs in Node 22 / Cloud Run and
+// Deno-only (pkijs + asn1js). The verifier runs in Node 24 / Cloud Run and
 // uses node:crypto instead. Only the Stage-2 validator's primitives live
 // here — it never re-parses the cert chain (full ASN.1 parsing stays on the
 // enrollment side); it consumes the pre-extracted App Attest public key the

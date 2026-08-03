@@ -31,7 +31,7 @@ It is **security-sensitive cryptographic code** — treat every change according
 ## Commands
 
 ```bash
-npm install                         # install + link npm workspaces (Node >= 22)
+npm install                         # install + link npm workspaces (Node >= 24)
 npm test                            # run everything (trust-core + verifier + ca + native bridge)
 npm run test:trust-core             # vitest
 npm run test:verifier               # vitest
