@@ -54,9 +54,11 @@ vi.mock("../src/db.js", () => {
 vi.mock("google-auth-library", () => {
   const getAccessToken = vi.fn().mockResolvedValue("test-access-token");
   return {
-    GoogleAuth: vi.fn().mockImplementation(() => ({
-      getAccessToken,
-    })),
+    // `function`, not an arrow: production calls `new GoogleAuth(...)`, and
+    // vitest >= 4 refuses to construct an arrow-bodied mock implementation.
+    GoogleAuth: vi.fn().mockImplementation(function () {
+      return { getAccessToken };
+    }),
   };
 });
 
