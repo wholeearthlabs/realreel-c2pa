@@ -29,8 +29,12 @@ export function pemToDer(pem: string): Uint8Array<ArrayBuffer> {
   return der;
 }
 
-export async function sha256HexUpper(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes as unknown as BufferSource);
+// Non-shared backing is a real runtime constraint, not a types nicety:
+// subtle.digest throws on a view onto a SharedArrayBuffer. Stating it in the
+// signature beats the `as unknown as BufferSource` this used to carry — every
+// caller already hands over `pemToDer` output or a fresh `new Uint8Array(...)`.
+export async function sha256HexUpper(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("")

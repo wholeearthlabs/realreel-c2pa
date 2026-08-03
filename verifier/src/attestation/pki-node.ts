@@ -11,12 +11,24 @@ import { Buffer } from "node:buffer";
 import { createPublicKey, verify, type KeyObject } from "node:crypto";
 import { webcrypto } from "node:crypto";
 
-export async function sha256(data: Uint8Array): Promise<Uint8Array> {
+// `Uint8Array<ArrayBuffer>` (not the default `Uint8Array<ArrayBufferLike>`) is
+// deliberate: WebCrypto's `BufferSource` excludes views onto a
+// SharedArrayBuffer, and Node enforces that at runtime — `subtle.digest` on a
+// SAB-backed view throws `TypeError: ... is a view on a SharedArrayBuffer,
+// which is not allowed`. Keeping the constraint in the signature makes callers
+// prove non-shared backing instead of discovering it as a 500 in production.
+// Callers pass `TextEncoder.encode`, `Buffer.from(...)`, or `concat` output —
+// all non-shared by construction. To hash a possibly-shared view, copy it
+// first (`Uint8Array.from(view)`).
+export async function sha256(
+  data: Uint8Array<ArrayBuffer>,
+): Promise<Uint8Array<ArrayBuffer>> {
   const buf = await webcrypto.subtle.digest("SHA-256", data);
   return new Uint8Array(buf);
 }
 
-export function concat(...parts: Uint8Array[]): Uint8Array {
+/** Inputs may be shared-backed; the fresh output never is. */
+export function concat(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
   let total = 0;
   for (const p of parts) total += p.length;
   const out = new Uint8Array(total);
