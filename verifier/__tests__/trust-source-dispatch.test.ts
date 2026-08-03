@@ -44,6 +44,7 @@ function source(id: string): TrustSource {
 function configWithLoaded(...ids: string[]): TrustConfig {
   return {
     sources: ids.map(source),
+    tsaRoots: [],
     trustAnchorsBundle: "",
     loadedIds: new Set(ids),
   };

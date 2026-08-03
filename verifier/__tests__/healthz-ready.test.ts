@@ -35,6 +35,7 @@ const config: Config = {
   databaseUrl: "(unused)",
   assetStorageHostRegex: /^https:\/\//,
   assetStorageHostAllowlist: new Set(["abc.supabase.co"]),
+  maxAssetBytes: 50 * 1024 * 1024,
   sentryDsn: undefined,
   isProduction: true,
   playIntegrity: undefined,

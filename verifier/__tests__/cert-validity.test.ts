@@ -20,6 +20,7 @@ import {
 import type {
   ManifestStoreShape,
   ManifestShape,
+  SignatureInfoShape,
 } from "../src/c2pa-shape.js";
 import { VerifyErrorCode } from "../src/errors.js";
 
@@ -63,7 +64,7 @@ function buildStore(opts: BuildStoreOpts = {}): ManifestStoreShape {
 }
 
 function buildActive(opts: { time?: string | null } = {}): ManifestShape {
-  const sig: { time?: string } = {};
+  const sig: SignatureInfoShape = {};
   if (typeof opts.time === "string") sig.time = opts.time;
   return { label: "synthetic", signature_info: sig };
 }
