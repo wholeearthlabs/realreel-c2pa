@@ -1,0 +1,15 @@
+{
+  // Type-checks the __tests__/ the emit configs deliberately exclude — they
+  // must not reach dist/, but "not emitted" left them unchecked by anything,
+  // since vitest transpiles with esbuild (types stripped, never checked).
+  // noEmit, so this never contributes to the published build.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
