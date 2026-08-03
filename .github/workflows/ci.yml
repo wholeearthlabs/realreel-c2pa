@@ -180,6 +180,11 @@ jobs:
         run: npx tsc --noEmit
         working-directory: native
 
+      # --noEmit skips the output layout and `npm pack` doesn't build, so
+      # `npm publish` was the only thing running the real emit.
+      - name: native — expo-module build (the publish emit)
+        run: npm run build --workspace native
+
       # The bridge normalizes every filesystem-path argument on its way into
       # Swift/Kotlin (src/mediaPath.ts). That conversion is pure TypeScript, so
       # it is testable here even though the native targets are not buildable.
