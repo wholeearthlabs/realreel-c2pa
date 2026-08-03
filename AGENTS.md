@@ -32,11 +32,12 @@ It is **security-sensitive cryptographic code** — treat every change according
 
 ```bash
 npm install                         # install + link npm workspaces (Node >= 22)
-npm test                            # run everything (trust-core + verifier + ca)
+npm test                            # run everything (trust-core + verifier + ca + native bridge)
 npm run test:trust-core             # vitest
 npm run test:verifier               # vitest
 npm run typecheck:verifier          # tsc, src only
 npm run test:ca                     # deno test — needs Deno >= 2
+npm run test:native                 # vitest — the native TS bridge
 ( cd native && npx tsc --noEmit )   # typecheck the native TS bridge
 ```
 

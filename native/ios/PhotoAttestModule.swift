@@ -885,9 +885,11 @@ public class PhotoAttestModule: Module {
       )
     }
 
+    // Not C2PA_SIGN_FAILED: the parent is the user's gallery asset, so the
+    // recovery is recapture / re-pick, not retry. Mirror of Android.
     guard FileManager.default.fileExists(atPath: parentURL.path) else {
       throw PhotoAttestError(
-        code: "C2PA_SIGN_FAILED",
+        code: "STAGE1_PARENT_UNREADABLE",
         message: "Parent file does not exist: \(parentURL.path)"
       )
     }
@@ -1090,9 +1092,11 @@ public class PhotoAttestModule: Module {
         message: "Unsupported extension '.\(ext)'."
       )
     }
+    // Same code as the unreadable-manifest probe below — one condition, one
+    // recovery. Mirror of Android.
     guard FileManager.default.fileExists(atPath: parentURL.path) else {
       throw PhotoAttestError(
-        code: "C2PA_SIGN_FAILED",
+        code: "STAGE1_PARENT_UNREADABLE",
         message: "Parent file does not exist: \(parentURL.path)"
       )
     }

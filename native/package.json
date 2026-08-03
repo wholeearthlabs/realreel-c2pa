@@ -53,6 +53,7 @@
     "prepublishOnly": "expo-module prepublishOnly",
     "prepack": "npm run build:plugin",
     "expo-module": "expo-module",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check:native-labels": "node scripts/check-native-labels.mjs",
     "verify:packaging": "node scripts/verify-packaging.mjs"
@@ -68,6 +69,7 @@
     "@types/node": "^22.19.0",
     "expo-module-scripts": "~56.0.0",
     "expo-modules-core": "~57.0.1",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vitest": "^2.0.0"
   }
 }

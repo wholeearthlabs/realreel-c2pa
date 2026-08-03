@@ -546,7 +546,13 @@ class PhotoAttestModule : Module() {
   ): Map<String, String> {
     val parentFile = File(parentMediaPath)
     if (!parentFile.exists()) {
-      throw CodedException("C2PA_SIGN_FAILED", "Parent file does not exist: $parentMediaPath", null)
+      // Same code as the unreadable-manifest probe below — one condition, one
+      // recovery from the caller's side.
+      throw CodedException(
+        "STAGE1_PARENT_UNREADABLE",
+        "Parent file does not exist: $parentMediaPath",
+        null,
+      )
     }
     val ext = parentFile.extension.lowercase()
     val format = SUPPORTED_FORMATS[ext]
@@ -734,8 +740,10 @@ class PhotoAttestModule : Module() {
     val parentFile = File(parentMediaPath)
     val transformedFile = File(transformedMediaPath)
     if (!parentFile.exists()) {
+      // Not C2PA_SIGN_FAILED: the parent is the user's gallery asset, so the
+      // recovery is recapture / re-pick, not retry.
       throw CodedException(
-        "C2PA_SIGN_FAILED",
+        "STAGE1_PARENT_UNREADABLE",
         "Parent file does not exist: $parentMediaPath",
         null,
       )

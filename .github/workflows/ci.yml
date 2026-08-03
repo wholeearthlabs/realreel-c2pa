@@ -128,10 +128,10 @@ jobs:
 
   # The native Expo module (native/) ships Swift + Kotlin source for
   # transparency, but compiling it requires a full Expo/React Native app
-  # (Xcode + Gradle + autolinking). Only the TypeScript bridge is type-checked
+  # (Xcode + Gradle + autolinking). Only the TypeScript bridge is checked
   # here; building the native targets is out of scope for this CI.
   native:
-    name: native TS bridge (typecheck only)
+    name: native TS bridge
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -146,6 +146,12 @@ jobs:
       - name: native — tsc (TS bridge only)
         run: npx tsc --noEmit
         working-directory: native
+
+      # The bridge normalizes every filesystem-path argument on its way into
+      # Swift/Kotlin (src/mediaPath.ts). That conversion is pure TypeScript, so
+      # it is testable here even though the native targets are not buildable.
+      - name: native — vitest (TS bridge)
+        run: npm test --workspace native
 
       # app.plugin.js requires ./plugin/build, but the expo-module publish
       # lifecycle builds the native module and not the config plugin. Pack the

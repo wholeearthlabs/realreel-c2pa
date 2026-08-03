@@ -19,7 +19,8 @@
     "test:pki": "cd pki && deno test --allow-read .",
     "test:ocsp": "cd ocsp && deno test --allow-read .",
     "test:ocsp-leaf": "cd ocsp-leaf && deno test --allow-read --allow-env -c deno.json .",
-    "test": "npm run build -w trust-core && npm run test:trust-core && npm run typecheck:verifier && npm run test:verifier && npm run test:ca && npm run test:pki && npm run test:ocsp && npm run test:ocsp-leaf",
+    "test:native": "npm test --workspace native",
+    "test": "npm run build -w trust-core && npm run test:trust-core && npm run typecheck:verifier && npm run test:verifier && npm run test:ca && npm run test:pki && npm run test:ocsp && npm run test:ocsp-leaf && npm run test:native",
     "demo": "cd verifier && tsx ../examples/verify-demo.ts",
     "changeset": "changeset",
     "release": "changeset publish"

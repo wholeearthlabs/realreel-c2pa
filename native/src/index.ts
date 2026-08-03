@@ -1,4 +1,7 @@
 import PhotoAttestModule from './PhotoAttestModule';
+import { normalizeMediaPath } from './mediaPath';
+
+export { normalizeMediaPath };
 
 /**
  * Hardware-backed signing key + platform attestation.
@@ -59,10 +62,11 @@ export type PhotoAttestErrorCode =
   | 'UNSUPPORTED_FORMAT'
   | 'C2PA_SIGN_FAILED'
   | 'CERT_KEY_MISMATCH'
-  /** Stage 2 only: parent file's embedded JUMBF cannot be read (missing,
-   *  corrupted, or no `active_manifest` field). Caller should not fall back
-   *  to single-stage signing — that would lie about provenance. Surface a
-   *  retry/recapture path to the user instead. */
+  /** `signC2PAUpload` / `signTimestampUpdateManifest`: the parent capture is
+   *  unusable as an ingredient — file missing, or its embedded JUMBF is
+   *  corrupted / has no `active_manifest`. Caller should not fall back to
+   *  single-stage signing (that would lie about provenance); surface a
+   *  retry/recapture path instead. */
   | 'STAGE1_PARENT_UNREADABLE'
   /** Android-only: Play Integrity Standard token request failed
    *  (prepareIntegrityToken or requestIntegrityToken returned a Google-side
@@ -323,11 +327,11 @@ export interface SignC2PAUploadOptions {
    * ingredient via `Builder.addIngredient` plus `BuilderIntent.Edit`.
    * c2pa-rs auto-injects `c2pa.opened` referring to the parent.
    *
-   * If reading the parent's JUMBF fails (no manifest, corrupted bytes,
-   * MediaLibrary mangled the file in transit), native throws
-   * `STAGE1_PARENT_UNREADABLE`. Callers should surface a "couldn't prepare
-   * upload, retry" error and fall back to a re-capture if needed; do not
-   * single-stage-sign as a workaround (that would lie about provenance).
+   * If the parent can't be read — the file is missing, or its JUMBF has no
+   * manifest / corrupted bytes / MediaLibrary mangled it in transit — native
+   * throws `STAGE1_PARENT_UNREADABLE`. Callers should surface a "couldn't
+   * prepare upload, retry" error and fall back to a re-capture if needed; do
+   * not single-stage-sign as a workaround (that would lie about provenance).
    */
   parentMediaPath: string;
 
@@ -594,6 +598,13 @@ interface NativeModule {
 
 const native = PhotoAttestModule as NativeModule;
 
+/**
+ * Public API.
+ *
+ * Path parameters accept either a plain absolute filesystem path or a local
+ * `file://` URI — pass an Expo `MediaLibrary` / `ImagePicker` / `Camera` /
+ * `FileSystem` uri straight through; {@link normalizeMediaPath} converts it.
+ */
 export const PhotoAttest = {
   /** True if the device exposes a hardware-backed keystore (Secure Enclave on iOS, AndroidKeyStore w/ EC + attestation on Android). */
   isHardwareSupported: () => native.isHardwareSupported(),
@@ -721,8 +732,8 @@ export const PhotoAttest = {
    * file extension.
    *
    * @param alias  Hardware key alias (must already be enrolled).
-   * @param mediaPath Absolute path to the captured photo/video on disk.
-   *   Supported extensions: jpg, jpeg, heic, mp4, mov.
+   * @param mediaPath Absolute path — or local `file://` URI — of the captured
+   *   photo/video on disk. Supported extensions: jpg, jpeg, heic, mp4, mov.
    * @param options See `SignC2PACaptureOptions`.
    * @returns `{ signedMediaPath }` — the path to the C2PA-signed file.
    *   Native owns the staging dir; do not move or rename. Call Stage 2
@@ -734,7 +745,7 @@ export const PhotoAttest = {
     options: SignC2PACaptureOptions,
   ) => native.signC2PACapture({
     alias,
-    mediaPath,
+    mediaPath: normalizeMediaPath(mediaPath),
     certChainPEM: options.certChainPEM,
     capturerUuid: options.capturerUuid,
     gps: options.gps ?? null,
@@ -772,8 +783,9 @@ export const PhotoAttest = {
    * the user instead.
    *
    * @param alias  Hardware key alias (must already be enrolled).
-   * @param transformedMediaPath  Absolute path to the post-transform file
-   *   ready to upload (the asset whose bytes will end up in Storage).
+   * @param transformedMediaPath  Absolute path — or local `file://` URI — of
+   *   the post-transform file ready to upload (the asset whose bytes will end
+   *   up in Storage).
    * @param options  See `SignC2PAUploadOptions`. `options.parentMediaPath`
    *   points at the Stage-1 signed file from gallery.
    * @returns `{ signedMediaPath }` — path to the Stage-2 signed file in a
@@ -785,14 +797,18 @@ export const PhotoAttest = {
     options: SignC2PAUploadOptions,
   ) => native.signC2PAUpload({
     alias,
-    parentMediaPath: options.parentMediaPath,
-    transformedMediaPath,
+    parentMediaPath: normalizeMediaPath(options.parentMediaPath),
+    transformedMediaPath: normalizeMediaPath(transformedMediaPath),
     certChainPEM: options.certChainPEM,
     actions: options.actions,
     gps: options.gps ?? null,
     locationLabel: options.locationLabel ?? null,
     captureTimestampMs: options.captureTimestampMs ?? null,
-    claimThumbnailPath: options.claimThumbnailPath ?? null,
+    // `== null`, not truthiness: native hard-fails on an empty path by design,
+    // and collapsing it to null here would silently drop the claim thumbnail.
+    claimThumbnailPath: options.claimThumbnailPath == null
+      ? null
+      : normalizeMediaPath(options.claimThumbnailPath),
     attestationEnvelope: options.attestationEnvelope ?? null,
     tsaUrl: options.tsaUrl ?? null,
   }),
@@ -813,7 +829,7 @@ export const PhotoAttest = {
     options: SignTimestampUpdateManifestOptions,
   ) => native.signTimestampUpdateManifest({
     alias,
-    parentMediaPath: options.parentMediaPath,
+    parentMediaPath: normalizeMediaPath(options.parentMediaPath),
     certChainPEM: options.certChainPEM,
     tsaUrl: options.tsaUrl,
   }),
@@ -826,7 +842,10 @@ export const PhotoAttest = {
    * the gallery since enqueue — the drain dequeues on that.
    */
   overwriteMediaLibraryAsset: (assetId: string, sourcePath: string) =>
-    native.overwriteMediaLibraryAsset({ assetId, sourcePath }),
+    native.overwriteMediaLibraryAsset({
+      assetId,
+      sourcePath: normalizeMediaPath(sourcePath),
+    }),
 };
 
 export default PhotoAttest;

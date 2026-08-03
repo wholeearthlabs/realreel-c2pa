@@ -89,6 +89,30 @@ signing calls — e.g. `generateAndAttestKey()`, `getPublicKey()`, `getAttestati
 `signC2PACapture()`, `signC2PAUpload()`, and `signTimestampUpdateManifest()`. The web
 entry point is a stub that throws (capture/upload are disabled on web).
 
+### File paths
+
+Every path argument accepts **either** a plain absolute filesystem path **or** a local
+`file://` URI, so an Expo `MediaLibrary` / `ImagePicker` / `Camera` / `FileSystem` uri
+can be passed straight through:
+
+```ts
+// file:///storage/emulated/0/Download/Quick%20Share/capture.jpg
+const parent = await new MediaLibrary.Asset(id).getUri();
+
+await PhotoAttest.signC2PAUpload(alias, transformedPath, {
+  parentMediaPath: parent,
+  certChainPEM,
+  actions,
+});
+```
+
+Don't hand-strip the scheme. Both platforms percent-encode these URIs (`Uri.fromFile`
+on Android, `URL.absoluteString` on iOS), so `uri.replace('file://', '')` leaves a `%20`
+wherever the path contains a space and the file is then not found — quietly, since the
+libraries around it are URI-aware and open the same file fine. The bridge converts for
+you (`normalizeMediaPath`, exported if you need it directly); a plain path is passed
+through untouched and never decoded.
+
 ## Roadmap note
 
 iOS SPM wiring goes through the config plugin above because declarative SPM in Expo
