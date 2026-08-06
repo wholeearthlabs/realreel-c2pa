@@ -177,11 +177,15 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
     const captureLabel = store.manifests[updateLabel]!.parent_label!;
     const capture = store.manifests[captureLabel]!;
 
-    // "Remove location" at upload redacts the capture's GPS-bearing stds.exif
-    // (a grandparent of Stage-2) — so the capture manifest no longer carries
-    // it. This is the manifest-level half of the privacy guarantee (the file's
-    // EXIF GPS bytes are stripped separately at upload).
-    expect(capture.assertions.some((a) => a.label === "stds.exif")).toBe(false);
+    // "Remove location" at upload redacts the capture's GPS-bearing metadata
+    // assertion (a grandparent of Stage-2) — so the capture manifest no longer
+    // carries it. This is the manifest-level half of the privacy guarantee (the
+    // file's EXIF GPS bytes are stripped separately at upload). Checked under
+    // both labels so this stays meaningful when the fixture is re-captured
+    // with photo-attest ≥ 0.4.0 (which redacts c2pa.metadata instead).
+    expect(
+      capture.assertions.some((a) => a.label === "stds.exif" || a.label === "c2pa.metadata"),
+    ).toBe(false);
     // The capture itself is still a fresh capture (it kept its capture context).
     expect(capture.assertions.some((a) => a.label === "org.realreel.capture")).toBe(true);
   });

@@ -160,6 +160,15 @@ export const PLAY_INTEGRITY_LABEL = "org.realreel.play_integrity";
  * COSE unprotected HEADER — that is not an assertion and never appears here. */
 export const TIMESTAMP_ASSERTION_LABEL = "c2pa.time-stamp";
 
+/** Assertion label for capture/upload metadata (EXIF, QuickTime) serialized as
+ * JSON-LD per C2PA 2.x §18.16 — RealReel signers emit this on both stages.
+ * The 1.x labels below survive only on third-party parents (wrap mode: a
+ * Pixel's own manifest is outside our control) and on media verified before
+ * the cutover; readers check METADATA_ASSERTION_LABEL first, then fall back. */
+export const METADATA_ASSERTION_LABEL = "c2pa.metadata";
+export const LEGACY_EXIF_ASSERTION_LABEL = "stds.exif";
+export const LEGACY_IPTC_ASSERTION_LABEL = "stds.iptc";
+
 /**
  * True iff `manifest` is an interposed timestamp Update Manifest: it carries a
  * `c2pa.time-stamp` assertion AND declares at least one upstream ingredient (so

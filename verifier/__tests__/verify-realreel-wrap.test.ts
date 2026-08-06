@@ -240,8 +240,11 @@ describe.skipIf(!fixtureExists)(
       // envelope — both re-verification-only, both stripped.
       expect(labels.some((l) => l.startsWith("c2pa.hash."))).toBe(false);
       expect(labels).not.toContain("org.realreel.play_integrity");
-      // The signed EXIF survives for the viewer.
-      expect(labels).toContain("stds.exif");
+      // The signed EXIF survives for the viewer. (The Pixel parent's own
+      // manifest keeps whatever label Google emits — stds.exif today; the
+      // RealReel Stage-2 carries c2pa.metadata once re-captured with
+      // photo-attest ≥ 0.4.0.)
+      expect(labels.some((l) => l === "stds.exif" || l === "c2pa.metadata")).toBe(true);
       // Real-row size pin (unfiltered this wrap is ~6.4 KB).
       expect(JSON.stringify(result.sanitizedManifest).length).toBeLessThan(5000);
     });

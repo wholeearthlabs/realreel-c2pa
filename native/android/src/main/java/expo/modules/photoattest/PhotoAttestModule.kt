@@ -959,7 +959,8 @@ class PhotoAttestModule : Module() {
 
   // Walk past any interposed timestamp Update Manifest(s) in the parent's
   // manifest store to the real CAPTURE manifest's URN — the manifest that
-  // actually carries the redactable assertions (stds.exif / stds.iptc /
+  // actually carries the redactable assertions (c2pa.metadata — legacy
+  // stds.exif / stds.iptc on pre-cutover or third-party parents — /
   // org.realreel.capture). c2pa.redacted URIs must target THIS urn, not the
   // immediate-parent urn: for a once-offline-then-TSA-drained parent the active
   // manifest is the Update Manifest (carries a `c2pa.time-stamp` assertion + a
@@ -1032,11 +1033,11 @@ class PhotoAttestModule : Module() {
 
     if (isVideo) {
       extractIptcAssertionForVideo(sourceFile, gps, captureTimestampMs)?.let {
-        assertions.put(JSONObject().put("label", "stds.iptc").put("data", it))
+        assertions.put(metadataAssertionEntry(it))
       }
     } else {
       extractExifAssertionForImage(sourceFile, gps)?.let {
-        assertions.put(JSONObject().put("label", "stds.exif").put("data", it))
+        assertions.put(metadataAssertionEntry(it))
       }
     }
 
@@ -1142,11 +1143,11 @@ class PhotoAttestModule : Module() {
     // Stage-2 metadata describes the TRANSFORMED file (e.g. new dimensions).
     if (isVideo) {
       extractIptcAssertionForVideo(transformedFile, gps, captureTimestampMs)?.let {
-        assertions.put(JSONObject().put("label", "stds.iptc").put("data", it))
+        assertions.put(metadataAssertionEntry(it))
       }
     } else {
       extractExifAssertionForImage(transformedFile, gps)?.let {
-        assertions.put(JSONObject().put("label", "stds.exif").put("data", it))
+        assertions.put(metadataAssertionEntry(it))
       }
     }
 
@@ -1448,9 +1449,30 @@ class PhotoAttestModule : Module() {
     }
   }
 
+  // Wrap extracted metadata into a C2PA 2.x `c2pa.metadata` assertion entry:
+  // JSON-LD data with the `@context` namespace map §18.16.2 requires. Every
+  // prefix used below must appear here, and each URI must byte-match the
+  // c2pa-rs ALLOWED_SCHEMAS map — a claim-v2 validator rejects the manifest
+  // with ASSERTION_METADATA_DISALLOWED otherwise. c2pa-rs routes this exact
+  // label into its typed Metadata assertion (JSON JUMBF box), so no `kind`
+  // field is needed on the entry.
+  private fun metadataAssertionEntry(data: JSONObject): JSONObject {
+    data.put("@context", JSONObject().apply {
+      put("dc", "http://purl.org/dc/elements/1.1/")
+      put("exif", "http://ns.adobe.com/exif/1.0/")
+      put("exifEX", "http://cipa.jp/exif/1.0/")
+      put("tiff", "http://ns.adobe.com/tiff/1.0/")
+      put("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/")
+      put("Iptc4xmpExt", "http://iptc.org/std/Iptc4xmpExt/2008-02-29/")
+    })
+    return JSONObject().put("label", METADATA_ASSERTION_LABEL).put("data", data)
+  }
+
   // ExifInterface enumerates ~80 known tag constants. We pull the well-known
   // subset (camera, lens, exposure, orientation) and emit them under the
-  // stds.exif schema's `exif:` / `tiff:` prefixes. GPS is NOT read from the
+  // c2pa.metadata assertion's `exif:` / `exifEX:` / `tiff:` prefixes — keys
+  // must stay within the c2pa-rs ALLOWED_FIELDS list (claim-v2 validators
+  // reject unknown keys). GPS is NOT read from the
   // file — it comes from the JS-supplied `gps` map (single source of truth;
   // see `SignC2PACaptureOptions.gps` for the rationale). We don't reformat
   // non-GPS values — the verifier signs them verbatim.
@@ -1478,8 +1500,10 @@ class PhotoAttestModule : Module() {
     put("exif:FNumber", ExifInterface.TAG_F_NUMBER)
     put("exif:ISOSpeedRatings", ExifInterface.TAG_ISO_SPEED_RATINGS)
     put("exif:FocalLength", ExifInterface.TAG_FOCAL_LENGTH)
-    put("exif:LensMake", ExifInterface.TAG_LENS_MAKE)
-    put("exif:LensModel", ExifInterface.TAG_LENS_MODEL)
+    // Lens identity is exifEX in XMP (bare exif:LensMake/LensModel are not
+    // in the c2pa.metadata allowed-field list).
+    put("exifEX:LensMake", ExifInterface.TAG_LENS_MAKE)
+    put("exifEX:LensModel", ExifInterface.TAG_LENS_MODEL)
     put("exif:WhiteBalance", ExifInterface.TAG_WHITE_BALANCE)
     put("exif:Flash", ExifInterface.TAG_FLASH)
 
@@ -1488,9 +1512,13 @@ class PhotoAttestModule : Module() {
     return if (out.length() > 0) out else null
   }
 
-  // Decimal-degree GPS straight from JS into the assertion. Lockstep with iOS:
-  // identical key set, identical reference-letter derivation, identical
-  // GPSAltitudeRef integer convention (0 = above sea level, 1 = below).
+  // JS-supplied GPS into the photo assertion as XMP GPSCoordinate strings
+  // ("DD,MM.mmmmH" — degrees, decimal minutes, hemisphere letter). XMP folds
+  // the hemisphere into the value; the separate exif:GPSLatitudeRef /
+  // GPSLongitudeRef fields are NOT in the c2pa.metadata allowed-field list
+  // and would fail claim-v2 validation. Lockstep with iOS: identical key set,
+  // identical formatting, identical GPSAltitudeRef integer convention
+  // (0 = above sea level, 1 = below).
   // Non-finite values (NaN/Infinity) are silently skipped per field — the
   // JS layer is the source of truth, but a transient Location-service quirk
   // shouldn't hard-fail capture.
@@ -1502,12 +1530,10 @@ class PhotoAttestModule : Module() {
     val ts = (gps["timestampMs"] as? Number)?.toLong()
 
     if (lat != null) {
-      out.put("exif:GPSLatitude", lat)
-      out.put("exif:GPSLatitudeRef", if (lat >= 0) "N" else "S")
+      out.put("exif:GPSLatitude", toXmpGpsCoordinate(lat, if (lat >= 0) "N" else "S"))
     }
     if (lon != null) {
-      out.put("exif:GPSLongitude", lon)
-      out.put("exif:GPSLongitudeRef", if (lon >= 0) "E" else "W")
+      out.put("exif:GPSLongitude", toXmpGpsCoordinate(lon, if (lon >= 0) "E" else "W"))
     }
     if (alt != null) {
       out.put("exif:GPSAltitude", alt)
@@ -1536,6 +1562,20 @@ class PhotoAttestModule : Module() {
         ),
       )
     }
+  }
+
+  // Signed decimal degrees → XMP GPSCoordinate ("DD,MM.mmmmH"). 4 decimal
+  // places of minutes ≈ 0.2 m. Minutes that would print as "60.0000" roll
+  // over into the degree field.
+  private fun toXmpGpsCoordinate(value: Double, hemisphere: String): String {
+    val abs = kotlin.math.abs(value)
+    var degrees = abs.toInt()
+    var minutes = (abs - degrees) * 60.0
+    if (minutes >= 59.99995) {
+      degrees += 1
+      minutes = 0.0
+    }
+    return String.format(java.util.Locale.US, "%d,%.4f%s", degrees, minutes, hemisphere)
   }
 
   // MediaMetadataRetriever pulls QuickTime/MP4 metadata. Most cheap Android
@@ -1654,6 +1694,9 @@ class PhotoAttestModule : Module() {
   }
 
   private companion object {
+    // Lockstep with @realreel/c2pa-trust-core METADATA_ASSERTION_LABEL
+    // (pinned by scripts/check-native-labels.mjs).
+    const val METADATA_ASSERTION_LABEL = "c2pa.metadata"
     const val ANDROID_KEYSTORE = "AndroidKeyStore"
     const val PLATFORM_STRONGBOX = "android-strongbox"
     const val PLATFORM_TEE = "android-tee"

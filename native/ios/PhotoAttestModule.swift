@@ -622,9 +622,10 @@ public class PhotoAttestModule: Module {
   //  3. Builds a C2PA manifest JSON with three assertion families:
   //       - c2pa.actions.v2 with a single c2pa.created action (carries
   //         digitalSourceType=digitalCapture via setIntent below; spec §17.5).
-  //       - stds.exif (photos) / stds.iptc (videos) with whatever the file
-  //         carried so the verifier can re-anchor against the file's own
-  //         metadata after Stage 2 transformations.
+  //       - c2pa.metadata (JSON-LD, C2PA 2.x §18.16) carrying the file's EXIF
+  //         (photos) / QuickTime (videos) metadata so the verifier can
+  //         re-anchor against the file's own metadata after Stage 2
+  //         transformations.
   //       - org.realreel.capture: device identity. This is the
   //         single cross-platform slot for "what device made this" because
   //         Android MP4s reliably do NOT carry Make/Model in the file itself.
@@ -1353,7 +1354,8 @@ public class PhotoAttestModule: Module {
 
   // Walk past any interposed timestamp Update Manifest(s) in the parent's
   // manifest store to the real CAPTURE manifest's URN — the manifest that
-  // actually carries the redactable assertions (stds.exif / stds.iptc /
+  // actually carries the redactable assertions (c2pa.metadata — legacy
+  // stds.exif / stds.iptc on pre-cutover or third-party parents — /
   // org.realreel.capture). c2pa.redacted URIs must target THIS urn, not the
   // immediate-parent urn: for a once-offline-then-TSA-drained parent the active
   // manifest is the Update Manifest (carries a `c2pa.time-stamp` assertion + a
@@ -1474,17 +1476,11 @@ public class PhotoAttestModule: Module {
         gps: gps,
         captureTimestampMs: captureTimestampMs
       ) {
-        assertions.append([
-          "label": "stds.iptc",
-          "data": iptcData,
-        ])
+        assertions.append(metadataAssertionEntry(iptcData))
       }
     } else {
       if let exifData = extractExifAssertionForImage(at: sourceURL, gps: gps) {
-        assertions.append([
-          "label": "stds.exif",
-          "data": exifData,
-        ])
+        assertions.append(metadataAssertionEntry(exifData))
       }
     }
 
@@ -1606,17 +1602,11 @@ public class PhotoAttestModule: Module {
         gps: gps,
         captureTimestampMs: captureTimestampMs
       ) {
-        assertions.append([
-          "label": "stds.iptc",
-          "data": iptcData,
-        ])
+        assertions.append(metadataAssertionEntry(iptcData))
       }
     } else {
       if let exifData = extractExifAssertionForImage(at: transformedURL, gps: gps) {
-        assertions.append([
-          "label": "stds.exif",
-          "data": exifData,
-        ])
+        assertions.append(metadataAssertionEntry(exifData))
       }
     }
 
@@ -1687,10 +1677,37 @@ public class PhotoAttestModule: Module {
     return json
   }
 
-  // ImageIO returns nested dicts keyed by Exif/TIFF/GPS — we flatten the Exif
-  // and TIFF dicts with namespace prefixes that match the stds.exif schema.
-  // We don't reformat values (e.g. exposure rationals stay as-is); the
-  // verifier accepts what the camera wrote and signs the bytes verbatim.
+  // C2PA 2.x `c2pa.metadata` assertion entry: JSON-LD data with the `@context`
+  // namespace map §18.16.2 requires. Every prefix used in the data must appear
+  // here, and each URI must byte-match the c2pa-rs ALLOWED_SCHEMAS map — a
+  // claim-v2 validator rejects the manifest with ASSERTION_METADATA_DISALLOWED
+  // otherwise. c2pa-rs routes this exact label into its typed Metadata
+  // assertion (JSON JUMBF box), so no `kind` field is needed on the entry.
+  // Lockstep with @realreel/c2pa-trust-core METADATA_ASSERTION_LABEL (pinned
+  // by scripts/check-native-labels.mjs).
+  private static let metadataAssertionLabel = "c2pa.metadata"
+
+  private static func metadataAssertionEntry(_ data: [String: Any]) -> [String: Any] {
+    var data = data
+    data["@context"] = [
+      "dc": "http://purl.org/dc/elements/1.1/",
+      "exif": "http://ns.adobe.com/exif/1.0/",
+      "exifEX": "http://cipa.jp/exif/1.0/",
+      "tiff": "http://ns.adobe.com/tiff/1.0/",
+      "xmpDM": "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+      "Iptc4xmpExt": "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+    ]
+    return ["label": metadataAssertionLabel, "data": data]
+  }
+
+  // ImageIO returns nested dicts keyed by Exif/TIFF/GPS — we pull the same
+  // explicit key subset Android reads via ExifInterface (camera, lens,
+  // exposure, orientation), so both platforms emit identical assertion shapes.
+  // The subset must stay within the c2pa.metadata allowed-field list: a
+  // blanket dict dump would leak non-allowlisted keys (exif:OffsetTime,
+  // exif:CompositeImage, …) and fail claim-v2 validation. We don't reformat
+  // values (e.g. exposure rationals stay as-is); the verifier accepts what
+  // the camera wrote and signs the bytes verbatim.
   //
   // GPS is intentionally NOT extracted from the file — it comes from the
   // JS-supplied `gps` map (single source of truth; see
@@ -1707,24 +1724,55 @@ public class PhotoAttestModule: Module {
 
     var out: [String: Any] = [:]
 
-    if let exif = raw[kCGImagePropertyExifDictionary as String] as? [String: Any] {
-      for (k, v) in exif { out["exif:\(k)"] = v }
+    let exif = raw[kCGImagePropertyExifDictionary as String] as? [String: Any] ?? [:]
+    let tiff = raw[kCGImagePropertyTIFFDictionary as String] as? [String: Any] ?? [:]
+
+    func put(_ key: String, _ value: Any?) {
+      if let value = value { out[key] = value }
     }
-    if let tiff = raw[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
-      for (k, v) in tiff { out["tiff:\(k)"] = v }
+
+    // TIFF block
+    put("tiff:Make", tiff[kCGImagePropertyTIFFMake as String])
+    put("tiff:Model", tiff[kCGImagePropertyTIFFModel as String])
+    put("tiff:Software", tiff[kCGImagePropertyTIFFSoftware as String])
+    put("tiff:Orientation", tiff[kCGImagePropertyTIFFOrientation as String])
+    put("tiff:DateTime", tiff[kCGImagePropertyTIFFDateTime as String])
+    // ImageIO surfaces pixel dimensions at the container level, not in the
+    // TIFF dict (Android reads them from ExifInterface's ImageWidth/Length).
+    put("tiff:ImageWidth", raw[kCGImagePropertyPixelWidth as String])
+    put("tiff:ImageLength", raw[kCGImagePropertyPixelHeight as String])
+
+    // Exif block
+    put("exif:DateTimeOriginal", exif[kCGImagePropertyExifDateTimeOriginal as String])
+    put("exif:ExposureTime", exif[kCGImagePropertyExifExposureTime as String])
+    put("exif:FNumber", exif[kCGImagePropertyExifFNumber as String])
+    // ImageIO returns ISO as an array (EXIF permits several); record the first.
+    if let isoArray = exif[kCGImagePropertyExifISOSpeedRatings as String] as? [Any],
+       let iso = isoArray.first {
+      out["exif:ISOSpeedRatings"] = iso
     }
+    put("exif:FocalLength", exif[kCGImagePropertyExifFocalLength as String])
+    // Lens identity is exifEX in XMP (bare exif:LensMake/LensModel are not
+    // in the c2pa.metadata allowed-field list).
+    put("exifEX:LensMake", exif[kCGImagePropertyExifLensMake as String])
+    put("exifEX:LensModel", exif[kCGImagePropertyExifLensModel as String])
+    put("exif:WhiteBalance", exif[kCGImagePropertyExifWhiteBalance as String])
+    put("exif:Flash", exif[kCGImagePropertyExifFlash as String])
 
     emitJsGpsToExif(into: &out, gps: gps)
 
     return out.isEmpty ? nil : out
   }
 
-  // Decimal-degree GPS straight from JS into the assertion. Lockstep with
-  // Android: identical key set, identical reference-letter derivation,
-  // identical GPSAltitudeRef integer convention (0 = above sea level,
-  // 1 = below). Non-finite values (NaN/Infinity) are silently skipped per
-  // field — the JS layer is the source of truth, but a transient Location
-  // service quirk shouldn't hard-fail capture.
+  // JS-supplied GPS into the photo assertion as XMP GPSCoordinate strings
+  // ("DD,MM.mmmmH" — degrees, decimal minutes, hemisphere letter). XMP folds
+  // the hemisphere into the value; the separate exif:GPSLatitudeRef /
+  // GPSLongitudeRef fields are NOT in the c2pa.metadata allowed-field list
+  // and would fail claim-v2 validation. Lockstep with Android: identical key
+  // set, identical formatting, identical GPSAltitudeRef integer convention
+  // (0 = above sea level, 1 = below). Non-finite values (NaN/Infinity) are
+  // silently skipped per field — the JS layer is the source of truth, but a
+  // transient Location service quirk shouldn't hard-fail capture.
   private static func emitJsGpsToExif(into out: inout [String: Any], gps: [String: Any]?) {
     guard let gps = gps else { return }
     let lat = (gps["latitude"] as? NSNumber)?.doubleValue
@@ -1733,12 +1781,10 @@ public class PhotoAttestModule: Module {
     let tsMs = (gps["timestampMs"] as? NSNumber)?.doubleValue
 
     if let lat = lat, lat.isFinite {
-      out["exif:GPSLatitude"] = lat
-      out["exif:GPSLatitudeRef"] = lat >= 0 ? "N" : "S"
+      out["exif:GPSLatitude"] = toXmpGpsCoordinate(lat, hemisphere: lat >= 0 ? "N" : "S")
     }
     if let lon = lon, lon.isFinite {
-      out["exif:GPSLongitude"] = lon
-      out["exif:GPSLongitudeRef"] = lon >= 0 ? "E" : "W"
+      out["exif:GPSLongitude"] = toXmpGpsCoordinate(lon, hemisphere: lon >= 0 ? "E" : "W")
     }
     if let alt = alt, alt.isFinite {
       out["exif:GPSAltitude"] = alt
@@ -1758,6 +1804,24 @@ public class PhotoAttestModule: Module {
         out["exif:GPSTimeStamp"] = String(format: "%02d:%02d:%02d", h, mi, s)
       }
     }
+  }
+
+  // Signed decimal degrees → XMP GPSCoordinate ("DD,MM.mmmmH"). 4 decimal
+  // places of minutes ≈ 0.2 m. Minutes that would print as "60.0000" roll
+  // over into the degree field.
+  private static func toXmpGpsCoordinate(_ value: Double, hemisphere: String) -> String {
+    // Int(_:) traps on non-finite or huge-but-finite doubles (unlike Kotlin's
+    // saturating .toInt()); real GPS degrees are ≤ 180, so clamp garbage
+    // instead of crashing the capture path.
+    let raw = abs(value)
+    let absValue = raw.isFinite ? min(raw, 999.0) : 0
+    var degrees = Int(absValue)
+    var minutes = (absValue - Double(degrees)) * 60.0
+    if minutes >= 59.99995 {
+      degrees += 1
+      minutes = 0.0
+    }
+    return String(format: "%d,%.4f%@", degrees, minutes, hemisphere)
   }
 
   // AVAsset metadata is keyed by AVMetadataKey constants. We pull the QuickTime
@@ -1818,16 +1882,18 @@ public class PhotoAttestModule: Module {
           hasDate = true
         }
       case AVMetadataKey.commonKeyMake.rawValue:
-        // Apple QuickTime "make" → IPTC has no clean equivalent; leave to
-        // the RealReel device-identity assertion (org.realreel.capture in
-        // Stage 1, org.realreel.upload in Stage 2). Recorded here only
+        // Apple QuickTime "make"/"model" → tiff:Make/tiff:Model (the xmpDM
+        // videoCameraManufacturer/Model fields are not in the c2pa.metadata
+        // allowed-field list). Device identity is also duplicated into the
+        // RealReel device-identity assertion (org.realreel.capture in
+        // Stage 1, org.realreel.upload in Stage 2); recorded here only
         // for completeness when ingest needs it.
         if let value = item.value as? NSObject {
-          out["xmpDM:videoCameraManufacturer"] = "\(value)"
+          out["tiff:Make"] = "\(value)"
         }
       case AVMetadataKey.commonKeyModel.rawValue:
         if let value = item.value as? NSObject {
-          out["xmpDM:videoCameraModel"] = "\(value)"
+          out["tiff:Model"] = "\(value)"
         }
       // commonKey.location intentionally omitted — see file-level comment.
       default:

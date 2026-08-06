@@ -113,7 +113,9 @@ describe("sanitizeManifestStore", () => {
             label: "m1",
             assertions: [
               { label: "c2pa.actions.v2", data: { actions: [{ action: "c2pa.resized" }] } },
-              { label: "stds.exif", data: { "tiff:Model": "Pixel 10" } },
+              // The post-cutover metadata label flows through the denylist
+              // untouched (the legacy stds.exif is covered further below).
+              { label: "c2pa.metadata", data: { "tiff:Model": "Pixel 10" } },
               { label: "org.realreel.upload", data: { appVersion: "1.2.3" } },
               // dropped — re-verification / consumed-at-ingest material
               { label: "c2pa.hash.data.part", data: { hash: "…" } },
@@ -130,9 +132,41 @@ describe("sanitizeManifestStore", () => {
     );
     expect(out.active_manifest?.assertions.map((a) => a.label)).toEqual([
       "c2pa.actions.v2",
-      "stds.exif",
+      "c2pa.metadata",
       "org.realreel.upload",
     ]);
+  });
+
+  it("strips the JSON-LD @context block from assertion data", () => {
+    // The fixed namespace table on c2pa.metadata (~300 B/assertion) carries
+    // nothing a viewer renders; persisting it would bloat every public
+    // media.c2pa_manifest row. The data fields themselves must survive.
+    const out = sanitizeManifestStore(
+      {
+        active_manifest: "m1",
+        manifests: {
+          m1: {
+            label: "m1",
+            assertions: [
+              {
+                label: "c2pa.metadata",
+                data: {
+                  "@context": { tiff: "http://ns.adobe.com/tiff/1.0/" },
+                  "tiff:Model": "Pixel 10",
+                  "exif:GPSLatitude": "34,16.8500N",
+                },
+              },
+            ],
+          },
+        },
+        validation_status: [],
+      },
+      "realreel",
+    );
+    expect(out.active_manifest?.assertions[0]!.data).toEqual({
+      "tiff:Model": "Pixel 10",
+      "exif:GPSLatitude": "34,16.8500N",
+    });
   });
 
   it("maps signature_info: issuer + ISO time string", () => {

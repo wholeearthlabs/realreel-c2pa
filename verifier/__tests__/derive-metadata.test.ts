@@ -389,3 +389,162 @@ describe("deriveVideoMetadata — container GPS atom is never read", () => {
     expect(d.longitude).toBeNull();
   });
 });
+
+describe("c2pa.metadata (C2PA 2.x) — the post-cutover assertion label", () => {
+  // Mirrors what @realreel/photo-attest ≥ 0.4.0 signs: JSON-LD data with
+  // @context, photo GPS as XMP GPSCoordinate strings (hemisphere folded into
+  // the value — no exif:GPS*Ref fields), video GPS nested (still decimal).
+  const CONTEXT = {
+    exif: "http://ns.adobe.com/exif/1.0/",
+    tiff: "http://ns.adobe.com/tiff/1.0/",
+    Iptc4xmpExt: "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+  };
+
+  it("photo: parses XMP GPSCoordinate strings, southern/western hemisphere", async () => {
+    const active: ManifestShape = {
+      assertions: [
+        {
+          label: "c2pa.metadata",
+          data: {
+            "@context": CONTEXT,
+            // 34°17.586'S, 119°17.844'W
+            "exif:GPSLatitude": "34,17.5860S",
+            "exif:GPSLongitude": "119,17.8440W",
+          },
+        },
+        { label: "org.realreel.upload", data: { locationLabel: "Ventura, CA" } },
+      ],
+    };
+    const d = await deriveMetadata({
+      assetBytes: photoBytes,
+      mimeType: "image/jpeg",
+      active,
+    });
+    expect(d.latitude).toBeCloseTo(-(34 + 17.586 / 60), 5);
+    expect(d.longitude).toBeCloseTo(-(119 + 17.844 / 60), 5);
+    expect(d.location).toBe("Ventura, CA");
+  });
+
+  it("photo: parses the degrees,minutes,seconds GPSCoordinate variant", async () => {
+    const active: ManifestShape = {
+      assertions: [
+        {
+          label: "c2pa.metadata",
+          data: {
+            "@context": CONTEXT,
+            "exif:GPSLatitude": "34,16,52N",
+            "exif:GPSLongitude": "119,16,51W",
+          },
+        },
+      ],
+    };
+    const d = await deriveMetadata({
+      assetBytes: photoBytes,
+      mimeType: "image/jpeg",
+      active,
+    });
+    expect(d.latitude).toBeCloseTo(34 + 16 / 60 + 52 / 3600, 5);
+    expect(d.longitude).toBeCloseTo(-(119 + 16 / 60 + 51 / 3600), 5);
+  });
+
+  it("photo: c2pa.metadata wins over a residual legacy stds.exif", async () => {
+    const active: ManifestShape = {
+      assertions: [
+        { label: "stds.exif", data: { "exif:GPSLatitude": "10.0", "exif:GPSLongitude": "10.0" } },
+        {
+          label: "c2pa.metadata",
+          data: { "@context": CONTEXT, "exif:GPSLatitude": "34,0.0000N", "exif:GPSLongitude": "119,0.0000W" },
+        },
+      ],
+    };
+    const d = await deriveMetadata({
+      assetBytes: photoBytes,
+      mimeType: "image/jpeg",
+      active,
+    });
+    expect(d.latitude).toBeCloseTo(34.0, 4);
+    expect(d.longitude).toBeCloseTo(-119.0, 4);
+  });
+
+  it("photo: rejects a malformed GPSCoordinate string", async () => {
+    const active: ManifestShape = {
+      assertions: [
+        {
+          label: "c2pa.metadata",
+          data: { "@context": CONTEXT, "exif:GPSLatitude": "34,16.85X", "exif:GPSLongitude": "119,16.84W" },
+        },
+      ],
+    };
+    const d = await deriveMetadata({
+      assetBytes: photoBytes,
+      mimeType: "image/jpeg",
+      active,
+    });
+    expect(d.latitude).toBeNull();
+    expect(d.longitude).toBeNull();
+  });
+
+  it("photo: rejects a wrong-axis hemisphere letter (fail closed, no sign flip)", async () => {
+    // "W" in a latitude field must not silently parse as a negative
+    // latitude — a wrong published map pin is worse than no pin.
+    const active: ManifestShape = {
+      assertions: [
+        {
+          label: "c2pa.metadata",
+          data: { "@context": CONTEXT, "exif:GPSLatitude": "34,16.8500W", "exif:GPSLongitude": "119,16.8400W" },
+        },
+      ],
+    };
+    const d = await deriveMetadata({
+      assetBytes: photoBytes,
+      mimeType: "image/jpeg",
+      active,
+    });
+    expect(d.latitude).toBeNull();
+    expect(d.longitude).toBeNull();
+  });
+
+  it("photo: rejects out-of-range minutes/seconds fields (fail closed)", async () => {
+    // "34,99.9N" would otherwise resolve to an in-range-but-wrong 35.665.
+    const active: ManifestShape = {
+      assertions: [
+        {
+          label: "c2pa.metadata",
+          data: { "@context": CONTEXT, "exif:GPSLatitude": "34,99.9000N", "exif:GPSLongitude": "119,16,75W" },
+        },
+      ],
+    };
+    const d = await deriveMetadata({
+      assetBytes: photoBytes,
+      mimeType: "image/jpeg",
+      active,
+    });
+    expect(d.latitude).toBeNull();
+    expect(d.longitude).toBeNull();
+  });
+
+  it("video: reads nested LocationCreated coords from c2pa.metadata", async () => {
+    const active: ManifestShape = {
+      assertions: [
+        {
+          label: "c2pa.metadata",
+          data: {
+            "@context": CONTEXT,
+            "Iptc4xmpExt:LocationCreated": [
+              { "exif:GPSLatitude": "34.2931", "exif:GPSLongitude": "-119.2974" },
+            ],
+          },
+        },
+        { label: "org.realreel.upload", data: { locationLabel: "Ventura, CA" } },
+      ],
+    };
+    const d = await deriveMetadata({
+      assetBytes: videoBytes,
+      mimeType: "video/quicktime",
+      active,
+    });
+    expect(d.latitude).toBeCloseTo(34.2931, 4);
+    expect(d.longitude).toBeCloseTo(-119.2974, 4);
+    expect(d.location).toBe("Ventura, CA");
+  });
+});

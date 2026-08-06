@@ -174,10 +174,13 @@ export interface SignC2PACaptureOptions {
   /**
    * Optional GPS coords from the JS layer (typically `Location.LocationObjectCoords`).
    *
-   * When provided, native writes these directly into the `stds.exif` (photos)
-   * or `stds.iptc` (videos) assertion in decimal-degree format with explicit
-   * refs ("N"/"S"/"E"/"W"). When omitted (e.g. user denied location), native
-   * skips emitting GPS in the assertion entirely.
+   * When provided, native writes these directly into the `c2pa.metadata`
+   * assertion (C2PA 2.x §18.16, JSON-LD). Photos carry XMP GPSCoordinate
+   * strings ("34,16.8548N" — hemisphere folded into the value; the separate
+   * `exif:GPS*Ref` fields are not in the c2pa.metadata allowed-field list).
+   * Videos nest signed decimal degrees inside `Iptc4xmpExt:LocationCreated`.
+   * When omitted (e.g. user denied location), native skips emitting GPS in
+   * the assertion entirely.
    *
    * Source-of-truth split: this field populates the C2PA assertion. The file's
    * own EXIF GPS bytes are written separately by the caller (RealReel:
@@ -202,10 +205,9 @@ export interface SignC2PACaptureOptions {
     /** Meters, signed (positive=above sea level, negative=below). Optional. */
     altitude?: number;
     /**
-     * Unix epoch milliseconds. Photos (`stds.exif`): populates
-     * `exif:GPSDateStamp` + `exif:GPSTimeStamp` in UTC. Videos (`stds.iptc`):
-     * ignored — IPTC `LocationCreated` has no timestamp slot; capture time
-     * lives in `dc:date`. Optional.
+     * Unix epoch milliseconds. Photos: populates `exif:GPSDateStamp` +
+     * `exif:GPSTimeStamp` in UTC. Videos: ignored — IPTC `LocationCreated`
+     * has no timestamp slot; capture time lives in `dc:date`. Optional.
      */
     timestampMs?: number;
   };
@@ -213,8 +215,8 @@ export interface SignC2PACaptureOptions {
    * Wall-clock capture time (Unix epoch milliseconds), typically `Date.now()`
    * passed by the JS layer at sign time.
    *
-   * Used **only as a final fallback** for `dc:date` in the video assertion
-   * (`stds.iptc`). Camera-supplied values are preserved as faithfully as the
+   * Used **only as a final fallback** for `dc:date` in the video metadata
+   * assertion. Camera-supplied values are preserved as faithfully as the
    * platform API allows; this field never substitutes a different value when
    * the camera wrote one. Fallback chain:
    *
@@ -313,6 +315,11 @@ export type Stage2Action =
    * Redaction is location-only, so native also stamps the action with
    * `reason: "c2pa.PII.present"` and `description: "GPS"`; callers don't
    * supply these.
+   *
+   * Multiple c2pa.redacted entries are allowed — one per label. Both
+   * platforms translate every entry into its own redaction URI + signed
+   * action, so a dual-writing parent (c2pa.metadata + legacy stds.exif)
+   * can have both assertions redacted in one signing pass.
    */
   | { action: 'c2pa.redacted';   parameters: { assertionLabel: string } };
 
@@ -716,9 +723,10 @@ export const PhotoAttest = {
    * Manifest layout (lockstep across iOS/Android):
    *  - `c2pa.actions.v2`: single `c2pa.created` action with
    *    `digitalSourceType=digitalCapture` (set via Builder intent).
-   *  - `stds.exif` (photos) / `stds.iptc` (videos): EXIF/QuickTime metadata
-   *    extracted from the source file at sign time. Includes GPS if the
-   *    user granted location permission and the camera wrote it.
+   *  - `c2pa.metadata` (JSON-LD, C2PA 2.x §18.16): EXIF (photos) /
+   *    QuickTime (videos) metadata extracted from the source file at sign
+   *    time. Includes GPS if the user granted location permission and the
+   *    camera wrote it.
    *  - `org.realreel.capture`: device identity (manufacturer, model, OS,
    *    app version, trust level) + capturerUuid. This is
    *    the cross-platform single source of truth for "what device captured

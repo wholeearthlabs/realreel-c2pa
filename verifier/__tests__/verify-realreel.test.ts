@@ -261,8 +261,10 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     expect(labels.some((l) => l.startsWith("c2pa.hash."))).toBe(false);
     expect(labels).not.toContain("org.realreel.play_integrity");
     // ...while the provenance a viewer renders is kept: signed EXIF, the
-    // actions log, the capture UUID.
-    expect(labels).toContain("stds.exif");
+    // actions log, the capture UUID. (This fixture is pre-cutover and carries
+    // the legacy stds.exif; a fixture re-captured with photo-attest ≥ 0.4.0
+    // carries c2pa.metadata instead.)
+    expect(labels.some((l) => l === "stds.exif" || l === "c2pa.metadata")).toBe(true);
     expect(labels).toContain("org.realreel.capture");
     // Real-row size pin: the kept shape is a few KB, and this ceiling also
     // trips if the drop ever regresses (unfiltered this fixture is ~5.5 KB).

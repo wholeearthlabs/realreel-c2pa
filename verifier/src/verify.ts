@@ -230,7 +230,8 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   // Derive displayed metadata from the now-verified bytes + active manifest.
   // Runs only after every gate above passed, so the bytes are hash-bound and
   // the probe is sound. `active` is the Stage-2 RealReel manifest, which
-  // carries stds.exif/stds.iptc even for a wrapped Pixel parent.
+  // carries c2pa.metadata (legacy stds.exif/stds.iptc for pre-cutover app
+  // builds) even for a wrapped Pixel parent.
   const derived = await deriveMetadata({ assetBytes, mimeType, active });
 
   // Location-privacy backstop (see location-privacy.ts): reject a declared-level

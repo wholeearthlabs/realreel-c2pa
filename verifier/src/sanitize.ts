@@ -21,7 +21,8 @@
 //     time + the TSA provider name — provenance only, NOT the cert bytes
 //     behind them)
 //   - the remaining assertions (label + data): the c2pa.actions log,
-//     org.realreel.capture / .upload, and the signed stds.exif
+//     org.realreel.capture / .upload, and the signed c2pa.metadata
+//     (legacy stds.exif / stds.iptc for pre-cutover signers)
 //   - validation_status (codes for display)
 //   - ingredients (title, format, relationship, parent-manifest pointer)
 //     so a viewer can render and walk the provenance chain
@@ -273,6 +274,19 @@ function isReVerificationOnly(label: string): boolean {
   return false;
 }
 
+// Drop the JSON-LD `@context` namespace table from an assertion's data
+// (c2pa.metadata carries one per C2PA 2.x §18.16.2). It's a fixed ~300 B
+// URI map no viewer renders — persisting it would bloat every public
+// media.c2pa_manifest row by ~600 B (two stages) for nothing. Signed
+// bytes are untouched; a re-verifier reads the manifest store, not this.
+function stripJsonLdContext(data: unknown): unknown {
+  if (data && typeof data === "object" && !Array.isArray(data) && "@context" in data) {
+    const { "@context": _ctx, ...rest } = data as Record<string, unknown>;
+    return rest;
+  }
+  return data ?? null;
+}
+
 function sanitizeManifest(
   label: string,
   manifest: unknown,
@@ -302,7 +316,7 @@ function sanitizeManifest(
   const assertions: SanitizedAssertion[] = (m.assertions ?? [])
     .filter((a): a is { label: string; data: unknown } => typeof a?.label === "string")
     .filter((a) => !isReVerificationOnly(a.label))
-    .map((a) => ({ label: a.label, data: a.data ?? null }));
+    .map((a) => ({ label: a.label, data: stripJsonLdContext(a.data) }));
 
   const ingredients: SanitizedIngredient[] = (m.ingredients ?? []).map((i) => ({
     title: i?.title ?? null,

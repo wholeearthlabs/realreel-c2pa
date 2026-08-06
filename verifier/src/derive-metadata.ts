@@ -8,7 +8,8 @@
 //      hash-bound by the already-verified manifest, so the probe is trustworthy
 //      to the same ceiling as an assertion.
 //   2. The signed assertions, which a byte probe must NOT override:
-//        - lat/lon: ONLY from the signed assertion (stds.exif / stds.iptc). The
+//        - lat/lon: ONLY from the signed metadata assertion (c2pa.metadata;
+//          legacy stds.exif / stds.iptc for pre-cutover signers). The
 //          signer writes GPS only for "precise"; absence = not shared. GPS is
 //          also SCRUBBED from the byte probe (GPS_SCRUB) so a byte-level leak
 //          — e.g. ffprobe's container `location` atom — can't resurrect it.
@@ -28,6 +29,11 @@ import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  METADATA_ASSERTION_LABEL,
+  LEGACY_EXIF_ASSERTION_LABEL,
+  LEGACY_IPTC_ASSERTION_LABEL,
+} from "@realreel/c2pa-trust-core";
 import type { ManifestShape, AssertionShape } from "./c2pa-shape.js";
 
 const execFileAsync = promisify(execFile);
@@ -84,18 +90,39 @@ function assertionData(
   return data && typeof data === "object" ? (data as Record<string, unknown>) : undefined;
 }
 
-/** Coerce a manifest GPS value (c2pa serializes numbers as strings) to a
- *  finite, in-range decimal degree, or null. The value is signed — the sign
- *  carries direction, so the EXIF *Ref letters are cosmetic and never
- *  re-applied (re-applying would double-negate the southern/western
- *  hemisphere). */
-function toCoord(v: unknown, max: number): number | null {
-  // Number() (not parseFloat) so trailing garbage like "34.0abc" rejects; guard
-  // the empty string first, since Number("") is 0.
+/** Coerce a manifest GPS value to a finite, in-range signed decimal degree, or
+ *  null. Two accepted forms:
+ *  - XMP GPSCoordinate strings ("34,16.8548N" or "34,16,52N") — the
+ *    c2pa.metadata form; the trailing hemisphere letter carries direction.
+ *  - Signed decimals (numbers or numeric strings) — the legacy stds.exif /
+ *    stds.iptc form and the nested video LocationCreated form; the sign
+ *    carries direction, so the EXIF *Ref letters are cosmetic and never
+ *    re-applied (re-applying would double-negate the southern/western
+ *    hemisphere).
+ *
+ *  Fails closed on malformed XMP: the hemisphere letter must belong to the
+ *  axis being parsed ("34,16.85W" in a latitude field would otherwise
+ *  silently flip sign) and minutes/seconds must be < 60 ("34,99.9N" would
+ *  otherwise resolve to a wrong-but-in-range 35.665). A wrong published
+ *  map pin is worse than no pin. */
+function toCoord(v: unknown, max: number, hemispheres: "NS" | "EW"): number | null {
   let n: number;
   if (typeof v === "number") n = v;
-  else if (typeof v === "string" && v.trim() !== "") n = Number(v);
-  else n = NaN;
+  else if (typeof v === "string" && v.trim() !== "") {
+    const xmp = /^(\d{1,3}),(\d{1,2}(?:\.\d+)?)(?:,(\d{1,2}(?:\.\d+)?))?([NSEW])$/.exec(v.trim());
+    if (xmp) {
+      const min = Number(xmp[2]);
+      const sec = xmp[3] === undefined ? 0 : Number(xmp[3]);
+      const hemi = xmp[4];
+      if (!hemispheres.includes(hemi) || min >= 60 || sec >= 60) return null;
+      n = Number(xmp[1]) + min / 60 + sec / 3600;
+      if (hemi === "S" || hemi === "W") n = -n;
+    } else {
+      // Number() (not parseFloat) so trailing garbage like "34.0abc" rejects;
+      // the empty string is guarded above, since Number("") is 0.
+      n = Number(v);
+    }
+  } else n = NaN;
   if (!Number.isFinite(n) || Math.abs(n) > max) return null;
   return n;
 }
@@ -238,11 +265,16 @@ async function derivePhotoMetadata(
     bytesHadGps = false;
   }
 
-  const exif = assertionData(active, "stds.exif");
+  const exif =
+    assertionData(active, METADATA_ASSERTION_LABEL) ??
+    assertionData(active, LEGACY_EXIF_ASSERTION_LABEL);
   return {
     entries,
     bytesHadGps,
-    ...coordPair(toCoord(exif?.["exif:GPSLatitude"], 90), toCoord(exif?.["exif:GPSLongitude"], 180)),
+    ...coordPair(
+      toCoord(exif?.["exif:GPSLatitude"], 90, "NS"),
+      toCoord(exif?.["exif:GPSLongitude"], 180, "EW"),
+    ),
     location: readLocationLabel(active),
     metadataType: "exif",
   };
@@ -425,7 +457,9 @@ async function deriveVideoMetadata(
     if (value !== null) entries.push({ label: "com.realreel.comment", value });
   }
 
-  const iptc = assertionData(active, "stds.iptc");
+  const iptc =
+    assertionData(active, METADATA_ASSERTION_LABEL) ??
+    assertionData(active, LEGACY_IPTC_ASSERTION_LABEL);
   const created = iptc?.["Iptc4xmpExt:LocationCreated"];
   const loc =
     Array.isArray(created) && created[0] && typeof created[0] === "object"
@@ -438,7 +472,10 @@ async function deriveVideoMetadata(
     // if a future field ever sources a label from the probe.
     entries: entries.filter((e) => !GPS_SCRUB.test(e.label)),
     bytesHadGps,
-    ...coordPair(toCoord(loc?.["exif:GPSLatitude"], 90), toCoord(loc?.["exif:GPSLongitude"], 180)),
+    ...coordPair(
+      toCoord(loc?.["exif:GPSLatitude"], 90, "NS"),
+      toCoord(loc?.["exif:GPSLongitude"], 180, "EW"),
+    ),
     location: readLocationLabel(active),
     metadataType: "video",
   };
@@ -457,7 +494,8 @@ function isVideoUpload(bytes: Buffer, mimeType: string): boolean {
 /**
  * Derive displayed metadata from a verified upload. `active` is the Stage-2
  * (RealReel-signed) active manifest — the uniform derivation source (it carries
- * stds.exif / stds.iptc even for a wrapped Pixel parent).
+ * c2pa.metadata — legacy stds.exif / stds.iptc for pre-cutover app builds —
+ * even for a wrapped Pixel parent).
  */
 export async function deriveMetadata(args: {
   assetBytes: Buffer;
