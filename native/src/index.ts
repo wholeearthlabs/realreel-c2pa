@@ -295,13 +295,21 @@ export interface SignC2PACaptureResult {
  * Add new action codes by extending this union. Keep parameter shapes
  * minimal — verifiers don't branch on parameter contents (the trust claim
  * is hash-bound), but consistent shape helps human readers + tooling.
+ *
+ * Parameter keys are entity-namespaced (`org.realreel.*`): C2PA 2.x
+ * §18.15.4.7 requires any parameter key that isn't one of the spec's
+ * pre-defined ones (`ingredients`, `redacted`, …) to carry a dot-separated
+ * entity namespace, and the conformance checker rejects bare keys
+ * (`validation:no_unrecognized_custom_action_parameters`). The one
+ * exception is `assertionLabel` below: it is a signing-time instruction
+ * consumed by native, never manifest content.
  */
 export type Stage2Action =
-  | { action: 'c2pa.rotated';    parameters: { angle: 90 | 180 | 270 } }
-  | { action: 'c2pa.resized';    parameters: { width: number; height: number } }
-  | { action: 'c2pa.transcoded'; parameters?: { quality?: number; format?: string } }
-  | { action: 'c2pa.cropped';    parameters: { x: number; y: number; width: number; height: number } }
-  | { action: 'c2pa.trimmed';    parameters: { start: number; end: number } }
+  | { action: 'c2pa.rotated';    parameters: { 'org.realreel.angle': 90 | 180 | 270 } }
+  | { action: 'c2pa.resized';    parameters: { 'org.realreel.width': number; 'org.realreel.height': number } }
+  | { action: 'c2pa.transcoded'; parameters?: { 'org.realreel.quality'?: number; 'org.realreel.format'?: string } }
+  | { action: 'c2pa.cropped';    parameters: { 'org.realreel.x': number; 'org.realreel.y': number; 'org.realreel.width': number; 'org.realreel.height': number } }
+  | { action: 'c2pa.trimmed';    parameters: { 'org.realreel.start': number; 'org.realreel.end': number } }
   /**
    * Redact an assertion from the parent (Stage 1). Native expands
    * `assertionLabel` to the full JUMBF URI using the parent's URN read

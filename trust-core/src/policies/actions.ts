@@ -65,7 +65,9 @@ export const REALREEL_UPLOAD_ALLOWED_ACTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /** A single well-formed action entry: the action name plus its raw, opaque
- *  parameters (shape varies per action — e.g. c2pa.trimmed carries {start,end}).
+ *  parameters (shape varies per action — e.g. c2pa.trimmed carries the
+ *  entity-namespaced {"org.realreel.start","org.realreel.end"}; spec §18.15.4.7
+ *  requires the namespace on any non-pre-defined parameter key).
  */
 export interface ActionEntry {
   action: string;

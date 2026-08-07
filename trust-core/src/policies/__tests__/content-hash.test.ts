@@ -27,8 +27,8 @@ function upload(actions: Array<{ action: string; parameters?: unknown }>): Manif
 
 const PHOTO_UPLOAD = upload([
   { action: "c2pa.opened" },
-  { action: "c2pa.resized", parameters: { width: 1080, height: 1440 } },
-  { action: "c2pa.transcoded", parameters: { quality: 0.8, format: "image/jpeg" } },
+  { action: "c2pa.resized", parameters: { "org.realreel.width": 1080, "org.realreel.height": 1440 } },
+  { action: "c2pa.transcoded", parameters: { "org.realreel.quality": 0.8, "org.realreel.format": "image/jpeg" } },
 ]);
 
 describe("extractContentExtent", () => {
@@ -41,27 +41,27 @@ describe("extractContentExtent", () => {
   });
 
   it("captures the trim parameters for a trimmed video", () => {
-    const extent = extractContentExtent(upload([{ action: "c2pa.trimmed", parameters: { start: 0, end: 60 } }]));
+    const extent = extractContentExtent(upload([{ action: "c2pa.trimmed", parameters: { "org.realreel.start": 0, "org.realreel.end": 60 } }]));
     expect(extent).toContain("c2pa.trimmed");
     expect(extent).toContain("60");
   });
 
   it("is independent of parameter key order (canonical)", () => {
-    const a = extractContentExtent(upload([{ action: "c2pa.trimmed", parameters: { start: 1, end: 5 } }]));
-    const b = extractContentExtent(upload([{ action: "c2pa.trimmed", parameters: { end: 5, start: 1 } }]));
+    const a = extractContentExtent(upload([{ action: "c2pa.trimmed", parameters: { "org.realreel.start": 1, "org.realreel.end": 5 } }]));
+    const b = extractContentExtent(upload([{ action: "c2pa.trimmed", parameters: { "org.realreel.end": 5, "org.realreel.start": 1 } }]));
     expect(a).toBe(b);
   });
 
   it("includes crop the same way (forward-compatible)", () => {
-    const extent = extractContentExtent(upload([{ action: "c2pa.cropped", parameters: { x: 0, y: 0, width: 100, height: 100 } }]));
+    const extent = extractContentExtent(upload([{ action: "c2pa.cropped", parameters: { "org.realreel.x": 0, "org.realreel.y": 0, "org.realreel.width": 100, "org.realreel.height": 100 } }]));
     expect(extent).toContain("c2pa.cropped");
   });
 
   it("ignores non-extent actions (resize/rotate/transcode/redact/opened)", () => {
     const extent = extractContentExtent(upload([
       { action: "c2pa.opened" },
-      { action: "c2pa.rotated", parameters: { angle: 90 } },
-      { action: "c2pa.resized", parameters: { width: 1, height: 1 } },
+      { action: "c2pa.rotated", parameters: { "org.realreel.angle": 90 } },
+      { action: "c2pa.resized", parameters: { "org.realreel.width": 1, "org.realreel.height": 1 } },
       { action: "c2pa.redacted", parameters: { redacted: "x" } },
     ]));
     expect(extent).toBe("");
@@ -85,8 +85,8 @@ describe("buildContentIdentity", () => {
   });
 
   it("photo: same capture, different transforms → same identity (re-upload collides)", () => {
-    const a = buildContentIdentity(capture("urn:c2pa:CAP"), upload([{ action: "c2pa.resized", parameters: { width: 1080, height: 1440 } }]));
-    const b = buildContentIdentity(capture("urn:c2pa:CAP"), upload([{ action: "c2pa.resized", parameters: { width: 720, height: 960 } }, { action: "c2pa.rotated", parameters: { angle: 90 } }]));
+    const a = buildContentIdentity(capture("urn:c2pa:CAP"), upload([{ action: "c2pa.resized", parameters: { "org.realreel.width": 1080, "org.realreel.height": 1440 } }]));
+    const b = buildContentIdentity(capture("urn:c2pa:CAP"), upload([{ action: "c2pa.resized", parameters: { "org.realreel.width": 720, "org.realreel.height": 960 } }, { action: "c2pa.rotated", parameters: { "org.realreel.angle": 90 } }]));
     expect(a).toBe(b);
     expect(a).toBe("urn:c2pa:CAP");
   });
@@ -98,19 +98,19 @@ describe("buildContentIdentity", () => {
   });
 
   it("video: same capture, DIFFERENT trims → different identity (both allowed)", () => {
-    const trimA = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.trimmed", parameters: { start: 0, end: 60 } }]));
-    const trimB = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.trimmed", parameters: { start: 60, end: 120 } }]));
+    const trimA = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.trimmed", parameters: { "org.realreel.start": 0, "org.realreel.end": 60 } }]));
+    const trimB = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.trimmed", parameters: { "org.realreel.start": 60, "org.realreel.end": 120 } }]));
     expect(trimA).not.toBe(trimB);
   });
 
   it("video: same capture, SAME trim → same identity (re-post collides)", () => {
-    const a = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.trimmed", parameters: { start: 0.5, end: 12.25 } }]));
-    const b = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.trimmed", parameters: { start: 0.5, end: 12.25 } }]));
+    const a = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.trimmed", parameters: { "org.realreel.start": 0.5, "org.realreel.end": 12.25 } }]));
+    const b = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.trimmed", parameters: { "org.realreel.start": 0.5, "org.realreel.end": 12.25 } }]));
     expect(a).toBe(b);
   });
 
   it("video: trim distinguishes otherwise-identical uploads of one capture", () => {
-    const trimmed = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.trimmed", parameters: { start: 0, end: 30 } }]));
+    const trimmed = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.trimmed", parameters: { "org.realreel.start": 0, "org.realreel.end": 30 } }]));
     const whole = buildContentIdentity(capture("urn:c2pa:VID"), upload([{ action: "c2pa.transcoded" }]));
     expect(trimmed).not.toBe(whole);
     expect(whole).toBe("urn:c2pa:VID");
