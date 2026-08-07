@@ -1,5 +1,21 @@
 # @realreel/photo-attest
 
+## 0.4.0
+
+### Minor Changes
+
+- [`bfae840`](https://github.com/wholeearthlabs/realreel-c2pa/commit/bfae840b3c9b62c6dbb80b9f3012d088a454ab63) Thanks [@boojamya](https://github.com/boojamya)! - Consult the CA + TSA Trust Lists at ingredient ingest (C2PA generator conformance). trust-core now ships `CLIENT_TRUST_ANCHORS_PEM` on the dedicated `@realreel/c2pa-trust-core/trust-anchors` subpath (kept out of the root barrel so non-signing surfaces don't carry the 27 KB pool) — a generated client projection of the trust pool the RealReel verifier loads at boot: content-source CA roots + the C2PA TSA Trust List, minus entries marked `client_bundle: false` in trust-sources.yaml (the general-purpose DigiCert/SSL.com TSA roots stay verifier-private, so the generator never records trust for TSAs off the C2PA TSA Trust List). Byte-lockstep with the verifier's loader is CI-asserted. photo-attest's `signC2PAUpload` and `signTimestampUpdateManifest` accept it as `trustAnchorsPem` and feed it to c2pa-rs, so the parent-ingredient validation recorded into the signed `c2pa.ingredient.v3` `validationResults` sees the real pool instead of running anchorless and permanently recording `signingCredential.untrusted` / `timeStamp.untrusted` for parents that are in fact trusted (e.g. a wrapped Pixel capture's Google chain and Pixel TSA). Failure semantics are availability-first: trust failures against the pool are record-only, and a pool the native c2pa build cannot load degrades the sign to the anchorless path with a warning instead of failing the upload. The base sign settings additionally pin `remote_manifest_fetch`/`ocsp_fetch` off (validating a user-chosen parent must never issue an outbound request), matching the verifier. Omitting the option runs ingredient validation without trust verification.
+
+- [`5001976`](https://github.com/wholeearthlabs/realreel-c2pa/commit/50019764d14e33aed8e5c752d71fd1bebccb866e) Thanks [@boojamya](https://github.com/boojamya)! - Emit the C2PA 2.x `c2pa.metadata` assertion (JSON-LD with `@context`) instead of the deprecated `stds.exif` / `stds.iptc` on both stages — the conformance program rejects deprecated standard assertions on claim-v2 manifests (`validation:no_deprecated_assertions`). Data stays within the c2pa-rs `c2pa.metadata` allowed-field list:
+  - Photo GPS is now serialized as XMP GPSCoordinate strings (`"34,16.8548N"`); the separate `exif:GPSLatitudeRef` / `GPSLongitudeRef` fields are gone (not allowlisted — hemisphere folds into the value).
+  - Lens identity moves to `exifEX:LensMake` / `exifEX:LensModel`.
+  - iOS photos now emit the same explicit key subset as Android instead of dumping every ImageIO key (non-allowlisted keys fail claim-v2 validation).
+  - iOS video Make/Model move from `xmpDM:videoCameraManufacturer/-Model` (not allowlisted) to `tiff:Make` / `tiff:Model`.
+
+  Callers that pass `{ action: "c2pa.redacted", parameters: { assertionLabel } }` should target `c2pa.metadata` for parents signed with this version, and keep targeting the legacy label for pre-cutover / third-party (wrap-mode) parents — pick from the parent's observed assertion labels.
+
+- [`0ae8638`](https://github.com/wholeearthlabs/realreel-c2pa/commit/0ae8638806d57527b35872f4a6f2871e8f904c29) Thanks [@boojamya](https://github.com/boojamya)! - Entity-namespace the `Stage2Action` parameter keys (`width` → `org.realreel.width`, likewise `height`, `quality`, `format`, `angle`, `x`, `y`, `start`, `end`). C2PA 2.x §18.15.4.7 requires custom action parameter keys to carry a dot-separated entity namespace, and the conformance checker rejects bare keys (`validation:no_unrecognized_custom_action_parameters`). `c2pa.redacted`'s `assertionLabel` is unchanged — it is a signing-time instruction that native rewrites to the spec's pre-defined `redacted` key, never manifest content. Type-only change; both platforms pass parameters through verbatim.
+
 ## 0.3.0
 
 ### Minor Changes
