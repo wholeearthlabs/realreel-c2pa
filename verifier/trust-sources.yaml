@@ -25,10 +25,16 @@
 #                               RealReel-wrapped upload. A raw single-stage
 #                               upload chained to this root is rejected at
 #                               the force-wrap gate.
-#   5. Redeploy the verifier.
+#   5. Regenerate the client's copy of this pool — `npm run
+#      codegen:trust-anchors` in trust-core/ — and commit the result
+#      (the app passes it to photo-attest so sign-time ingredient
+#      validation trusts the same roots; the client-trust-anchors
+#      lockstep test fails until it's regenerated).
+#   6. Redeploy the verifier (and eventually publish trust-core so
+#      clients pick up the new pool).
 #
 # To remove a source: delete the entry from both files + the PEM
-# subdirectory; redeploy.
+# subdirectory; regenerate the client bundle (step 5); redeploy.
 #
 # Public-facing format — designed to remain readable in this open-source
 # repository.
@@ -103,7 +109,10 @@ sources:
 # the correct destination.
 #
 # To rotate / update: replace the PEM file. To add a new TSA root: add
-# an entry below + commit the PEM.
+# an entry below + commit the PEM. Either way, regenerate the client
+# bundle afterwards (`npm run codegen:trust-anchors` in trust-core/) —
+# TSA roots are part of the pool the client records ingredient
+# validation against.
 tsa_roots:
   - id: c2pa-tsa-list
     name: C2PA TSA Trust List (incoming-validation only today)
@@ -137,7 +146,12 @@ tsa_roots:
       Used today for: validating sigTst2 tokens that arrive embedded in
       manifests we receive but didn't sign (e.g. wrap-mode Pixel
       parents — Pixel's Stage 1 carries its own sigTst2 timestamped by
-      Google's C2PA TSA whose root lives in this list).
+      Google's C2PA TSA whose root lives in this list). Both the
+      server-side verifier AND the client consult it: the client passes
+      the generated trust-core bundle (which includes this file) into
+      photo-attest at Stage-2 sign time, so the parent-ingredient
+      validation c2pa-rs records into the signed manifest sees the same
+      TSA pool.
 
       NOT yet used for: validating sigTst2 tokens our own client emits.
       We attempted to wire our client to SSL.com's free C2PA-conformant
@@ -180,3 +194,12 @@ tsa_roots:
       Maintenance: rotate when DigiCert or SSL.com publishes new roots
       (both currently valid through ~2038-2041).
     root_cert: trust-sources/c2pa-tsa-fallback/fallback-tsa-roots.pem
+    # Excluded from the generated CLIENT bundle: these roots are this
+    # verifier's PRIVATE acceptance policy for our own general-purpose
+    # sigTst2 tokens. The client bundle feeds the generator's RECORDED
+    # ingredient validation — a conformance-visible artifact that must not
+    # assert timeStamp.trusted for TSAs off the C2PA TSA Trust List. The
+    # client instead records these stamps as untrusted (honest: real
+    # timestamp, non-program TSA); the verifier still accepts them via
+    # this entry.
+    client_bundle: false

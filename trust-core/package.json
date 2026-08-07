@@ -78,6 +78,16 @@
         "types": "./dist/commonjs/trust-list/index.d.ts",
         "default": "./dist/commonjs/trust-list/index.js"
       }
+    },
+    "./trust-anchors": {
+      "import": {
+        "types": "./dist/esm/trust-list/client-trust-anchors.generated.d.ts",
+        "default": "./dist/esm/trust-list/client-trust-anchors.generated.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/trust-list/client-trust-anchors.generated.d.ts",
+        "default": "./dist/commonjs/trust-list/client-trust-anchors.generated.js"
+      }
     }
   },
   "files": [
@@ -93,7 +103,8 @@
     "build": "npm run clean && tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json && node scripts/finalize-build.mjs",
     "prepare": "npm run build",
     "test": "vitest run",
-    "verify:dual-format": "node scripts/verify-dual-format.mjs"
+    "verify:dual-format": "node scripts/verify-dual-format.mjs",
+    "codegen:trust-anchors": "node scripts/generate-client-trust-anchors.mjs"
   },
   "devDependencies": {
     "typescript": "~7.0.2",

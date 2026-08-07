@@ -156,6 +156,7 @@ public class PhotoAttestModule: Module {
         let claimThumbnailPath = options["claimThumbnailPath"] as? String
         let attestationEnvelope = options["attestationEnvelope"] as? [String: Any]
         let tsaUrl = options["tsaUrl"] as? String
+        let trustAnchorsPem = options["trustAnchorsPem"] as? String
         let result = try PhotoAttestModule.signC2PAUploadInternal(
           alias: alias,
           parentMediaPath: parentMediaPath,
@@ -167,7 +168,8 @@ public class PhotoAttestModule: Module {
           captureTimestampMs: captureTimestampMs,
           claimThumbnailPath: claimThumbnailPath,
           attestationEnvelope: attestationEnvelope,
-          tsaUrl: tsaUrl
+          tsaUrl: tsaUrl,
+          trustAnchorsPem: trustAnchorsPem
         )
         promise.resolve(result)
       } catch let err as PhotoAttestError {
@@ -195,11 +197,13 @@ public class PhotoAttestModule: Module {
         guard let tsaUrl = options["tsaUrl"] as? String else {
           throw PhotoAttestError(code: "INVALID_CAPTURE_CONTEXT", message: "missing 'tsaUrl'")
         }
+        let trustAnchorsPem = options["trustAnchorsPem"] as? String
         let result = try PhotoAttestModule.signTimestampUpdateManifestInternal(
           alias: alias,
           parentMediaPath: parentMediaPath,
           certChainPEM: certChainPEM,
-          tsaUrl: tsaUrl
+          tsaUrl: tsaUrl,
+          trustAnchorsPem: trustAnchorsPem
         )
         promise.resolve(result)
       } catch let err as PhotoAttestError {
@@ -668,15 +672,66 @@ public class PhotoAttestModule: Module {
   // Capture + Stage-2 upload: auto-timestamp OFF (their TSA, when any, is the
   // inline sigTst2 c2pa-rs fetches over the CURRENT signature via the signer's
   // tsa URL — not a parent-scoped c2pa.timestamp assertion).
+  //
+  // remote_manifest_fetch / ocsp_fetch pinned false — validating a
+  // user-chosen parent must never make the device issue an outbound request
+  // (Android twin's SIGN_SETTINGS_JSON comment has the full rationale).
   private static let SIGN_SETTINGS_JSON =
-    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false},"builder":{"auto_timestamp_assertion":{"enabled":false}}}"#
+    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false}}}"#
 
   // Update-Manifest drain: auto-timestamp ON with fetch_scope=parent, so
   // c2pa-rs stamps the PARENT (Stage-1) signature it auto-incorporates from the
   // source asset and bakes the c2pa.timestamp assertion. skip_existing=false —
   // a queued capture is, by definition, not yet timestamped.
   private static let UPDATE_MANIFEST_SETTINGS_JSON =
-    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"}}}"#
+    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"}}}"#
+
+  // Inject the client trust pool into a base settings JSON so the recorded
+  // parent-ingredient validation sees the real CA + TSA anchors. Mirror of
+  // Android's settingsWithTrustAnchors — the canonical rationale and the
+  // settings-shape notes live there. Nil/blank anchors → base unchanged.
+  //
+  // iOS-specific: settings apply process-wide (c2pa_load_settings) with merge
+  // semantics, so `trust.trust_anchors` lingers after an anchored sign —
+  // harmless, because every sign path leads with a loadSettings that sets
+  // verify_trust explicitly (the same invariant the auto_timestamp_assertion
+  // comment above establishes).
+  private static func settingsWithTrustAnchors(
+    _ baseSettingsJson: String,
+    trustAnchorsPem: String?
+  ) throws -> String {
+    guard let pem = trustAnchorsPem,
+          !pem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      return baseSettingsJson
+    }
+    guard
+      var settings = try JSONSerialization.jsonObject(
+        with: Data(baseSettingsJson.utf8)
+      ) as? [String: Any]
+    else {
+      throw PhotoAttestError(
+        code: "C2PA_SIGN_FAILED",
+        message: "base c2pa settings JSON is not an object"
+      )
+    }
+    settings["trust"] = [
+      "verify_trust_list": false,
+      "trust_anchors": pem,
+    ] as [String: Any]
+    var verify = settings["verify"] as? [String: Any] ?? [:]
+    verify["verify_trust"] = true
+    verify["verify_timestamp_trust"] = true
+    settings["verify"] = verify
+    let data = try JSONSerialization.data(withJSONObject: settings, options: [.sortedKeys])
+    guard let json = String(data: data, encoding: .utf8) else {
+      throw PhotoAttestError(
+        code: "C2PA_SIGN_FAILED",
+        message: "failed to serialize c2pa settings with trust anchors"
+      )
+    }
+    return json
+  }
 
   // Single-pass capture signing: build the capture manifest and sign it once
   // with the enrolled Secure Enclave key. No embedded per-capture attestation —
@@ -867,7 +922,8 @@ public class PhotoAttestModule: Module {
     captureTimestampMs: Double?,
     claimThumbnailPath: String?,
     attestationEnvelope: [String: Any]?,
-    tsaUrl: String?
+    tsaUrl: String?,
+    trustAnchorsPem: String?
   ) throws -> [String: String] {
     let parentURL = URL(fileURLWithPath: parentMediaPath)
     let transformedURL = URL(fileURLWithPath: transformedMediaPath)
@@ -987,7 +1043,27 @@ public class PhotoAttestModule: Module {
         attestationEnvelope: attestationEnvelope
       )
 
-      try Signer.loadSettings(SIGN_SETTINGS_JSON, format: .json)
+      // Unlike Android (where builder-context threading is required), iOS
+      // settings are process-global — this load is what the addIngredient
+      // validation below reads, so the trust pool lands here.
+      //
+      // Anchor injection must never take down uploads (a settings key this
+      // c2pa build rejects, a cert in the OTA-updatable pool its PEM reader
+      // chokes on): degrade to the anchorless base settings instead of
+      // surfacing C2PA_SIGN_FAILED for every Stage-2 sign. The defer restores
+      // the base afterwards so verify_trust never lingers on for the Reader
+      // calls of a later sign (anchors themselves may persist — merge
+      // semantics — but are inert under verify_trust:false).
+      do {
+        try Signer.loadSettings(
+          settingsWithTrustAnchors(SIGN_SETTINGS_JSON, trustAnchorsPem: trustAnchorsPem),
+          format: .json
+        )
+      } catch {
+        NSLog("[PhotoAttest] c2pa trust-anchor settings load failed; signing without trust anchors: \(error.localizedDescription)")
+        try Signer.loadSettings(SIGN_SETTINGS_JSON, format: .json)
+      }
+      defer { try? Signer.loadSettings(SIGN_SETTINGS_JSON, format: .json) }
 
       let builder = try Builder(manifestJSON: manifestJSON)
       try builder.setIntent(.edit)
@@ -1083,7 +1159,8 @@ public class PhotoAttestModule: Module {
     alias: String,
     parentMediaPath: String,
     certChainPEM: String,
-    tsaUrl: String
+    tsaUrl: String,
+    trustAnchorsPem: String?
   ) throws -> [String: String] {
     let parentURL = URL(fileURLWithPath: parentMediaPath)
     let ext = parentURL.pathExtension.lowercased()
@@ -1159,7 +1236,17 @@ public class PhotoAttestModule: Module {
       // every iOS sign path must call loadSettings before signing (capture +
       // upload already do, with SIGN_SETTINGS_JSON); this defer is belt-and-
       // suspenders, not the primary guard.
-      try Signer.loadSettings(UPDATE_MANIFEST_SETTINGS_JSON, format: .json)
+      // Anchor-injection failure degrades to the BASE update settings (never
+      // to no settings — auto_timestamp_assertion must survive the fallback).
+      do {
+        try Signer.loadSettings(
+          settingsWithTrustAnchors(UPDATE_MANIFEST_SETTINGS_JSON, trustAnchorsPem: trustAnchorsPem),
+          format: .json
+        )
+      } catch {
+        NSLog("[PhotoAttest] c2pa trust-anchor settings load failed; stamping without trust anchors: \(error.localizedDescription)")
+        try Signer.loadSettings(UPDATE_MANIFEST_SETTINGS_JSON, format: .json)
+      }
       defer { try? Signer.loadSettings(SIGN_SETTINGS_JSON, format: .json) }
 
       let builder = try Builder(manifestJSON: manifestJSON)

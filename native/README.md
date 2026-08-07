@@ -89,6 +89,17 @@ signing calls — e.g. `generateAndAttestKey()`, `getPublicKey()`, `getAttestati
 `signC2PACapture()`, `signC2PAUpload()`, and `signTimestampUpdateManifest()`. The web
 entry point is a stub that throws (capture/upload are disabled on web).
 
+### Trust anchors at ingest
+
+`signC2PAUpload()` and `signTimestampUpdateManifest()` accept `trustAnchorsPem` — a
+concatenated PEM pool (CA + TSA roots) that c2pa-rs validates the parent ingredient
+against, recording the outcome into the signed `c2pa.ingredient.v3`
+`validationResults` (C2PA generator conformance: the CA and TSA Trust Lists must be
+consulted at ingest). Pass `CLIENT_TRUST_ANCHORS_PEM` from
+`@realreel/c2pa-trust-core/trust-anchors`. Trust failures — and a pool the native
+c2pa build can't load — are recorded/degraded, never thrown; see the option's JSDoc
+for details.
+
 ### File paths
 
 Every path argument accepts **either** a plain absolute filesystem path **or** a local

@@ -210,9 +210,11 @@ class PhotoAttestModule : Module() {
       @Suppress("UNCHECKED_CAST")
       val attestationEnvelope = options["attestationEnvelope"] as? Map<String, Any?>
       val tsaUrl = options["tsaUrl"] as? String
+      val trustAnchorsPem = options["trustAnchorsPem"] as? String
       signC2PAUploadInternal(
         alias, parentMediaPath, transformedMediaPath, certChainPEM,
         actions, gps, locationLabel, captureTimestampMs, claimThumbnailPath, attestationEnvelope, tsaUrl,
+        trustAnchorsPem,
       )
     }
 
@@ -229,7 +231,8 @@ class PhotoAttestModule : Module() {
         ?: throw CodedException("INVALID_CAPTURE_CONTEXT", "missing 'certChainPEM'", null)
       val tsaUrl = options["tsaUrl"] as? String
         ?: throw CodedException("INVALID_CAPTURE_CONTEXT", "missing 'tsaUrl'", null)
-      signTimestampUpdateManifestInternal(alias, parentMediaPath, certChainPEM, tsaUrl)
+      val trustAnchorsPem = options["trustAnchorsPem"] as? String
+      signTimestampUpdateManifestInternal(alias, parentMediaPath, certChainPEM, tsaUrl, trustAnchorsPem)
     }
 
     // Overwrite a gallery asset's bytes in place with a stamped file. The app
@@ -543,6 +546,7 @@ class PhotoAttestModule : Module() {
     parentMediaPath: String,
     certChainPEM: String,
     tsaUrl: String,
+    trustAnchorsPem: String?,
   ): Map<String, String> {
     val parentFile = File(parentMediaPath)
     if (!parentFile.exists()) {
@@ -637,7 +641,22 @@ class PhotoAttestModule : Module() {
       // was never produced — only the COSE sigTst2 on the Update Manifest's own
       // signature). The fromJson(json, settings) overload threads the settings
       // straight into the builder's context.
-      updateSettings = C2PASettings.create().updateFromString(UPDATE_MANIFEST_SETTINGS_JSON, "json")
+      //
+      // Anchor-injection failure degrades to the BASE update settings, not to
+      // a plain builder — auto_timestamp_assertion is what makes this an
+      // Update-Manifest drain at all, and it must survive the fallback.
+      updateSettings = try {
+        C2PASettings.create().updateFromString(
+          settingsWithTrustAnchors(UPDATE_MANIFEST_SETTINGS_JSON, trustAnchorsPem),
+          "json",
+        )
+      } catch (e: Exception) {
+        android.util.Log.w(
+          "PhotoAttest",
+          "c2pa settings threading failed; stamping without trust anchors: ${e.message}",
+        )
+        C2PASettings.create().updateFromString(UPDATE_MANIFEST_SETTINGS_JSON, "json")
+      }
 
       builder = Builder.fromJson(manifestJSON, updateSettings)
       builder.setIntent(BuilderIntent.Update)
@@ -736,6 +755,7 @@ class PhotoAttestModule : Module() {
     claimThumbnailPath: String?,
     attestationEnvelope: Map<String, Any?>?,
     tsaUrl: String?,
+    trustAnchorsPem: String?,
   ): Map<String, String> {
     val parentFile = File(parentMediaPath)
     val transformedFile = File(transformedMediaPath)
@@ -838,6 +858,7 @@ class PhotoAttestModule : Module() {
     var ingredientStream: FileStream? = null
     var thumbnailStream: FileStream? = null
     var builder: Builder? = null
+    var signSettings: C2PASettings? = null
     val signedMediaPath: String = try {
       val dir = File(File(context.filesDir, "c2pa-staging"), UUID.randomUUID().toString())
       if (!dir.mkdirs() && !dir.isDirectory) {
@@ -862,10 +883,33 @@ class PhotoAttestModule : Module() {
         attestationEnvelope = attestationEnvelope,
       )
 
-      // Same global verify-disabled settings as Stage 1 (auto-timestamp OFF).
+      // Global load carries the BASE settings only — the trust pool never
+      // touches process-global state on Android. The settings that matter for
+      // the recorded ingredient validation are the ones threaded into the
+      // builder's OWN context below: the global loadSettings does not reliably
+      // reach a plain Builder.fromJson(json) across the Expo/JNI boundary (see
+      // the Update-Manifest path's comment for the original discovery).
       C2PASigner.loadSettings(SIGN_SETTINGS_JSON, "json")
 
-      builder = Builder.fromJson(manifestJSON)
+      builder = try {
+        signSettings = C2PASettings.create().updateFromString(
+          settingsWithTrustAnchors(SIGN_SETTINGS_JSON, trustAnchorsPem),
+          "json",
+        )
+        Builder.fromJson(manifestJSON, signSettings)
+      } catch (e: Exception) {
+        // Anchor injection must never take down uploads: a settings key this
+        // c2pa build rejects, or a cert in the (OTA-updatable) pool its PEM
+        // reader chokes on, would otherwise hard-fail EVERY Stage-2 sign.
+        // Degrade to the anchorless path instead.
+        android.util.Log.w(
+          "PhotoAttest",
+          "c2pa settings threading failed; signing without trust anchors: ${e.message}",
+        )
+        try { signSettings?.close() } catch (_: Exception) {}
+        signSettings = null
+        Builder.fromJson(manifestJSON)
+      }
       builder.setIntent(BuilderIntent.Edit)
 
       // Add parent ingredient — c2pa-rs hashes the parent stream + auto-
@@ -930,6 +974,7 @@ class PhotoAttestModule : Module() {
       try { destStream?.close() } catch (_: Exception) {}
       try { ingredientStream?.close() } catch (_: Exception) {}
       try { thumbnailStream?.close() } catch (_: Exception) {}
+      try { signSettings?.close() } catch (_: Exception) {}
     }
 
     return mapOf("signedMediaPath" to signedMediaPath)
@@ -1736,15 +1781,54 @@ class PhotoAttestModule : Module() {
     // Capture + Stage-2 upload: auto-timestamp OFF (their TSA, when any, is the
     // inline sigTst2 c2pa-rs fetches over the CURRENT signature via the signer's
     // tsaURL — not a parent-scoped c2pa.timestamp assertion).
+    //
+    // remote_manifest_fetch / ocsp_fetch pinned false (c2pa-rs defaults
+    // remote-manifest fetch ON): validating a user-chosen parent must never
+    // make the device issue an outbound request — a manifest-less asset
+    // carrying a remote-manifest reference would otherwise beacon an
+    // attacker URL at sign time and stall the upload on the network. Same
+    // pins, same rationale as the verifier's buildVerifierSettings.
     const val SIGN_SETTINGS_JSON =
-      """{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false},"builder":{"auto_timestamp_assertion":{"enabled":false}}}"""
+      """{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false}}}"""
 
     // Update-Manifest drain: auto-timestamp ON with fetch_scope=parent, so
     // c2pa-rs stamps the PARENT (Stage-1) signature it auto-incorporates from
     // the source asset and bakes the c2pa.timestamp assertion. skip_existing=false
     // — a queued capture is, by definition, not yet timestamped.
     const val UPDATE_MANIFEST_SETTINGS_JSON =
-      """{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"}}}"""
+      """{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"}}}"""
+
+    // Inject the client trust pool (trust-core's CLIENT_TRUST_ANCHORS_PEM,
+    // passed from JS) into a base settings JSON. With anchors present, the
+    // parent-ingredient validation c2pa-rs runs during the sign — whose
+    // outcome it RECORDS into the signed c2pa.ingredient.v3
+    // `validationResults` — checks signing-cert and TSA chains against the
+    // pool instead of running anchorless and permanently recording
+    // signingCredential.untrusted / timeStamp.untrusted for trusted parents
+    // (a C2PA generator-conformance failure: the CA and TSA Trust Lists
+    // must be consulted at ingest). Shape mirrors the
+    // verifier's buildVerifierSettings: explicit anchors pool shared by cert
+    // + TSA validation, verify_trust_list off (no implicit list),
+    // verify_timestamp_trust pinned on. Everything else — verify_after_sign,
+    // the remote_manifest_fetch/ocsp_fetch SSRF pins — comes from the base
+    // JSON untouched. Null/blank anchors → base returned unchanged. Built
+    // via JSONObject so the multi-line PEM is escaped correctly.
+    fun settingsWithTrustAnchors(baseSettingsJson: String, trustAnchorsPem: String?): String {
+      if (trustAnchorsPem.isNullOrBlank()) return baseSettingsJson
+      val settings = JSONObject(baseSettingsJson)
+      settings.put(
+        "trust",
+        JSONObject().apply {
+          put("verify_trust_list", false)
+          put("trust_anchors", trustAnchorsPem)
+        },
+      )
+      val verify = settings.optJSONObject("verify")
+        ?: JSONObject().also { settings.put("verify", it) }
+      verify.put("verify_trust", true)
+      verify.put("verify_timestamp_trust", true)
+      return settings.toString()
+    }
 
     // Hard timeouts for the two blocking Tasks.await calls. Without these,
     // a stuck Google Play services call would pin the calling thread until

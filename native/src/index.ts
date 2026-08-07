@@ -435,6 +435,37 @@ export interface SignC2PAUploadOptions {
    * Omitted / undefined → no TSA token embedded.
    */
   tsaUrl?: string;
+
+  /**
+   * Concatenated PEM trust pool — content-source CA roots plus TSA roots —
+   * that c2pa-rs consults when it validates the parent ingredient during
+   * this sign. Pass `CLIENT_TRUST_ANCHORS_PEM` from
+   * `@realreel/c2pa-trust-core/trust-anchors`: the generated client
+   * projection of the pool the RealReel verifier loads at boot, so
+   * sign-time ingredient validation asserts trust only for roots the
+   * server trusts publicly.
+   *
+   * Why it matters: the validation outcome is RECORDED into the signed
+   * `c2pa.ingredient.v3` assertion's `validationResults`. Without anchors
+   * the generator permanently records `signingCredential.untrusted` /
+   * `timeStamp.untrusted` for parents that are in fact trusted (RealReel
+   * Stage-1 captures, wrap-mode Pixel parents) — a C2PA generator-
+   * conformance failure: the CA and TSA Trust Lists must be consulted at
+   * ingest. Trust FAILURES against the pool are still only recorded, never
+   * thrown — an unrecognized parent degrades to recorded-untrusted rather
+   * than blocking the sign, and so does a pool the native c2pa build
+   * cannot load (the sign falls back to anchorless with a warning log).
+   *
+   * Pass it consistently (always or never within a process): iOS applies
+   * settings process-globally with merge semantics, so anchors from an
+   * earlier anchored sign can linger and color a later unanchored sign's
+   * recorded results. RealReel's app always passes the bundle.
+   *
+   * Omitted / undefined → ingredient validation runs without trust
+   * verification (no trust codes recorded; pre-cutover manifests recorded
+   * untrusted certs here).
+   */
+  trustAnchorsPem?: string;
 }
 
 export interface SignC2PAUploadResult {
@@ -476,6 +507,12 @@ export interface SignTimestampUpdateManifestOptions {
    * until a stamp succeeds — see `overwriteMediaLibraryAsset`).
    */
   tsaUrl: string;
+  /**
+   * Same trust pool as {@link SignC2PAUploadOptions.trustAnchorsPem}, for the
+   * parent (Stage-1) manifest this Update Manifest incorporates. Same
+   * record-only semantics; omitted → anchorless validation.
+   */
+  trustAnchorsPem?: string;
 }
 
 export interface SignTimestampUpdateManifestResult {
@@ -570,6 +607,7 @@ interface NativeModule {
     claimThumbnailPath: string | null;
     attestationEnvelope: AttestationEnvelope | null;
     tsaUrl: string | null;
+    trustAnchorsPem: string | null;
   }): Promise<SignC2PAUploadResult>;
   /**
    * Offline-queue drain. Wraps a queued Stage-1 capture in a C2PA Update
@@ -584,6 +622,7 @@ interface NativeModule {
     parentMediaPath: string;
     certChainPEM: string;
     tsaUrl: string;
+    trustAnchorsPem: string | null;
   }): Promise<SignTimestampUpdateManifestResult>;
   /**
    * Overwrite an existing MediaLibrary asset's bytes in place with the file at
@@ -827,6 +866,7 @@ export const PhotoAttest = {
       : normalizeMediaPath(options.claimThumbnailPath),
     attestationEnvelope: options.attestationEnvelope ?? null,
     tsaUrl: options.tsaUrl ?? null,
+    trustAnchorsPem: options.trustAnchorsPem ?? null,
   }),
 
   /**
@@ -848,6 +888,7 @@ export const PhotoAttest = {
     parentMediaPath: normalizeMediaPath(options.parentMediaPath),
     certChainPEM: options.certChainPEM,
     tsaUrl: options.tsaUrl,
+    trustAnchorsPem: options.trustAnchorsPem ?? null,
   }),
 
   /**
