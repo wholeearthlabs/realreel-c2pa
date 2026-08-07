@@ -1,5 +1,13 @@
 # @realreel/c2pa-trust-core
 
+## 0.5.0
+
+### Minor Changes
+
+- [`bfae840`](https://github.com/wholeearthlabs/realreel-c2pa/commit/bfae840b3c9b62c6dbb80b9f3012d088a454ab63) Thanks [@boojamya](https://github.com/boojamya)! - Consult the CA + TSA Trust Lists at ingredient ingest (C2PA generator conformance). trust-core now ships `CLIENT_TRUST_ANCHORS_PEM` on the dedicated `@realreel/c2pa-trust-core/trust-anchors` subpath (kept out of the root barrel so non-signing surfaces don't carry the 27 KB pool) — a generated client projection of the trust pool the RealReel verifier loads at boot: content-source CA roots + the C2PA TSA Trust List, minus entries marked `client_bundle: false` in trust-sources.yaml (the general-purpose DigiCert/SSL.com TSA roots stay verifier-private, so the generator never records trust for TSAs off the C2PA TSA Trust List). Byte-lockstep with the verifier's loader is CI-asserted. photo-attest's `signC2PAUpload` and `signTimestampUpdateManifest` accept it as `trustAnchorsPem` and feed it to c2pa-rs, so the parent-ingredient validation recorded into the signed `c2pa.ingredient.v3` `validationResults` sees the real pool instead of running anchorless and permanently recording `signingCredential.untrusted` / `timeStamp.untrusted` for parents that are in fact trusted (e.g. a wrapped Pixel capture's Google chain and Pixel TSA). Failure semantics are availability-first: trust failures against the pool are record-only, and a pool the native c2pa build cannot load degrades the sign to the anchorless path with a warning instead of failing the upload. The base sign settings additionally pin `remote_manifest_fetch`/`ocsp_fetch` off (validating a user-chosen parent must never issue an outbound request), matching the verifier. Omitting the option runs ingredient validation without trust verification.
+
+- [`5001976`](https://github.com/wholeearthlabs/realreel-c2pa/commit/50019764d14e33aed8e5c752d71fd1bebccb866e) Thanks [@boojamya](https://github.com/boojamya)! - Add `METADATA_ASSERTION_LABEL` (`c2pa.metadata`) plus `LEGACY_EXIF_ASSERTION_LABEL` / `LEGACY_IPTC_ASSERTION_LABEL` constants. C2PA 2.x deprecates the `stds.exif` / `stds.iptc` metadata assertions; RealReel signers now emit `c2pa.metadata` (JSON-LD) on both stages, while readers keep accepting the legacy labels for wrap-mode third-party parents and pre-cutover media.
+
 ## 0.4.1
 
 ### Patch Changes
