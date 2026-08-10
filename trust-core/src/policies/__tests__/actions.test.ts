@@ -36,18 +36,17 @@ describe("allowlist constants — surface contract", () => {
   });
 
   it("REALREEL_UPLOAD_ALLOWED_ACTIONS matches the documented Stage 2 vocabulary", () => {
-    // Drift-detection mirror of the comment block in actions.ts. If a
-    // new Stage2Action is added in native/index.ts or
-    // the app's upload path without updating this allowlist, this assertion
-    // fails — same regression class verifier/__tests__/policy.test.ts
-    // already guards from the other side via real fixture roundtrip.
+    // Pins the exact Stage-2 vocabulary so any allowlist edit is deliberate.
+    // Nothing imports the native Stage2Action union — that union, this pin,
+    // and the allowlist are kept in sync by hand.
+    // c2pa.cropped is deliberately absent (a declared crop could conceal
+    // recapture edges); re-adding it is a policy decision, not drift.
     expect([...REALREEL_UPLOAD_ALLOWED_ACTIONS].sort()).toEqual(
       [
         "c2pa.opened",
         "c2pa.rotated",
         "c2pa.resized",
         "c2pa.transcoded",
-        "c2pa.cropped",
         "c2pa.trimmed",
         "c2pa.redacted",
       ].sort(),

@@ -150,8 +150,8 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     // timestamp validates cleanly under verifyTimestampTrust.
     expect(stage1.signature_info.time).toBeTruthy();
 
-    // Per-profile dedup key. A photo has no published-extent action (no trim/
-    // crop), so the identity is the capture label alone — which equals the
+    // Per-profile dedup key. A photo has no published-extent action (no
+    // trim), so the identity is the capture label alone — which equals the
     // sanitized parent_label. Pins both the format and the photo anchor.
     expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/);
     const expectedHash = createHash("sha256")

@@ -387,18 +387,22 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
     });
   });
 
-  it("rejects: Stage 2 has disallowed action (c2pa.adjustedColor)", async () => {
-    stubBothKeysValid();
-    const store = makeRealReelStore({
-      stage2: { actions: ["c2pa.opened", "c2pa.adjustedColor"] },
+  // c2pa.adjustedColor = an editor's action we never emit; c2pa.cropped =
+  // deliberately delisted (a declared crop could conceal recapture edges).
+  for (const action of ["c2pa.adjustedColor", "c2pa.cropped"]) {
+    it(`rejects: Stage 2 has disallowed action (${action})`, async () => {
+      stubBothKeysValid();
+      const store = makeRealReelStore({
+        stage2: { actions: ["c2pa.opened", action] },
+      });
+      await expect(
+        verifyRealReel(store, "realreel"),
+      ).rejects.toMatchObject({
+        code: VerifyErrorCode.SIGNATURE_INVALID,
+        detail: expect.stringContaining(action),
+      });
     });
-    await expect(
-      verifyRealReel(store, "realreel"),
-    ).rejects.toMatchObject({
-      code: VerifyErrorCode.SIGNATURE_INVALID,
-      detail: expect.stringContaining("c2pa.adjustedColor"),
-    });
-  });
+  }
 
   it("accepts: Stage 2 with the canonical upload actions (c2pa.opened, c2pa.resized, c2pa.transcoded)", async () => {
     stubBothKeysValid();
@@ -411,22 +415,16 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
 
   // ---- Roundtrip: every Stage2Action variant must be accepted ----
   //
-  // Tripwire for drift between the verifier's allowlist and the JS
-  // bridge's Stage2Action union (native/index.ts). If
-  // someone adds a new variant to Stage2Action without updating
-  // REALREEL_UPLOAD_ALLOWED_ACTIONS, this test fails — and the same
-  // failure surfaces in CI before any user upload hits the verifier.
-  //
-  // The list is maintained alongside Stage2Action by hand (verifier
-  // is intentionally self-contained — no cross-package import). When
-  // you add a new Stage2Action variant, add the action name here AND
-  // to REALREEL_UPLOAD_ALLOWED_ACTIONS.
+  // STAGE2_USER_ACTIONS mirrors the native Stage2Action union BY HAND
+  // (verifier is intentionally self-contained — no cross-package import,
+  // so nothing fails automatically on a native-only edit). When you add
+  // a Stage2Action variant, add it here AND to
+  // REALREEL_UPLOAD_ALLOWED_ACTIONS.
   describe("Roundtrip: every Stage2Action variant accepted", () => {
     const STAGE2_USER_ACTIONS = [
       "c2pa.rotated",
       "c2pa.resized",
       "c2pa.transcoded",
-      "c2pa.cropped",
       "c2pa.trimmed",
       "c2pa.redacted",
     ];
@@ -442,6 +440,7 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
       });
     }
   });
+
 });
 
 // ---------------------------------------------------------------

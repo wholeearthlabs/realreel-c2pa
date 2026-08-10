@@ -32,7 +32,7 @@ const PHOTO_UPLOAD = upload([
 ]);
 
 describe("extractContentExtent", () => {
-  it("is empty for a photo upload (no trim/crop action)", () => {
+  it("is empty for a photo upload (no trim action)", () => {
     expect(extractContentExtent(PHOTO_UPLOAD)).toBe("");
   });
 
@@ -52,17 +52,13 @@ describe("extractContentExtent", () => {
     expect(a).toBe(b);
   });
 
-  it("includes crop the same way (forward-compatible)", () => {
-    const extent = extractContentExtent(upload([{ action: "c2pa.cropped", parameters: { "org.realreel.x": 0, "org.realreel.y": 0, "org.realreel.width": 100, "org.realreel.height": 100 } }]));
-    expect(extent).toContain("c2pa.cropped");
-  });
-
-  it("ignores non-extent actions (resize/rotate/transcode/redact/opened)", () => {
+  it("ignores non-extent actions (resize/rotate/redact/opened/cropped)", () => {
     const extent = extractContentExtent(upload([
       { action: "c2pa.opened" },
       { action: "c2pa.rotated", parameters: { "org.realreel.angle": 90 } },
       { action: "c2pa.resized", parameters: { "org.realreel.width": 1, "org.realreel.height": 1 } },
       { action: "c2pa.redacted", parameters: { redacted: "x" } },
+      { action: "c2pa.cropped", parameters: { "org.realreel.x": 0, "org.realreel.y": 0, "org.realreel.width": 100, "org.realreel.height": 100 } },
     ]));
     expect(extent).toBe("");
   });

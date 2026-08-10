@@ -295,6 +295,8 @@ export interface SignC2PACaptureResult {
  * Add new action codes by extending this union. Keep parameter shapes
  * minimal — verifiers don't branch on parameter contents (the trust claim
  * is hash-bound), but consistent shape helps human readers + tooling.
+ * Every variant must also be on trust-core's REALREEL_UPLOAD_ALLOWED_ACTIONS
+ * or the verifier hard-rejects the upload.
  *
  * Parameter keys are entity-namespaced (`org.realreel.*`): C2PA 2.x
  * §18.15.4.7 requires any parameter key that isn't one of the spec's
@@ -308,7 +310,6 @@ export type Stage2Action =
   | { action: 'c2pa.rotated';    parameters: { 'org.realreel.angle': 90 | 180 | 270 } }
   | { action: 'c2pa.resized';    parameters: { 'org.realreel.width': number; 'org.realreel.height': number } }
   | { action: 'c2pa.transcoded'; parameters?: { 'org.realreel.quality'?: number; 'org.realreel.format'?: string } }
-  | { action: 'c2pa.cropped';    parameters: { 'org.realreel.x': number; 'org.realreel.y': number; 'org.realreel.width': number; 'org.realreel.height': number } }
   | { action: 'c2pa.trimmed';    parameters: { 'org.realreel.start': number; 'org.realreel.end': number } }
   /**
    * Redact an assertion from the parent (Stage 1). Native expands

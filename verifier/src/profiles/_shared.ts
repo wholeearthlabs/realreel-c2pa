@@ -152,8 +152,8 @@ export function enforceFreshCaptureStage1(manifest: ManifestShape): void {
 /** An interposed Update Manifest may carry only `c2pa.opened` — which c2pa-rs
  *  auto-injects when it incorporates the Stage-1 parent from the source asset.
  *  `c2pa.opened` is "opened the parent," NOT an editorial transform — every
- *  editorial action (c2pa.resized / rotated / cropped / transcoded / trimmed)
- *  stays disallowed, so the interposition still can't smuggle an edit. */
+ *  editorial action (Stage-2-allowlisted or not) stays disallowed, so the
+ *  interposition still can't smuggle an edit. */
 const UPDATE_MANIFEST_ALLOWED_ACTIONS: ReadonlySet<string> = new Set([
   "c2pa.opened",
 ]);

@@ -59,7 +59,6 @@ export const REALREEL_UPLOAD_ALLOWED_ACTIONS: ReadonlySet<string> = new Set([
   "c2pa.rotated", //  user-requested rotation correction
   "c2pa.resized", //  user-requested compression (photo path: 1080px max)
   "c2pa.transcoded", // user-requested codec/quality change
-  "c2pa.cropped", //  user-requested crop (not in app yet, but type-allowed)
   "c2pa.trimmed", //  user-requested video trim (video path default)
   "c2pa.redacted", // user-requested location redaction
 ]);

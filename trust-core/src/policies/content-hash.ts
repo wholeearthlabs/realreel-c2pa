@@ -4,7 +4,7 @@
 // index. Full rationale + threat model: docs/TRUST_ARCHITECTURE.md (app repo).
 //
 // Identity = the resolved Stage-1 CAPTURE manifest label (not the bytes) plus,
-// for video, the signed trim/crop extent. Anchoring on the capture means the
+// for video, the signed trim extent. Anchoring on the capture means the
 // same capture re-uploaded with any transform collides, while two different
 // video trims don't. The label is the anchor (not a byte digest) because
 // c2pa-node doesn't surface a capture's hash binding for an ingredient manifest,
@@ -21,7 +21,6 @@ import { extractActionEntries } from "./actions.js";
  */
 const EXTENT_ACTION_LABELS: ReadonlySet<string> = new Set([
   "c2pa.trimmed",
-  "c2pa.cropped",
 ]);
 
 /**
@@ -67,7 +66,7 @@ export function extractContentExtent(active: ManifestShape): string {
  *
  * @param capture resolved Stage-1 capture manifest (caller has already walked
  *   past any interposed timestamp Update Manifests).
- * @param active  Stage-2 upload manifest carrying the signed trim/crop params.
+ * @param active  Stage-2 upload manifest carrying the signed trim params.
  * @returns the identity, or null if the capture has no label (anomalous — a
  *   validated store always labels its manifests; the caller treats null as a
  *   hard error, never a silent dedup skip). The caller hashes this
