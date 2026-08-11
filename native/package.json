@@ -66,7 +66,7 @@
   "devDependencies": {
     "@expo/config-plugins": "~57.0.6",
     "@realreel/c2pa-trust-core": "*",
-    "@types/node": "^24.13.3",
+    "@types/node": "^26.2.0",
     "expo-module-scripts": "~56.0.0",
     "expo-modules-core": "~57.0.8",
     "typescript": "~7.0.2",
