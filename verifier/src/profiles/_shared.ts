@@ -4,12 +4,17 @@
 
 import {
   findDisallowedActions,
+  findRecordedBindingViolation,
   isTimestampUpdateManifest,
   requireFreshCapture,
   resolveParentOfIngredient,
 } from "@realreel/c2pa-trust-core";
 import { VerifyError, VerifyErrorCode } from "../errors.js";
 import type { ManifestShape, ManifestStoreShape } from "../c2pa-shape.js";
+import type {
+  ResolvedTrustSource,
+  TrustSourceResolver,
+} from "../trust/dispatcher.js";
 
 export {
   CAPTURE_ALLOWED_ACTIONS,
@@ -109,6 +114,75 @@ export function enforceFreshCaptureStage1(manifest: ManifestShape): void {
     throw new VerifyError(
       VerifyErrorCode.SIGNATURE_INVALID,
       "Stage 1 must be a fresh capture with no ingredients",
+    );
+  }
+}
+
+/**
+ * Resolve the Stage-1 CAPTURE's trust source and require a capture-capable
+ * role. This makes `wrap_parent_only` an enforced profile: without it, any
+ * cert chaining to ANY pooled anchor — including the general-purpose TSA
+ * roots (see trust/types.ts) — would qualify as a "trusted camera" parent.
+ *
+ * Interposed timestamp Update Manifests are deliberately not run through
+ * this: they are device-signed timestamp carriers, chain-validated by
+ * c2pa-rs and constrained to add nothing but a timestamp.
+ */
+export function enforceParentTrustSource(
+  capture: ManifestShape,
+  resolveTrustSource: TrustSourceResolver,
+): ResolvedTrustSource {
+  const issuer = capture.signature_info?.issuer;
+  if (typeof issuer !== "string" || issuer.length === 0) {
+    throw new VerifyError(
+      VerifyErrorCode.MANIFEST_MALFORMED,
+      "stage 1 signature_info.issuer missing",
+    );
+  }
+  const source = resolveTrustSource(
+    issuer,
+    capture.signature_info?.common_name,
+  );
+  if (!source) {
+    throw new VerifyError(
+      VerifyErrorCode.UNTRUSTED_ISSUER,
+      `stage 1 issuer '${issuer}' does not match any configured capture trust source`,
+    );
+  }
+  // Default-deny keeps a future non-capture profile from silently qualifying.
+  if (source.profile !== "realreel" && source.profile !== "wrap_parent_only") {
+    throw new VerifyError(
+      VerifyErrorCode.UNTRUSTED_ISSUER,
+      `stage 1 trust source '${source.id}' (profile '${source.profile}') is not a capture-capable source`,
+    );
+  }
+  return source;
+}
+
+/**
+ * Enforce the capture's HARD BINDING via the sign-time report recorded in
+ * the Stage-2 `c2pa.ingredient.v3` assertion — the only carrier of that
+ * verdict, since the parent's original bytes never reach the server.
+ * Fail-closed and unconditional: an absent record, a missing positive
+ * match, or a recorded binding failure is a reject. Design + the accepted
+ * Pixel-video limitation: trust-core policies/binding.ts.
+ */
+export function enforceParentBinding(
+  store: ManifestStoreShape,
+  capture: ManifestShape,
+): void {
+  const captureLabel = capture.label;
+  if (typeof captureLabel !== "string" || captureLabel.length === 0) {
+    throw new VerifyError(
+      VerifyErrorCode.MANIFEST_MALFORMED,
+      "capture manifest has no label; cannot locate its recorded binding verdict",
+    );
+  }
+  const violation = findRecordedBindingViolation(store, captureLabel);
+  if (violation) {
+    throw new VerifyError(
+      VerifyErrorCode.PARENT_BINDING_FAILED,
+      `Stage 1 hard binding not verified clean at sign time (${violation.reason}): ${violation.detail}`,
     );
   }
 }

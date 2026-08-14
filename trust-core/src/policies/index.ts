@@ -31,3 +31,13 @@ export {
   buildContentIdentity,
   extractContentExtent,
 } from "./content-hash.js";
+
+export {
+  isBindingCode,
+  findBindingFailureCodes,
+  findContentTamperCodes,
+  findRecordedBindingViolation,
+  type RecordedBindingViolation,
+} from "./binding.js";
+
+export { ALLOWED_UPLOAD_MIME_TYPES } from "./media-types.js";

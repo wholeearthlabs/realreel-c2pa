@@ -23,6 +23,7 @@
 // metadata; that residual is gated by App Attest / Play Integrity).
 
 import exifr from "exifr";
+import { sniffContainer } from "./container-sniff.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { writeFile, unlink } from "node:fs/promises";
@@ -481,13 +482,14 @@ async function deriveVideoMetadata(
   };
 }
 
-/** Photo vs video from the verified BYTES (magic numbers), not the client
- *  mimeType — the metadataType we store must be bound to the upload, like every
- *  other displayed value. ISOBMFF (mp4/mov) carries an `ftyp` box at offset 4;
- *  JPEG starts FF D8 FF. Falls back to the mimeType hint when inconclusive. */
+/** Photo vs video from the verified BYTES (shared container sniff), not the
+ *  client mimeType — the metadataType we store must be bound to the upload,
+ *  like every other displayed value. Falls back to the mimeType hint when
+ *  inconclusive. */
 function isVideoUpload(bytes: Buffer, mimeType: string): boolean {
-  if (bytes.length >= 12 && bytes.toString("latin1", 4, 8) === "ftyp") return true;
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return false;
+  const kind = sniffContainer(bytes);
+  if (kind === "isobmff") return true;
+  if (kind === "jpeg") return false;
   return mimeType.toLowerCase().startsWith("video/");
 }
 

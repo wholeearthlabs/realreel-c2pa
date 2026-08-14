@@ -202,10 +202,21 @@ Stage 2 records the resize / compress / rotate applied at upload.
   cannot be extracted from secure hardware. A device compromised *after*
   enrollment can still be made to use that key — the same residual class Pixel and
   App Attest accept. Bootloader unlock wipes the key and blocks re-enrollment.
-- **"Unedited" after an upload transform rests on app integrity.** The app applies
-  only declared transforms (resize / rotate / transcode) before upload; the
-  assurance that it applied *only* those rests on the upload-time app-integrity
-  attestation, not a pixel-level re-hash of the original capture.
+- **"Unedited" after an upload transform rests on app integrity — carrying an
+  enforced sign-time binding record.** The app applies only declared transforms
+  (resize / rotate / transcode) before upload. The parent's own hard binding IS
+  validated against the original bytes — on-device, when photo-attest's
+  `addIngredient` re-hashes the file at Stage-2 sign time — and that verdict,
+  recorded into the signed `c2pa.ingredient.v3.validationResults`, is enforced
+  by the verifier's parent-binding gate (`PARENT_BINDING_FAILED` on a recorded
+  failure, a missing positive match, or an absent record). What rests on
+  app-integrity attestation is the honesty of that record plus the declared
+  action list — a genuine build records truthfully; a forged record needs a
+  forged build, which cannot mint a valid attestation envelope. Known
+  limitation, deliberately accepted: pre-#2434 mobile c2pa SDKs record a
+  FALSE bmff mismatch for genuine Pixel videos, so wrap-mode Pixel videos —
+  genuine or tampered — are rejected until the SDK bump; acceptance restores
+  itself when the bumped SDKs record clean verdicts (no flag involved).
 - **Platform asymmetry.** Android upload integrity uses a hardware-backed device
   verdict (STRONG); iOS attests app-binary integrity but has no equivalent
   device-state verdict.

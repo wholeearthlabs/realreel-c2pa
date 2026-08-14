@@ -24,7 +24,7 @@
 // guaranteeing both validators agree on what counts as a trusted issuer.
 
 import { TRUSTED_ISSUERS } from "@realreel/c2pa-trust-core";
-import type { TrustConfig } from "./types.js";
+import type { TrustConfig, VerificationProfile } from "./types.js";
 
 /**
  * Resolve a signature's issuer + common_name to a trust-source id, or
@@ -71,4 +71,46 @@ export function identifyTrustSource(
     return entry.id;
   }
   return null;
+}
+
+/** A trust source resolved for one specific manifest's signature identity:
+ * the trust-sources.yaml id plus the role that source is allowed to play. */
+export interface ResolvedTrustSource {
+  id: string;
+  name: string;
+  profile: VerificationProfile;
+}
+
+/** Signature-identity → trust-source resolver. verify.ts builds one per
+ * request and injects it into verifyRealReel to resolve the PARENT
+ * capture's source — what makes `wrap_parent_only` an enforced role.
+ * Injected so profiles/ stays decoupled from the trust-config loader. */
+export type TrustSourceResolver = (
+  signatureIssuer: string,
+  signatureCommonName: string | null | undefined,
+) => ResolvedTrustSource | null;
+
+/**
+ * Build a TrustSourceResolver over a loaded TrustConfig: identifyTrustSource
+ * joined to the source's verification_profile. Null when the identity
+ * matches no configured source (callers treat as UNTRUSTED_ISSUER).
+ */
+export function makeTrustSourceResolver(
+  trustConfig: TrustConfig,
+): TrustSourceResolver {
+  return (signatureIssuer, signatureCommonName) => {
+    const id = identifyTrustSource(
+      signatureIssuer,
+      signatureCommonName,
+      trustConfig,
+    );
+    if (!id) return null;
+    const source = trustConfig.sources.find((s) => s.id === id);
+    if (!source) return null;
+    return {
+      id: source.id,
+      name: source.name,
+      profile: source.verification_profile,
+    };
+  };
 }

@@ -41,11 +41,16 @@ vi.mock("../src/db.js", () => {
 import { verify } from "../src/verify.js";
 import { verifyRealReel } from "../src/profiles/realreel.js";
 import { loadTrustConfig } from "../src/trust/loader.js";
+import { makeTrustSourceResolver } from "../src/trust/dispatcher.js";
 import { lookupSigningKeyRevocation } from "../src/db.js";
 import { VerifyErrorCode } from "../src/errors.js";
 
 const trustSourcesPath = resolve(import.meta.dirname, "../trust-sources.yaml");
 const trustConfig = await loadTrustConfig(trustSourcesPath);
+// The REAL resolver over the repo's trust-sources.yaml — synthetic stores set
+// signature_info.issuer to values the production dispatcher resolves, so these
+// tests exercise the same identity matching as production.
+const resolveSource = makeTrustSourceResolver(trustConfig);
 
 const FIXTURE_USER_ID = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const STAGE_1_SERIAL = "1111111111";
@@ -144,16 +149,78 @@ const DEFAULT_PLAY_INTEGRITY_DATA = {
   platform: "android",
 };
 
+/** Recorded sign-time verdict knob for the Stage-2 parent ingredient — the
+ *  shapes mirror what photo-attest's addIngredient records (empirically
+ *  pinned against realreel-uploaded.jpg / pixel-uploaded.jpg). */
+type RecordedBinding = "clean" | "mismatch" | "match_missing" | "absent";
+
+function recordedResultsFor(
+  recorded: RecordedBinding,
+  matchCode: string,
+): object | undefined {
+  switch (recorded) {
+    case "clean":
+      return {
+        validation_results: {
+          activeManifest: {
+            success: [
+              { code: "claimSignature.validated" },
+              { code: matchCode },
+            ],
+            informational: [],
+            // Real recorded reports from anchorless photo-attest builds carry
+            // cert-trust failures; the binding gate must ignore them.
+            failure: [{ code: "signingCredential.untrusted" }],
+          },
+        },
+      };
+    case "mismatch":
+      return {
+        validation_results: {
+          activeManifest: {
+            success: [{ code: "claimSignature.validated" }],
+            informational: [],
+            failure: [
+              { code: matchCode.replace(/\.match$/, ".mismatch") },
+            ],
+          },
+        },
+      };
+    case "match_missing":
+      return {
+        validation_results: {
+          activeManifest: {
+            success: [{ code: "claimSignature.validated" }],
+            informational: [],
+            failure: [],
+          },
+        },
+      };
+    case "absent":
+      return undefined;
+  }
+}
+
 function makeRealReelStore(opts: {
   stage1?: {
     ingredients?: Array<{ active_manifest?: string; relationship?: string }>;
     actions?: string[];
     attestation?: StageAttestation | null;
+    /** Capture signature identity. Defaults to the RealReel v2 leaf subject
+     *  the production dispatcher resolves; tests override to exercise the
+     *  parent trust-source gate (e.g. an unmatchable public-CA identity). */
+    issuer?: string | null;
+    commonName?: string;
+    /** Capture hard-binding assertion label. Default c2pa.hash.data (photo);
+     *  "c2pa.hash.bmff.v3" for video cases; null = no binding at all. */
+    bindingLabel?: string | null;
   };
   stage2?: {
     ingredients?: Array<{ active_manifest?: string; relationship?: string }>;
     actions?: string[];
     attestation?: StageAttestation | null;
+    /** Sign-time binding verdict recorded on the parent ingredient. */
+    recordedBinding?: RecordedBinding;
   };
 }): unknown {
   // Defaults match the canonical RealReel manifest shape (verified
@@ -167,8 +234,19 @@ function makeRealReelStore(opts: {
     "c2pa.resized",
     "c2pa.transcoded",
   ];
+  const bindingLabel =
+    opts.stage1?.bindingLabel === undefined
+      ? "c2pa.hash.data"
+      : opts.stage1.bindingLabel;
+  const matchCode = bindingLabel?.startsWith("c2pa.hash.bmff")
+    ? "assertion.bmffHash.match"
+    : "assertion.dataHash.match";
   const stage2Ingredients = opts.stage2?.ingredients ?? [
-    { active_manifest: "urn:test:stage1", relationship: "parentOf" },
+    {
+      active_manifest: "urn:test:stage1",
+      relationship: "parentOf",
+      ...recordedResultsFor(opts.stage2?.recordedBinding ?? "clean", matchCode),
+    },
   ];
   const stage1Assertions: Array<{ label: string; data: unknown }> = [
     {
@@ -176,6 +254,9 @@ function makeRealReelStore(opts: {
       data: { actions: stage1Actions.map((action) => ({ action })) },
     },
   ];
+  if (bindingLabel) {
+    stage1Assertions.push({ label: bindingLabel, data: {} });
+  }
   appendAttestationAssertion(stage1Assertions, opts.stage1?.attestation);
 
   const stage2Assertions: Array<{ label: string; data: unknown }> = [
@@ -186,6 +267,16 @@ function makeRealReelStore(opts: {
   ];
   appendAttestationAssertion(stage2Assertions, opts.stage2?.attestation);
 
+  const stage1SignatureInfo: Record<string, unknown> = {
+    cert_serial_number: STAGE_1_SERIAL,
+  };
+  if (opts.stage1?.issuer !== null) {
+    stage1SignatureInfo.issuer = opts.stage1?.issuer ?? "Whole Earth Labs LLC";
+  }
+  if (opts.stage1?.commonName !== undefined) {
+    stage1SignatureInfo.common_name = opts.stage1.commonName;
+  }
+
   return {
     active_manifest: "urn:test:stage2",
     manifests: {
@@ -193,7 +284,7 @@ function makeRealReelStore(opts: {
       // manifest object; the content-hash anchor (buildContentIdentity) reads it.
       "urn:test:stage1": {
         label: "urn:test:stage1",
-        signature_info: { cert_serial_number: STAGE_1_SERIAL },
+        signature_info: stage1SignatureInfo,
         ingredients: opts.stage1?.ingredients ?? [],
         assertions: stage1Assertions,
       },
@@ -265,7 +356,7 @@ describe("Policy — RealReel Stage 1 (parent / capture)", () => {
   it("baseline: clean Stage 1 + Stage 2 passes", async () => {
     stubBothKeysValid();
     const store = makeRealReelStore({});
-    const result = await verifyRealReel(store, "realreel");
+    const result = await verifyRealReel(store, "realreel", resolveSource);
     expect(result.sanitized.validation_state).toBe("trusted");
   });
 
@@ -279,7 +370,7 @@ describe("Policy — RealReel Stage 1 (parent / capture)", () => {
       },
     });
     await expect(
-      verifyRealReel(store, "realreel"),
+      verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("Stage 1 must be a fresh capture"),
@@ -292,7 +383,7 @@ describe("Policy — RealReel Stage 1 (parent / capture)", () => {
       stage1: { actions: ["c2pa.created", "c2pa.adjustedColor"] },
     });
     await expect(
-      verifyRealReel(store, "realreel"),
+      verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("c2pa.adjustedColor"),
@@ -305,7 +396,7 @@ describe("Policy — RealReel Stage 1 (parent / capture)", () => {
       stage1: { actions: ["c2pa.filtered"] },
     });
     await expect(
-      verifyRealReel(store, "realreel"),
+      verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
     });
@@ -317,7 +408,7 @@ describe("Policy — RealReel Stage 1 (parent / capture)", () => {
       stage1: { actions: ["c2pa.ai_generated"] },
     });
     await expect(
-      verifyRealReel(store, "realreel"),
+      verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
     });
@@ -329,7 +420,7 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
     stubBothKeysValid();
     const store = makeRealReelStore({ stage2: { ingredients: [] } });
     await expect(
-      verifyRealReel(store, "realreel"),
+      verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("Stage 2 must have exactly one ingredient"),
@@ -347,7 +438,7 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
       },
     });
     await expect(
-      verifyRealReel(store, "realreel"),
+      verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("exactly one ingredient"),
@@ -364,7 +455,7 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
       },
     });
     await expect(
-      verifyRealReel(store, "realreel"),
+      verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("'parentOf'"),
@@ -381,7 +472,7 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
       },
     });
     await expect(
-      verifyRealReel(store, "realreel"),
+      verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
     });
@@ -396,7 +487,7 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
         stage2: { actions: ["c2pa.opened", action] },
       });
       await expect(
-        verifyRealReel(store, "realreel"),
+        verifyRealReel(store, "realreel", resolveSource),
       ).rejects.toMatchObject({
         code: VerifyErrorCode.SIGNATURE_INVALID,
         detail: expect.stringContaining(action),
@@ -409,7 +500,7 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
     const store = makeRealReelStore({
       stage2: { actions: ["c2pa.opened", "c2pa.resized", "c2pa.transcoded"] },
     });
-    const result = await verifyRealReel(store, "realreel");
+    const result = await verifyRealReel(store, "realreel", resolveSource);
     expect(result.sanitized.validation_state).toBe("trusted");
   });
 
@@ -435,7 +526,7 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
         const store = makeRealReelStore({
           stage2: { actions: ["c2pa.opened", action] },
         });
-        const result = await verifyRealReel(store, "realreel");
+        const result = await verifyRealReel(store, "realreel", resolveSource);
         expect(result.sanitized.validation_state).toBe("trusted");
       });
     }
@@ -507,7 +598,7 @@ describe("Policy — attestationRequired strict mode", () => {
       stage2: { attestation: { kind: "app_attest" } },
     });
     await expect(
-      verifyRealReel(store, "realreel", undefined, true),
+      verifyRealReel(store, "realreel", resolveSource, undefined, true),
     ).rejects.toMatchObject({ code: VerifyErrorCode.ATTESTATION_INVALID });
   });
 
@@ -523,7 +614,7 @@ describe("Policy — attestationRequired strict mode", () => {
     });
     // attestationRequired omitted → lenient (false).
     await expect(
-      verifyRealReel(store, "realreel"),
+      verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({ code: VerifyErrorCode.ATTESTATION_INVALID });
   });
 
@@ -533,7 +624,7 @@ describe("Policy — attestationRequired strict mode", () => {
       stage2: { attestation: { kind: "play_integrity" } },
     });
     await expect(
-      verifyRealReel(store, "realreel", undefined, true),
+      verifyRealReel(store, "realreel", resolveSource, undefined, true),
     ).resolves.toBeDefined();
   });
 
@@ -546,7 +637,7 @@ describe("Policy — attestationRequired strict mode", () => {
       stage2: {},
     });
     await expect(
-      verifyRealReel(store, "realreel", undefined, true),
+      verifyRealReel(store, "realreel", resolveSource, undefined, true),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.ATTESTATION_MISSING,
     });
@@ -559,7 +650,7 @@ describe("Policy — attestationRequired strict mode", () => {
       stage2: {},
     });
     await expect(
-      verifyRealReel(store, "realreel", undefined, true),
+      verifyRealReel(store, "realreel", resolveSource, undefined, true),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.ATTESTATION_MISSING,
     });
@@ -578,7 +669,7 @@ describe("Policy — attestationRequired strict mode", () => {
       stage2: { attestation: { kind: "play_integrity" } },
     });
     await expect(
-      verifyRealReel(store, "realreel", undefined, true),
+      verifyRealReel(store, "realreel", resolveSource, undefined, true),
     ).resolves.toBeDefined();
   });
 
@@ -589,7 +680,7 @@ describe("Policy — attestationRequired strict mode", () => {
       stage2: { attestation: { kind: "app_attest" } },
     });
     await expect(
-      verifyRealReel(store, "realreel", undefined, true),
+      verifyRealReel(store, "realreel", resolveSource, undefined, true),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.ATTESTATION_INVALID,
     });
@@ -602,7 +693,7 @@ describe("Policy — attestationRequired strict mode", () => {
       stage2: { attestation: { kind: "play_integrity" } },
     });
     await expect(
-      verifyRealReel(store, "realreel", undefined, true),
+      verifyRealReel(store, "realreel", resolveSource, undefined, true),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.ATTESTATION_INVALID,
     });
@@ -615,7 +706,7 @@ describe("Policy — attestationRequired strict mode", () => {
       stage2: { attestation: { kind: "app_attest" } },
     });
     await expect(
-      verifyRealReel(store, "realreel", undefined, true),
+      verifyRealReel(store, "realreel", resolveSource, undefined, true),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.ATTESTATION_INVALID,
     });
@@ -631,15 +722,27 @@ describe("Policy — attestationRequired strict mode", () => {
       active_manifest: "urn:test:stage2",
       manifests: {
         "urn:test:stage1": {
-          signature_info: { cert_serial_number: STAGE_1_SERIAL },
+          label: "urn:test:stage1",
+          signature_info: {
+            cert_serial_number: STAGE_1_SERIAL,
+            issuer: "Whole Earth Labs LLC",
+          },
           ingredients: [],
           assertions: [
             { label: "c2pa.actions.v2", data: { actions: [{ action: "c2pa.created" }] } },
+            { label: "c2pa.hash.data", data: {} },
           ],
         },
         "urn:test:stage2": {
+          label: "urn:test:stage2",
           signature_info: { cert_serial_number: STAGE_2_SERIAL },
-          ingredients: [{ active_manifest: "urn:test:stage1", relationship: "parentOf" }],
+          ingredients: [
+            {
+              active_manifest: "urn:test:stage1",
+              relationship: "parentOf",
+              ...recordedResultsFor("clean", "assertion.dataHash.match"),
+            },
+          ],
           assertions: [
             {
               label: "c2pa.actions.v2",
@@ -653,7 +756,7 @@ describe("Policy — attestationRequired strict mode", () => {
       validation_status: [],
     };
     await expect(
-      verifyRealReel(store, "realreel", undefined, true),
+      verifyRealReel(store, "realreel", resolveSource, undefined, true),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.ATTESTATION_INVALID,
     });
@@ -669,7 +772,7 @@ describe("Policy — attestationRequired strict mode", () => {
     const store = makeRealReelStore({ stage1: {}, stage2: {} });
     // attestationRequired argument omitted → defaults to false.
     await expect(
-      verifyRealReel(store, "realreel"),
+      verifyRealReel(store, "realreel", resolveSource),
     ).resolves.toBeDefined();
   });
 
@@ -683,7 +786,7 @@ describe("Policy — attestationRequired strict mode", () => {
       stage2: { attestation: { kind: "play_integrity" } },
     });
     await expect(
-      verifyRealReel(store, "realreel", undefined, false),
+      verifyRealReel(store, "realreel", resolveSource, undefined, false),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.ATTESTATION_INVALID,
     });
@@ -746,7 +849,10 @@ function makeDrainedStore(opts?: {
     manifests: {
       "urn:test:stage1": {
         label: "urn:test:stage1",
-        signature_info: { cert_serial_number: STAGE_1_SERIAL },
+        signature_info: {
+          cert_serial_number: STAGE_1_SERIAL,
+          issuer: "Whole Earth Labs LLC",
+        },
         ingredients: opts?.captureIngredients ?? [],
         assertions: [
           {
@@ -757,6 +863,7 @@ function makeDrainedStore(opts?: {
               })),
             },
           },
+          { label: "c2pa.hash.data", data: {} },
         ],
       },
       "urn:test:update": {
@@ -766,6 +873,11 @@ function makeDrainedStore(opts?: {
           {
             active_manifest: opts?.updateParentLabel ?? "urn:test:stage1",
             relationship: "parentOf",
+            // The drain records the capture's sign-time verdict on the UM's
+            // entry — mirrors realreel-drained.jpg, where the UM→capture
+            // entry carries assertion.dataHash.match and the Stage-2→UM
+            // entry (no binding on an Update Manifest) carries none.
+            ...recordedResultsFor("clean", "assertion.dataHash.match"),
           },
         ],
         assertions: updateAssertions,
@@ -793,7 +905,7 @@ function makeDrainedStore(opts?: {
 describe("Policy — content hash (per-profile dedup key)", () => {
   it("returns a 64-hex content hash for a valid upload", async () => {
     stubBothKeysValid();
-    const result = await verifyRealReel(makeRealReelStore({}), "realreel");
+    const result = await verifyRealReel(makeRealReelStore({}), "realreel", resolveSource);
     expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -805,18 +917,19 @@ describe("Policy — content hash (per-profile dedup key)", () => {
     // before vs after a drain collides.
     stubBothKeysValid();
     stubBothKeysValid();
-    const undrained = await verifyRealReel(makeRealReelStore({}), "realreel");
-    const drained = await verifyRealReel(makeDrainedStore(), "realreel");
+    const undrained = await verifyRealReel(makeRealReelStore({}), "realreel", resolveSource);
+    const drained = await verifyRealReel(makeDrainedStore(), "realreel", resolveSource);
     expect(drained.contentHash).toBe(undrained.contentHash);
   });
 
   it("a trim on the upload changes the content hash (different section = different post)", async () => {
     stubBothKeysValid();
     stubBothKeysValid();
-    const whole = await verifyRealReel(makeRealReelStore({}), "realreel");
+    const whole = await verifyRealReel(makeRealReelStore({}), "realreel", resolveSource);
     const trimmed = await verifyRealReel(
       makeRealReelStore({ stage2: { actions: ["c2pa.opened", "c2pa.trimmed"] } }),
       "realreel",
+      resolveSource,
     );
     expect(trimmed.contentHash).not.toBe(whole.contentHash);
   });
@@ -827,7 +940,7 @@ describe("Policy — content hash (per-profile dedup key)", () => {
       manifests: Record<string, { label?: string }>;
     };
     delete store.manifests["urn:test:stage1"].label;
-    await expect(verifyRealReel(store, "realreel")).rejects.toMatchObject({
+    await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.MANIFEST_MALFORMED,
     });
   });
@@ -839,7 +952,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
     // structural — the Update Manifest gets no DB lookup), in that order.
     stubBothKeysValid();
     const store = makeDrainedStore();
-    const result = await verifyRealReel(store, "realreel");
+    const result = await verifyRealReel(store, "realreel", resolveSource);
     expect(result.sanitized.validation_state).toBe("trusted");
     // The Update Manifest is preserved in the sanitized store (the UI walks it).
     expect(result.sanitized.manifests["urn:test:update"]).toBeDefined();
@@ -856,7 +969,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
       updateHasTimestamp: false, // ← no c2pa.time-stamp → not an Update Manifest
       updateActions: ["c2pa.opened", "c2pa.resized"], // a real edit
     });
-    await expect(verifyRealReel(store, "realreel")).rejects.toMatchObject({
+    await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("fresh capture"),
     });
@@ -872,7 +985,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
         { active_manifest: "urn:test:ancestor", relationship: "parentOf" },
       ],
     });
-    await expect(verifyRealReel(store, "realreel")).rejects.toMatchObject({
+    await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("fresh capture"),
     });
@@ -880,7 +993,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
 
   it("runs the capture action allowlist on the TRUE capture", async () => {
     const store = makeDrainedStore({ captureActions: ["c2pa.created", "c2pa.resized"] });
-    await expect(verifyRealReel(store, "realreel")).rejects.toMatchObject({
+    await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("Stage 1"),
     });
@@ -903,7 +1016,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
       expires_at: "2026-10-28T00:00:00.000Z",
     });
     const store = makeDrainedStore();
-    await expect(verifyRealReel(store, "realreel")).rejects.toMatchObject({
+    await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.KEY_REVOKED,
     });
   });
@@ -913,14 +1026,14 @@ describe("Policy — TSA Update Manifest walk-through", () => {
     // incorporates the parent. Must NOT trip the Update-Manifest allowlist.
     stubBothKeysValid();
     const store = makeDrainedStore({ updateActions: ["c2pa.opened"] });
-    const result = await verifyRealReel(store, "realreel");
+    const result = await verifyRealReel(store, "realreel", resolveSource);
     expect(result.sanitized.validation_state).toBe("trusted");
   });
 
   it("rejects an Update Manifest carrying an editorial action (no edit smuggling)", async () => {
     // Realistic shape: c2pa.opened (allowed) PLUS a smuggled edit (rejected).
     const store = makeDrainedStore({ updateActions: ["c2pa.opened", "c2pa.resized"] });
-    await expect(verifyRealReel(store, "realreel")).rejects.toMatchObject({
+    await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("Update Manifest"),
     });
@@ -928,7 +1041,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
 
   it("rejects when the Update Manifest's parent ingredient is dangling", async () => {
     const store = makeDrainedStore({ updateParentLabel: "urn:test:does-not-exist" });
-    await expect(verifyRealReel(store, "realreel")).rejects.toMatchObject({
+    await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.MANIFEST_MALFORMED,
     });
   });
@@ -968,9 +1081,162 @@ describe("Policy — TSA Update Manifest walk-through", () => {
       manifests,
       validation_status: [],
     };
-    await expect(verifyRealReel(store, "realreel")).rejects.toMatchObject({
+    await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("depth"),
     });
+  });
+});
+
+// ---------------------------------------------------------------
+// Stage 1 trust source + hard binding (the wrap-mode tamper gates)
+// ---------------------------------------------------------------
+//
+// Background: an edited capture keeps a perfectly valid claim SIGNATURE —
+// editing bytes breaks only the hard BINDING, and the parent's original
+// bytes never reach the server. These gates consume the sign-time verdict
+// photo-attest records into the Stage-2 c2pa.ingredient.v3 assertion
+// (see trust-core policies/binding.ts) and make wrap_parent_only a real,
+// enforced role for the parent's trust source.
+
+/** Wrap-mode stubs: Stage-1 serial NOT in the ledger (a Pixel cert was never
+ *  enrolled — denylist skip), Stage-2 enrolled + valid. */
+function stubWrapKeys(): void {
+  vi.mocked(lookupSigningKeyRevocation)
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce({
+      key_id: "device-hw-key",
+      user_id: FIXTURE_USER_ID,
+      revoked_at: null,
+      cert_serial_number: STAGE_2_SERIAL,
+      platform: "ios",
+      public_key: Buffer.alloc(0),
+      app_attest_public_key: null,
+      issued_at: "2026-05-01T00:00:00.000Z",
+      expires_at: "2026-10-28T00:00:00.000Z",
+    });
+}
+
+const PIXEL_STAGE1 = {
+  issuer: "C=US, O=Google LLC, CN=Google C2PA Mobile A 1P ICA G3 L2",
+  commonName: "Pixel Camera",
+};
+
+describe("Policy — Stage 1 trust source (wrap_parent_only made real)", () => {
+  it("accepts a clean Pixel wrap parent (photo)", async () => {
+    stubWrapKeys();
+    const store = makeRealReelStore({ stage1: { ...PIXEL_STAGE1 } });
+    const result = await verifyRealReel(store, "realreel", resolveSource);
+    expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("rejects UNTRUSTED_ISSUER when the parent's identity matches no trust source (pooled-anchor hole)", async () => {
+    // A cert chaining to a pooled TSA root (DigiCert / SSL.com) passes
+    // c2pa-rs chain validation but must fail HERE: its identity matches no
+    // TRUSTED_ISSUERS entry.
+    const store = makeRealReelStore({
+      stage1: { issuer: "C=US, O=DigiCert Inc, CN=DigiCert Trusted G4 Code Signing" },
+    });
+    await expect(
+      verifyRealReel(store, "realreel", resolveSource),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.UNTRUSTED_ISSUER });
+  });
+
+  it("rejects UNTRUSTED_ISSUER when a Google-LLC parent lacks the Pixel Camera CN pin", async () => {
+    // Sibling Google programs (Photos, Drive) must not qualify as capture
+    // sources — same commonNameMatch pin the active-manifest dispatch uses.
+    const store = makeRealReelStore({
+      stage1: { issuer: "C=US, O=Google LLC", commonName: "Google Photos" },
+    });
+    await expect(
+      verifyRealReel(store, "realreel", resolveSource),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.UNTRUSTED_ISSUER });
+  });
+
+  it("rejects MANIFEST_MALFORMED when the capture has no issuer at all", async () => {
+    const store = makeRealReelStore({ stage1: { issuer: null } });
+    await expect(
+      verifyRealReel(store, "realreel", resolveSource),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.MANIFEST_MALFORMED });
+  });
+});
+
+describe("Policy — Stage 1 hard binding (recorded sign-time verdict)", () => {
+  it("rejects PARENT_BINDING_FAILED for a tampered Pixel photo wrap (recorded mismatch)", async () => {
+    // THE headline case: bytes edited after capture, manifest intact and
+    // chain-valid. Only the recorded binding verdict catches it.
+    const store = makeRealReelStore({
+      stage1: { ...PIXEL_STAGE1 },
+      stage2: { recordedBinding: "mismatch" },
+    });
+    await expect(
+      verifyRealReel(store, "realreel", resolveSource),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.PARENT_BINDING_FAILED });
+  });
+
+  it("rejects PARENT_BINDING_FAILED when the recorded verdict is absent (fail-closed)", async () => {
+    const store = makeRealReelStore({
+      stage1: { ...PIXEL_STAGE1 },
+      stage2: { recordedBinding: "absent" },
+    });
+    await expect(
+      verifyRealReel(store, "realreel", resolveSource),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.PARENT_BINDING_FAILED });
+  });
+
+  it("rejects PARENT_BINDING_FAILED when the positive match proof is missing", async () => {
+    const store = makeRealReelStore({
+      stage1: { ...PIXEL_STAGE1 },
+      stage2: { recordedBinding: "match_missing" },
+    });
+    await expect(
+      verifyRealReel(store, "realreel", resolveSource),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.PARENT_BINDING_FAILED });
+  });
+
+  it("rejects a tampered RealReel-camera VIDEO (own-camera bmff is enforced regardless of the wrap gate)", async () => {
+    const store = makeRealReelStore({
+      stage1: { bindingLabel: "c2pa.hash.bmff.v3" },
+      stage2: { recordedBinding: "mismatch" },
+    });
+    await expect(
+      verifyRealReel(store, "realreel", resolveSource),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.PARENT_BINDING_FAILED });
+  });
+
+  it("accepts a label-less capture with a clean data record — c2pa-rs hides c2pa.hash.data from Reader JSON", async () => {
+    // Mirrors realreel-uploaded.jpg: the JPEG capture manifest surfaces NO
+    // hash assertion label; the family defaults to "data" and the recorded
+    // assertion.dataHash.match is still required (and present here).
+    stubBothKeysValid();
+    const store = makeRealReelStore({ stage1: { bindingLabel: null } });
+    const result = await verifyRealReel(store, "realreel", resolveSource);
+    expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("accepts a clean Pixel VIDEO wrap (bmff) — the supported path keeps working", async () => {
+    stubWrapKeys();
+    const store = makeRealReelStore({
+      stage1: { ...PIXEL_STAGE1, bindingLabel: "c2pa.hash.bmff.v3" },
+      stage2: { recordedBinding: "clean" },
+    });
+    const result = await verifyRealReel(store, "realreel", resolveSource);
+    expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("rejects a wrap-mode Pixel VIDEO with a recorded bmff mismatch — enforcement is unconditional", async () => {
+    // ⚠️ KNOWN CONSEQUENCE, deliberately accepted: released mobile SDKs
+    // predate c2pa-rs #2434 and record this same false mismatch for every
+    // GENUINE Pixel video, so wrap-mode Pixel videos — genuine or tampered
+    // — are rejected until the SDK bump. Acceptance restores itself once
+    // bumped SDKs record clean verdicts (the clean-wrap test above is that
+    // contract); nothing to flip.
+    const store = makeRealReelStore({
+      stage1: { ...PIXEL_STAGE1, bindingLabel: "c2pa.hash.bmff.v3" },
+      stage2: { recordedBinding: "mismatch" },
+    });
+    await expect(
+      verifyRealReel(store, "realreel", resolveSource),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.PARENT_BINDING_FAILED });
   });
 });

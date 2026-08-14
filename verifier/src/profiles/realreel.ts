@@ -32,7 +32,8 @@
 // what abuse tooling maps an offending cert → account by.
 //
 // Both the signing-key lookup and the nonce burn key on
-// signature_info.cert_serial_number: c2pa-node v0.5.5's Reader does not
+// signature_info.cert_serial_number: c2pa-node's Reader (pinned on 0.5.5,
+// re-verified on 0.8.0) does not
 // expose the leaf cert bytes via the public API but does expose the serial
 // directly, and our CA mints a fresh random serial per leaf, so it is
 // equivalently unique.
@@ -50,11 +51,14 @@ import {
   classifyStrictValidationStatus,
   enforceActionsAllowlist,
   enforceFreshCaptureStage1,
+  enforceParentBinding,
+  enforceParentTrustSource,
   enforceStage2Parent,
   resolveCaptureThroughUpdateManifests,
   CAPTURE_ALLOWED_ACTIONS,
   REALREEL_UPLOAD_ALLOWED_ACTIONS,
 } from "./_shared.js";
+import type { TrustSourceResolver } from "../trust/dispatcher.js";
 import {
   consumeAppAttestForStage,
   hasAppAttestAssertion,
@@ -86,6 +90,10 @@ export interface RealReelVerifyResult {
  *   manifest — not the hardcoded literal "realreel". Allows future
  *   multi-source-with-same-profile setups (e.g. a transitional second
  *   RealReel root for CA rotation) without mislabeling rows.
+ * @param resolveTrustSource Resolver for the Stage-1 CAPTURE's trust
+ *   source (makeTrustSourceResolver over the loaded TrustConfig), so its
+ *   verification_profile can be enforced. Required — a caller that can't
+ *   resolve sources can't safely accept wrap parents.
  * @param playIntegrityConfig Optional config for the Android Play
  *   Integrity validator. When undefined, Android manifests pass through
  *   leniently (structural envelope accepted, JWS decode skipped).
@@ -110,6 +118,7 @@ export interface RealReelVerifyResult {
 export async function verifyRealReel(
   storeUnknown: unknown,
   sourceId: string,
+  resolveTrustSource: TrustSourceResolver,
   playIntegrityConfig?: PlayIntegrityConfig,
   attestationRequired: boolean = false,
   datastore: VerifierDatastore = postgresAdapter,
@@ -125,7 +134,7 @@ export async function verifyRealReel(
   // always validation_state 'trusted'.
   classifyStrictValidationStatus(store.validation_status ?? []);
 
-  // active_manifest is a LABEL string in c2pa-node v0.5.5; resolve the object.
+  // active_manifest is a LABEL string in c2pa-node (0.5.5 through 0.8.0); resolve the object.
   const active = getActiveManifest(store);
   if (!active) {
     throw new VerifyError(
@@ -155,6 +164,17 @@ export async function verifyRealReel(
   // otherwise it's an edited photo masquerading as a trusted-camera source.
   enforceFreshCaptureStage1(capture);
   enforceActionsAllowlist(capture, CAPTURE_ALLOWED_ACTIONS, "Stage 1");
+
+  // Stage 1 trust-source role: c2pa-rs only proved the chain reaches SOME
+  // pooled anchor; this is the policy layer saying which anchors may vouch
+  // for a capture (profile "realreel" or "wrap_parent_only").
+  enforceParentTrustSource(capture, resolveTrustSource);
+
+  // Stage 1 hard binding, via the recorded c2pa.ingredient.v3 verdict. An
+  // edited capture with an intact, chain-valid manifest is caught HERE and
+  // nowhere else — see trust-core policies/binding.ts, including the known
+  // Pixel-video limitation.
+  enforceParentBinding(store, capture);
 
   // Stage 2 (active) actions must be a subset of the upload-stage allowlist
   // (compression, rotation, EXIF re-injection). All structural checks run

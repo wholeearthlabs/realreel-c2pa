@@ -22,7 +22,8 @@ import {
 import { VerifyError, VerifyErrorCode } from "./errors.js";
 import type { PlayIntegrityConfig } from "./config.js";
 import type { TrustConfig } from "./trust/types.js";
-import { identifyTrustSource } from "./trust/dispatcher.js";
+import { makeTrustSourceResolver } from "./trust/dispatcher.js";
+import { sniffContainer } from "./container-sniff.js";
 import { verifyRealReel } from "./profiles/realreel.js";
 import { postgresAdapter } from "./db.js";
 import type { VerifierDatastore } from "./ports.js";
@@ -39,7 +40,10 @@ import {
 } from "./cert-validity.js";
 import { deriveMetadata, type DerivedMetadata } from "./derive-metadata.js";
 import { enforceLocationPrivacy } from "./location-privacy.js";
-import type { LocationLevel } from "@realreel/c2pa-trust-core";
+import {
+  ALLOWED_UPLOAD_MIME_TYPES,
+  type LocationLevel,
+} from "@realreel/c2pa-trust-core";
 import { Sentry } from "./observability.js";
 
 export interface VerifyArgs {
@@ -128,12 +132,33 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     datastore = postgresAdapter,
   } = args;
 
+  // Gate the client-supplied mimeType BEFORE it selects a c2pa-rs asset
+  // handler. The edge function runs the same allowlist for a cheap 400;
+  // this is the trust-boundary copy. JPEG-vs-ISOBMFF is the only handler
+  // boundary to police: c2pa-rs serves every allowed ISOBMFF type
+  // (mp4/mov/heic/heif) with the single BmffIO handler.
+  const normalizedMime = mimeType.toLowerCase();
+  if (!ALLOWED_UPLOAD_MIME_TYPES.has(normalizedMime)) {
+    throw new VerifyError(
+      VerifyErrorCode.MANIFEST_MALFORMED,
+      `unsupported mimeType '${mimeType}'`,
+    );
+  }
+  const expectedContainer =
+    normalizedMime === "image/jpeg" ? "jpeg" : "isobmff";
+  if (sniffContainer(assetBytes) !== expectedContainer) {
+    throw new VerifyError(
+      VerifyErrorCode.MANIFEST_MALFORMED,
+      `asset bytes do not match declared mimeType '${mimeType}'`,
+    );
+  }
+
   const trustSettings = buildVerifierSettings(trustConfig);
 
   let reader: Reader | null;
   try {
     reader = await Reader.fromAsset(
-      { buffer: assetBytes, mimeType },
+      { buffer: assetBytes, mimeType: normalizedMime },
       trustSettings,
     );
   } catch (e) {
@@ -167,27 +192,18 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   }
   const commonName = readActiveCommonName(store);
 
-  const sourceId = identifyTrustSource(issuer, commonName, trustConfig);
-  if (!sourceId) {
-    // c2pa-node validated the chain to one of our trust anchors, but
-    // the issuer DN doesn't match any TRUSTED_ISSUERS entry whose PEM
-    // is loaded. Shouldn't happen if the shared trust list, the
-    // verifier YAML, and the on-disk PEMs are in sync — flag as a
-    // "verifier misconfiguration" signal.
+  // One resolver for both manifests: the active lookup here, the parent
+  // lookup inside verifyRealReel — so the two can't drift on matching rules.
+  const resolveSource = makeTrustSourceResolver(trustConfig);
+  const source = resolveSource(issuer, commonName);
+  if (!source) {
+    // c2pa-node validated the chain to one of our trust anchors, but the
+    // issuer identity doesn't resolve to a configured source. Shouldn't
+    // happen if the shared trust list, the verifier YAML, and the on-disk
+    // PEMs are in sync — a "verifier misconfiguration" signal.
     throw new VerifyError(
       VerifyErrorCode.UNTRUSTED_ISSUER,
       `issuer '${issuer}' does not match any configured trust source`,
-    );
-  }
-
-  const source = trustConfig.sources.find((s) => s.id === sourceId);
-  if (!source) {
-    // Defensive — the dispatcher returned a sourceId the source list doesn't
-    // carry. Distinct message so triage can tell this apart from the no-match
-    // branch above.
-    throw new VerifyError(
-      VerifyErrorCode.UNTRUSTED_ISSUER,
-      `internal: trust source '${sourceId}' present in dispatcher but missing from config`,
     );
   }
 
@@ -199,7 +215,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   // trust bundle ONLY to validate Pixel *parents* in wrap mode, never to
   // ingest a Pixel-active file. UNTRUSTED_ISSUER is the closest existing
   // code — the cert chain is trusted, but not as a RealReel Stage 2.
-  if (source.verification_profile !== "realreel") {
+  if (source.profile !== "realreel") {
     throw new VerifyError(
       VerifyErrorCode.UNTRUSTED_ISSUER,
       `active manifest issuer '${issuer}' (${source.name}) is not RealReel — ` +
@@ -221,6 +237,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   const { sanitized, contentHash } = await verifyRealReel(
     store,
     source.id,
+    resolveSource,
     playIntegrityConfig,
     attestationRequired,
     datastore,
@@ -232,7 +249,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   // the probe is sound. `active` is the Stage-2 RealReel manifest, which
   // carries c2pa.metadata (legacy stds.exif/stds.iptc for pre-cutover app
   // builds) even for a wrapped Pixel parent.
-  const derived = await deriveMetadata({ assetBytes, mimeType, active });
+  const derived = await deriveMetadata({ assetBytes, mimeType: normalizedMime, active });
 
   // Location-privacy backstop (see location-privacy.ts): reject a declared-level
   // violation (non-precise upload carrying GPS) or a file-byte GPS leak; signal

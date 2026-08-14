@@ -37,6 +37,26 @@ export interface AssertionShape {
   data?: unknown;
 }
 
+/** One entry of a c2pa-rs validation report. The same shape appears in the
+ * store-level `validation_status` array, in every `validation_results`
+ * bucket, and in the sign-time report recorded inside a `c2pa.ingredient.v3`
+ * assertion. */
+export interface ValidationStatusEntryShape {
+  code: string;
+  explanation?: string | null;
+  url?: string | null;
+}
+
+/** The three-bucket per-manifest validation report c2pa-rs emits under
+ * claim v2 (C2PA §15.2.1). `success` carries positive proofs (e.g.
+ * `assertion.dataHash.match`), `failure` carries hard rejections; entries in
+ * `informational` are advisory only. */
+export interface ValidationResultsBucketsShape {
+  success?: ValidationStatusEntryShape[];
+  informational?: ValidationStatusEntryShape[];
+  failure?: ValidationStatusEntryShape[];
+}
+
 /** Ingredient entries. The active_manifest field is a LABEL string pointing
  * into store.manifests, NOT a manifest object.
  *
@@ -52,6 +72,20 @@ export interface AssertionShape {
 export interface IngredientShape {
   active_manifest?: string;
   relationship?: string;
+  /** Ingredient MIME type as recorded by the claim generator. Display-
+   * informational; policy keys media kind off the capture's hard-binding
+   * assertion label instead. */
+  format?: string;
+  /** The SIGN-TIME validation report recorded into the `c2pa.ingredient.v3`
+   * assertion when the ingredient was added (C2PA §19.3). Once upload
+   * transforms replace the parent's bytes, this is the ONLY artifact that
+   * carries the parent's hard-binding verdict — later validators can't
+   * recompute it and do NOT re-surface these entries into store-level
+   * validation_status, so the verifier's parent-binding gate
+   * (policies/binding.ts) reads them here explicitly. */
+  validation_results?: {
+    activeManifest?: ValidationResultsBucketsShape;
+  };
 }
 
 /** A single manifest within store.manifests[label]. */
@@ -71,11 +105,24 @@ export interface ManifestShape {
 export interface ManifestStoreShape {
   active_manifest?: string;
   manifests?: Record<string, ManifestShape>;
-  validation_status?: Array<{
-    code: string;
-    explanation?: string | null;
-    url?: string | null;
-  }>;
+  /** Aggregated FAILURES for the whole store (active manifest ∪ ingredient
+   * deltas); `undefined` when nothing fatal. Blind spot the parent-binding
+   * gate exists for: sign-time ingredient verdicts
+   * (IngredientShape.validation_results) never land here. */
+  validation_status?: ValidationStatusEntryShape[];
+  /** "Trusted" | "Valid" | "Invalid" — display summary; consumers gate on
+   * validation_status / validation_results instead. */
+  validation_state?: string;
+  /** Claim-v2 per-manifest report (C2PA §15.2.1): active manifest's three
+   * buckets + per-ingredient deltas the validator computed itself (parent
+   * cert trust etc. — never the parent's hard binding). */
+  validation_results?: {
+    activeManifest?: ValidationResultsBucketsShape;
+    ingredientDeltas?: Array<{
+      ingredientAssertionURI?: string;
+      validationDeltas?: ValidationResultsBucketsShape;
+    }>;
+  };
 }
 
 /**
