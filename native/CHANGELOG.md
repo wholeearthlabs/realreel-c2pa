@@ -1,5 +1,21 @@
 # @realreel/photo-attest
 
+## 0.5.0
+
+### Minor Changes
+
+- [`aa7aee0`](https://github.com/wholeearthlabs/realreel-c2pa/commit/aa7aee03a3a8dbaae2f3ff7b399ef02355069f37) Thanks [@boojamya](https://github.com/boojamya)! - Remove `c2pa.cropped` from the Stage-2 action allowlist, the content-hash extent set, and the `Stage2Action` union. The app never emits it, and an allowlisted-but-unemitted action is free attack surface — a declared crop could trim away the telltale edges of a recaptured scene. Any Stage 2 manifest declaring a crop now hard-rejects (`SIGNATURE_INVALID`); no published manifest ever carried the action, so no stored media or `content_hash` is affected.
+
+### Patch Changes
+
+- [`6e533a6`](https://github.com/wholeearthlabs/realreel-c2pa/commit/6e533a644983aeab0354824a646590064b5efc60) Thanks [@boojamya](https://github.com/boojamya)! - Enforce the wrapped parent's hard binding end-to-end, closing the wrap-mode tamper gap (an edited capture with an intact, chain-valid manifest previously verified as Trusted).
+
+  trust-core: new shared binding policy (`findBindingFailureCodes`, `findContentTamperCodes`, `findRecordedBindingViolation`) plus the shared `ALLOWED_UPLOAD_MIME_TYPES`, typed `validation_status` / `validation_results` / ingredient recorded-results shapes, and the `PARENT_BINDING_FAILED` error code. Enforcement is unconditional and fail-closed — content whose binding cannot be verified is not accepted. Known accepted consequence: released mobile SDKs (c2pa-ios ≤ 0.0.12, c2pa-android ≤ 0.0.10, both pre c2pa-rs [#2434](https://github.com/wholeearthlabs/realreel-c2pa/issues/2434)) record a false `bmffHash.mismatch` for genuine Pixel videos, so wrap-mode Pixel VIDEOS are rejected until the SDK bump; acceptance restores itself once bumped SDKs record clean verdicts.
+
+  Verifier (deploys with this release): rejects `PARENT_BINDING_FAILED` unless the Stage-2 `c2pa.ingredient.v3` recorded results carry the positive binding match and no binding failure (fail-closed on an absent record); resolves the PARENT's trust source and enforces `wrap_parent_only` (previously decorative — any pooled anchor, including the TSA roots, could vouch for a "camera"); allowlists + magic-sniffs the client-supplied mimeType before it selects a c2pa-rs asset handler.
+
+  photo-attest: doc-only — the recorded ingredient `validationResults` contract now notes the binding portion is enforced server-side.
+
 ## 0.4.0
 
 ### Minor Changes
