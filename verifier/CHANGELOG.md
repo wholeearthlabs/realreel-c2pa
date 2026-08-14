@@ -1,5 +1,24 @@
 # @realreel/verifier
 
+## 0.9.0
+
+### Minor Changes
+
+- [`aa7aee0`](https://github.com/wholeearthlabs/realreel-c2pa/commit/aa7aee03a3a8dbaae2f3ff7b399ef02355069f37) Thanks [@boojamya](https://github.com/boojamya)! - Remove `c2pa.cropped` from the Stage-2 action allowlist, the content-hash extent set, and the `Stage2Action` union. The app never emits it, and an allowlisted-but-unemitted action is free attack surface — a declared crop could trim away the telltale edges of a recaptured scene. Any Stage 2 manifest declaring a crop now hard-rejects (`SIGNATURE_INVALID`); no published manifest ever carried the action, so no stored media or `content_hash` is affected.
+
+### Patch Changes
+
+- [#39](https://github.com/wholeearthlabs/realreel-c2pa/pull/39) [`5d1ce6a`](https://github.com/wholeearthlabs/realreel-c2pa/commit/5d1ce6ab31ebfe24d12b0ceb9ce3df1c243ca4ce) Thanks [@dependabot](https://github.com/apps/dependabot)! - Update the C2PA engine: `@contentauth/c2pa-node` 0.8.0 → 0.8.3 and `@contentauth/c2pa-types` 0.7.2 → 0.7.3, which carries `c2pa-rs` 0.90.3 → 0.90.5.
+
+  Unlike the last engine bump, this one is worth a redeploy for the read path rather than the builder: 0.90.4 replaces the `mp4` crate with a hardened native BMFF sample reader (CAI-12277), rejects timed-media BMFF Merkle maps that verify against no track, hardens the ID3 v2.3 frame decoder against integer underflow, and tightens URI checks for (data)boxes reached through redactions; 0.90.5 fixes an integer-underflow panic in `read_desc_box` via a JUMD toggle-driven field-size mismatch. Every one of those is a stricter verdict or a removed panic on attacker-supplied bytes — none relaxes a check. The full verification suite passes unchanged against the real fixture media.
+
+  The published tarball still bundles a single-arch `linux/amd64` prebuilt with a glibc 2.34 floor, so the image's `--platform=linux/amd64` + `--ignore-scripts` + bookworm assumptions are unchanged.
+
+  Also bumps `fastify` 5.11.0 → 5.11.3.
+
+- Updated dependencies [[`aa7aee0`](https://github.com/wholeearthlabs/realreel-c2pa/commit/aa7aee03a3a8dbaae2f3ff7b399ef02355069f37), [`6e533a6`](https://github.com/wholeearthlabs/realreel-c2pa/commit/6e533a644983aeab0354824a646590064b5efc60)]:
+  - @realreel/c2pa-trust-core@0.6.0
+
 ## 0.8.1
 
 ### Patch Changes
