@@ -73,9 +73,20 @@ export interface TrustConfig {
   /** TSA roots from trust-sources.yaml's `tsa_roots:` (post-load). */
   tsaRoots: TsaRoot[];
 
-  /** Concatenated PEM bundle to pass to c2pa-node's settings.trust.trust_anchors.
-   *  Includes BOTH signer roots (from `sources`) AND TSA roots (from `tsaRoots`)
-   *  — c2pa-rs uses one pool for both signing-cert and TSA validation. */
+  /** Concatenated PEM bundle for c2pa-node's settings.trust.trust_anchors:
+   *  signer roots AND TSA roots. Pooling is forced — c2pa-rs uses one pool
+   *  for both and offers no separate TSA anchor setting (checked against
+   *  c2pa-node 0.8.0 / c2pa-rs 0.90.1).
+   *
+   *  ⚠️ RESIDUAL + MITIGATION: chain validation alone would accept a
+   *  manifest chaining to a pooled TSA root (DigiCert, SSL.com) as readily
+   *  as one chaining to a camera root. The POLICY layer scopes each
+   *  anchor's role — active manifest must resolve to a `realreel`-profile
+   *  source (force-wrap) and the capture to a capture-capable source
+   *  (enforceParentTrustSource); both keyed on TRUSTED_ISSUERS identity
+   *  matches a TSA-rooted cert won't satisfy without defrauding a public
+   *  CA's org validation. If c2pa-rs grows a distinct TSA anchor setting,
+   *  split this bundle. */
   trustAnchorsBundle: string;
 
   /** Set of source ids whose PEM loaded successfully. Read by

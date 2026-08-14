@@ -7,8 +7,15 @@
 // for video, the signed trim extent. Anchoring on the capture means the
 // same capture re-uploaded with any transform collides, while two different
 // video trims don't. The label is the anchor (not a byte digest) because
-// c2pa-node doesn't surface a capture's hash binding for an ingredient manifest,
-// and the label is invariant to offline-TSA-drain state. Trim matching is exact.
+// c2pa-node doesn't surface a capture's hash binding for an ingredient manifest
+// (Reader JSON hides plain c2pa.hash.data assertions outright — there are no
+// digest bytes to anchor on), and the label is invariant to offline-TSA-drain
+// state. Trim matching is exact.
+//
+// Label-vs-bytes integrity: the parent-binding gate (policies/binding.ts)
+// guarantees every ACCEPTED upload's capture label corresponds to bytes that
+// verified clean against the capture's signed hash, so a byte-anchor would
+// add nothing.
 
 import type { ManifestShape } from "../shapes/manifest.js";
 import { extractActionEntries } from "./actions.js";

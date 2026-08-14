@@ -98,6 +98,14 @@ export const VerifyErrorCode = {
    *  signed manifest doesn't carry — the client strip failed and the verifier's
    *  privacy backstop rejected it. Recovery: re-upload. */
   LOCATION_PRIVACY_VIOLATION: "LOCATION_PRIVACY_VIOLATION",
+
+  /** The parent capture's hard binding was not verified clean at Stage-2
+   *  sign time: the recorded c2pa.ingredient.v3 validationResults carry a
+   *  binding failure, lack the positive match, or are absent. The sign-time
+   *  record is the only carrier of this verdict (the parent's bytes never
+   *  reach the server). User meaning: media modified after capture. See
+   *  trust-core policies/binding.ts. */
+  PARENT_BINDING_FAILED: "PARENT_BINDING_FAILED",
 } as const;
 
 export type VerifyErrorCode = typeof VerifyErrorCode[keyof typeof VerifyErrorCode];

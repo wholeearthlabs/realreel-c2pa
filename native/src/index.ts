@@ -457,6 +457,16 @@ export interface SignC2PAUploadOptions {
    * than blocking the sign, and so does a pool the native c2pa build
    * cannot load (the sign falls back to anchorless with a warning log).
    *
+   * Downstream contract (since the verifier's parent-binding gate): the
+   * recorded results split into two roles. Cert/TSA-trust entries stay
+   * advisory — the verifier re-validates chains itself. The HARD-BINDING
+   * entries are ENFORCED: the verifier requires the recorded
+   * `assertion.dataHash.match` / `bmffHash.match` and rejects
+   * `PARENT_BINDING_FAILED` on a recorded binding failure or an absent
+   * record, because this sign-time record is the only artifact carrying
+   * the parent-bytes verdict once upload transforms discard the original.
+   * The sign itself still never throws on it.
+   *
    * Pass it consistently (always or never within a process): iOS applies
    * settings process-globally with merge semantics, so anchors from an
    * earlier anchored sign can linger and color a later unanchored sign's

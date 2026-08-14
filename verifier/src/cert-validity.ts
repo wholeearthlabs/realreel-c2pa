@@ -1,6 +1,7 @@
 // Time-bound cert-validity gates layered on top of c2pa-rs.
 //
-// c2pa-node v0.5.5 does NOT surface cert.notBefore/notAfter (only
+// c2pa-node (pinned on 0.5.5, re-verified on 0.8.0) does NOT surface
+// cert.notBefore/notAfter (only
 // signature_info.{issuer, common_name, cert_serial_number, time, alg}) —
 // but for the RealReel-signed ACTIVE manifest we don't need the chain:
 // the issued_certificates ledger records every leaf's actual validity

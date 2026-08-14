@@ -29,7 +29,7 @@
 // `tokenPayloadExternal.requestDetails.requestHash` equals
 // base64url(SHA256(challenge || signing_leaf_SPKI)). The Android module
 // already produces this binding device-side; the verifier can't reconstruct
-// it because c2pa-node v0.5.5 doesn't expose the leaf cert's SPKI bytes.
+// it because c2pa-node (0.5.5 through 0.8.0) doesn't expose the leaf cert's SPKI bytes.
 // Defended by the nonce burn alone for now — a token issued for device A's
 // SPKI can't be replayed against device B's manifest because the (key_id,
 // nonce) consume RPC binds the nonce to device A's signing key.
