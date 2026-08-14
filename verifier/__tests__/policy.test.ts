@@ -1103,7 +1103,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
  *  enrolled — denylist skip), Stage-2 enrolled + valid. */
 function stubWrapKeys(): void {
   vi.mocked(lookupSigningKeyRevocation)
-    .mockResolvedValueOnce(undefined)
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce({
       key_id: "device-hw-key",
       user_id: FIXTURE_USER_ID,
