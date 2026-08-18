@@ -1,6 +1,6 @@
 // C2PA Conformance Program v0.2 validation test harness: (asset, C2PA Trust
 // List, TSA Trust List, RFC 3339 instant) → crJSON. Full rationale and usage
-// in verifier/README.md "Conformance test harness"; the short form:
+// in verifier/CRJSON_HARNESS.md; the short form:
 //
 // c2pa-node exposes neither c2pa-rs's crJSON serializer nor a validation-time
 // override, and c2pa-rs reads the system clock (SystemTime::now for

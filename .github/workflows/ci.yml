@@ -70,7 +70,7 @@ jobs:
       # The crJSON conformance harness (verifier/src/harness/, tests in
       # verifier/__tests__/harness/) drives c2patool under libfaketime. Pin +
       # checksum mirror the Dockerfile's crjson-harness stage and are recorded
-      # in verifier/README.md; CRJSON_HARNESS_REQUIRED=1 below turns "tools
+      # in verifier/CRJSON_HARNESS.md; CRJSON_HARNESS_REQUIRED=1 below turns "tools
       # missing" from a skip into a failure.
       - name: Install faketime + c2patool (crJSON harness)
         env:
