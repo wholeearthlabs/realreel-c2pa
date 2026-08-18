@@ -23,7 +23,7 @@ import { extractActionEntries } from "./actions.js";
 /**
  * Actions whose parameters change WHICH portion of the capture is published,
  * making the upload a distinct piece of content. Everything else on the Stage-2
- * allowlist (resize/rotate/transcode/redact/opened) leaves the published extent
+ * allowlist (resize/orientation/transcode/redact/edited.metadata/opened) leaves the published extent
  * unchanged and is deliberately excluded.
  */
 const EXTENT_ACTION_LABELS: ReadonlySet<string> = new Set([

@@ -10,6 +10,7 @@ import {
   CAPTURE_ALLOWED_ACTIONS,
   REALREEL_UPLOAD_ALLOWED_ACTIONS,
   extractManifestActions,
+  extractCreatedDigitalSourceType,
   findDisallowedActions,
 } from "../actions.js";
 import type { ManifestShape } from "../../shapes/manifest.js";
@@ -44,11 +45,12 @@ describe("allowlist constants — surface contract", () => {
     expect([...REALREEL_UPLOAD_ALLOWED_ACTIONS].sort()).toEqual(
       [
         "c2pa.opened",
-        "c2pa.rotated",
-        "c2pa.resized",
+        "c2pa.orientation",
+        "c2pa.resized.proportional",
         "c2pa.transcoded",
         "c2pa.trimmed",
         "c2pa.redacted",
+        "c2pa.edited.metadata",
       ].sort(),
     );
   });
@@ -136,7 +138,7 @@ describe("findDisallowedActions", () => {
   it("returns null when every action is allowed (UPLOAD allowlist, multiple actions)", () => {
     expect(
       findDisallowedActions(
-        manifestWithActions(["c2pa.opened", "c2pa.resized", "c2pa.transcoded"]),
+        manifestWithActions(["c2pa.opened", "c2pa.resized.proportional", "c2pa.transcoded"]),
         REALREEL_UPLOAD_ALLOWED_ACTIONS,
       ),
     ).toBeNull();
@@ -190,5 +192,51 @@ describe("findDisallowedActions", () => {
     expect(
       findDisallowedActions({ assertions: [] }, CAPTURE_ALLOWED_ACTIONS),
     ).toBeNull();
+  });
+});
+
+describe("extractCreatedDigitalSourceType", () => {
+  const DIGITAL_CAPTURE = "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture";
+  const COMPUTATIONAL = "http://cv.iptc.org/newscodes/digitalsourcetype/computationalCapture";
+
+  it("returns the created action's digitalSourceType verbatim", () => {
+    const manifest: ManifestShape = {
+      assertions: [
+        {
+          label: "c2pa.actions.v2",
+          data: { actions: [{ action: "c2pa.created", digitalSourceType: COMPUTATIONAL }] },
+        },
+      ],
+    };
+    expect(extractCreatedDigitalSourceType(manifest)).toBe(COMPUTATIONAL);
+  });
+
+  it("ignores digitalSourceType on other actions and reads only c2pa.created", () => {
+    const manifest: ManifestShape = {
+      assertions: [
+        {
+          label: "c2pa.actions.v2",
+          data: {
+            actions: [
+              { action: "c2pa.orientation", digitalSourceType: COMPUTATIONAL },
+              { action: "c2pa.created", digitalSourceType: DIGITAL_CAPTURE },
+            ],
+          },
+        },
+      ],
+    };
+    expect(extractCreatedDigitalSourceType(manifest)).toBe(DIGITAL_CAPTURE);
+  });
+
+  it("returns null when there is no created action, or it carries no / an empty value", () => {
+    expect(extractCreatedDigitalSourceType(manifestWithActions(["c2pa.opened"]))).toBeNull();
+    expect(extractCreatedDigitalSourceType(manifestWithActions(["c2pa.created"]))).toBeNull();
+    const empty: ManifestShape = {
+      assertions: [
+        { label: "c2pa.actions.v2", data: { actions: [{ action: "c2pa.created", digitalSourceType: "" }] } },
+      ],
+    };
+    expect(extractCreatedDigitalSourceType(empty)).toBeNull();
+    expect(extractCreatedDigitalSourceType({ assertions: [] })).toBeNull();
   });
 });

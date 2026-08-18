@@ -55,12 +55,17 @@ export const CAPTURE_ALLOWED_ACTIONS: ReadonlySet<string> = new Set([
  * each entry.
  */
 export const REALREEL_UPLOAD_ALLOWED_ACTIONS: ReadonlySet<string> = new Set([
-  "c2pa.opened", //   auto-injected by c2pa-rs for BuilderIntent.Edit
-  "c2pa.rotated", //  user-requested rotation correction
-  "c2pa.resized", //  user-requested compression (photo path: 1080px max)
-  "c2pa.transcoded", // user-requested codec/quality change
-  "c2pa.trimmed", //  user-requested video trim (video path default)
-  "c2pa.redacted", // user-requested location redaction
+  "c2pa.opened", //               auto-injected by c2pa-rs for BuilderIntent.Edit
+  "c2pa.orientation", //          user-requested rotation correction (was `c2pa.rotated`
+  //                              pre-spec-2.4 — never a pre-defined action)
+  "c2pa.resized.proportional", // downscale, aspect preserved (photo: 1080px wide;
+  //                              video: 1080px tall when the source is taller; was
+  //                              bare `c2pa.resized` pre-spec-2.4)
+  "c2pa.transcoded", //           user-requested codec/quality change
+  "c2pa.trimmed", //              user-requested video trim (video path default)
+  "c2pa.redacted", //             location redaction of a PARENT-manifest assertion
+  "c2pa.edited.metadata", //      file-level metadata the upload removed (GPS strip,
+  //                              re-encode losses); `org.realreel.removed` lists it
 ]);
 
 /** A single well-formed action entry: the action name plus its raw, opaque
@@ -101,6 +106,33 @@ export function extractActionEntries(manifest: ManifestShape): ActionEntry[] {
     }
   }
   return out;
+}
+
+/**
+ * The `digitalSourceType` the manifest's `c2pa.created` action declares, or
+ * null when there is no created action or it carries none. The app's Stage-2
+ * emitter propagates the PARENT capture's value onto the upload actions the
+ * Conformance Program requires one on (`c2pa.orientation`, `c2pa.trimmed`).
+ * Passthrough, not a validator: any non-empty string is returned as-is.
+ */
+export function extractCreatedDigitalSourceType(manifest: ManifestShape): string | null {
+  for (const assertion of manifest.assertions ?? []) {
+    if (
+      assertion.label !== "c2pa.actions.v2" &&
+      assertion.label !== "c2pa.actions"
+    ) {
+      continue;
+    }
+    const data = assertion.data as { actions?: unknown } | null;
+    if (!data || !Array.isArray(data.actions)) continue;
+    for (const a of data.actions) {
+      const entry = a as { action?: unknown; digitalSourceType?: unknown } | null;
+      if (entry?.action !== "c2pa.created") continue;
+      const dst = entry.digitalSourceType;
+      return typeof dst === "string" && dst.length > 0 ? dst : null;
+    }
+  }
+  return null;
 }
 
 /**

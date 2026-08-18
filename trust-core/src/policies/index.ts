@@ -2,6 +2,7 @@ export {
   CAPTURE_ALLOWED_ACTIONS,
   REALREEL_UPLOAD_ALLOWED_ACTIONS,
   extractManifestActions,
+  extractCreatedDigitalSourceType,
   findDisallowedActions,
   type ActionViolation,
 } from "./actions.js";

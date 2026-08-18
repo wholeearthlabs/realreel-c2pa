@@ -30,6 +30,23 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
+// The fixture predates the spec-2.4 action-name cutover (its Stage 2 declares
+// `c2pa.resized`), which the production allowlist hard-rejects. Re-admit the
+// retired names at the test boundary only, so the rest of this end-to-end
+// suite keeps exercising a real device-signed file. Delete at the fixture
+// regeneration pass.
+vi.mock("@realreel/c2pa-trust-core", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@realreel/c2pa-trust-core")>();
+  return {
+    ...mod,
+    REALREEL_UPLOAD_ALLOWED_ACTIONS: new Set([
+      ...mod.REALREEL_UPLOAD_ALLOWED_ACTIONS,
+      "c2pa.resized",
+      "c2pa.rotated",
+    ]),
+  };
+});
+
 vi.mock("../src/db.js", () => {
   const lookupSigningKeyRevocation = vi.fn();
   const consumeAndRecordAttestation = vi.fn().mockResolvedValue(undefined);

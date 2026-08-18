@@ -280,6 +280,21 @@ export interface SignC2PACaptureResult {
 }
 
 /**
+ * `digitalSourceType` vocabulary an action may carry: the IPTC Digital Source
+ * Type NewsCodes plus the C2PA-defined additions (spec 2.4 §18.15.4.4). The
+ * template-literal type keeps the value inside those two namespaces at
+ * compile time; native copies the string into the action verbatim.
+ */
+export type DigitalSourceTypeUri =
+  | `http://cv.iptc.org/newscodes/digitalsourcetype/${string}`
+  | `http://c2pa.org/digitalsourcetype/${string}`;
+
+/** The IPTC value for a plain sensor capture — the fallback callers use when
+ *  the parent's own `c2pa.created` action carries no digitalSourceType. */
+export const DIGITAL_SOURCE_TYPE_DIGITAL_CAPTURE =
+  'http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture' as const;
+
+/**
  * Discriminated union of allowed Stage-2 action codes (for `signC2PAUpload`).
  *
  * Each entry maps to one C2PA action emitted in the `c2pa.actions.v2`
@@ -290,7 +305,20 @@ export interface SignC2PACaptureResult {
  * `c2pa.opened` is intentionally absent from this union — c2pa-rs auto-injects
  * it when `BuilderIntent.Edit` is used with a `parentOf` ingredient (the
  * Stage-2 path). Callers list only the transformations they actually
- * performed.
+ * performed. Native stamps the assertion `allActionsIncluded: true`
+ * (Conformance Program v0.2, mandatory), so the list a caller supplies is a
+ * signed claim that NOTHING else was done to the asset — every mutation the
+ * upload path makes must be declared here or be inherent to a declared action.
+ *
+ * `digitalSourceType`: the Program requires it on every pre-defined action in
+ * a created assertion except a named exemption list. `c2pa.orientation` and
+ * `c2pa.trimmed` are not exempt and carry it as a required field; the rest of
+ * this union is exempt. Callers propagate the PARENT capture's own value (its
+ * `c2pa.created` digitalSourceType — a Pixel is `computationalCapture`,
+ * RealReel's camera `digitalCapture`) so the type describes the content being
+ * acted on; DIGITAL_SOURCE_TYPE_DIGITAL_CAPTURE is the fallback for a parent
+ * that declares none. Never on `c2pa.opened` (the Program prohibits it there;
+ * c2pa-rs owns that action anyway).
  *
  * Add new action codes by extending this union. Keep parameter shapes
  * minimal — verifiers don't branch on parameter contents (the trust claim
@@ -307,10 +335,49 @@ export interface SignC2PACaptureResult {
  * consumed by native, never manifest content.
  */
 export type Stage2Action =
-  | { action: 'c2pa.rotated';    parameters: { 'org.realreel.angle': 90 | 180 | 270 } }
-  | { action: 'c2pa.resized';    parameters: { 'org.realreel.width': number; 'org.realreel.height': number } }
+  /**
+   * User-requested rotation correction (spec 2.4 Table 8: "Changes to the
+   * direction and position of content"). Emitted as `c2pa.rotated` before
+   * photo-attest 0.6.0, which is not a pre-defined action in any spec version.
+   */
+  | {
+      action: 'c2pa.orientation';
+      digitalSourceType: DigitalSourceTypeUri;
+      parameters: { 'org.realreel.angle': 90 | 180 | 270 };
+    }
+  /**
+   * Downscale, aspect ratio preserved (spec 2.4's non-editorial refinement of
+   * `c2pa.resized`). Parameters are the post-transform dimensions.
+   */
+  | {
+      action: 'c2pa.resized.proportional';
+      parameters: { 'org.realreel.width': number; 'org.realreel.height': number };
+    }
   | { action: 'c2pa.transcoded'; parameters?: { 'org.realreel.quality'?: number; 'org.realreel.format'?: string } }
-  | { action: 'c2pa.trimmed';    parameters: { 'org.realreel.start': number; 'org.realreel.end': number } }
+  /** Video trim. */
+  | {
+      action: 'c2pa.trimmed';
+      digitalSourceType: DigitalSourceTypeUri;
+      parameters: { 'org.realreel.start': number; 'org.realreel.end': number };
+    }
+  /**
+   * File-level metadata the upload path removed from the asset (spec 2.4
+   * Table 8: "Modifications to asset metadata or a metadata assertion but not
+   * the asset's digital content") — as opposed to `c2pa.redacted`, the removal
+   * of an assertion in the PARENT MANIFEST. Emitted whenever the published
+   * file lacks metadata the parent carried: the EXIF GPS block a non-precise
+   * location choice strips, EXIF tags / XMP namespaces / container keys a
+   * re-encode did not carry over.
+   *
+   * `org.realreel.removed` names each item in the app's vocabulary
+   * (`exif:GPSLatitude`, `tiff:Make`, `xmpns:<namespace-uri>`, `location`,
+   * `mdta:<key>`, `udta:<key>`). Disclosure, not proof — a consumer trusting
+   * the list is trusting this signature. Never emit with an empty list.
+   */
+  | {
+      action: 'c2pa.edited.metadata';
+      parameters: { 'org.realreel.removed': string[] };
+    }
   /**
    * Redact an assertion from the parent (Stage 1). Native expands
    * `assertionLabel` to the full JUMBF URI using the parent's URN read
@@ -780,7 +847,9 @@ export const PhotoAttest = {
    *
    * Manifest layout (lockstep across iOS/Android):
    *  - `c2pa.actions.v2`: single `c2pa.created` action with
-   *    `digitalSourceType=digitalCapture` (set via Builder intent).
+   *    `digitalSourceType=digitalCapture` (set via Builder intent) and
+   *    `allActionsIncluded: true` — the capture is signed exactly as the
+   *    camera pipeline wrote it, so `c2pa.created` is the complete list.
    *  - `c2pa.metadata` (JSON-LD, C2PA 2.x §18.16): EXIF (photos) /
    *    QuickTime (videos) metadata extracted from the source file at sign
    *    time. Includes GPS if the user granted location permission and the
@@ -796,6 +865,12 @@ export const PhotoAttest = {
    * Hash binding: `c2pa.hash.data` for images, `c2pa.hash.bmff` for videos —
    * c2pa-rs picks the right one based on the MIME type derived from the
    * file extension.
+   *
+   * Every assertion RealReel authors (actions, `c2pa.metadata`, the
+   * `org.realreel.*` family) and every builder-generated one (ingredient,
+   * thumbnails, time-stamp) is a CREATED assertion — attributed to the signer
+   * (spec 2.4 §10.2.2; §18.15.2 requires the actions assertion there).
+   * `claim_generator_info` carries `specVersion: "2.4.0"`.
    *
    * @param alias  Hardware key alias (must already be enrolled).
    * @param mediaPath Absolute path — or local `file://` URI — of the captured
@@ -832,7 +907,8 @@ export const PhotoAttest = {
    * is auto-prepended to the actions list. JS callers list only the
    * transformations they actually performed.
    *
-   * Assertion shape (Stage 2): `c2pa.actions.v2` (the transformations) plus
+   * Assertion shape (Stage 2): `c2pa.actions.v2` (the transformations, with
+   * `allActionsIncluded: true` — see `Stage2Action`) plus
    * a small `org.realreel.upload` carrying only the upload-stage processing
    * context — device identity, OS / app version, trust level of THIS sign.
    * Capture context (capturerUuid, capture-side device fields) lives only in
