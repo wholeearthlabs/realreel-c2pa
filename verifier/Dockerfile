@@ -28,8 +28,8 @@ COPY verifier/src ./verifier/src
 RUN npm run build -w trust-core
 RUN npm run build -w verifier
 
-# ---------- Stage 2: runtime ----------
-FROM --platform=linux/amd64 node:24-bookworm-slim AS runtime
+# ---------- Stage 2: runtime base (the service and the harness share it) ----------
+FROM --platform=linux/amd64 node:24-bookworm-slim AS runtime-base
 WORKDIR /app
 
 # ffprobe — video metadata probe (src/derive-metadata.ts). GPL: separate
@@ -54,22 +54,15 @@ USER node
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV TRUST_SOURCES_PATH=/app/trust-sources.yaml
-EXPOSE 8080
-
-# Cloud Run uses its own probes and ignores HEALTHCHECK; this is for docker run / Compose.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "fetch('http://localhost:'+(process.env.PORT||8080)+'/healthz/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-
-CMD ["node", "verifier/dist/server.js"]
 
 # ---------- Stage 3 (opt-in target): crJSON conformance harness ----------
-# verifier/src/harness/ on top of the runtime image — the SAME built verifier +
-# c2pa-node the service deploys — plus the two tools it drives: c2patool (pin +
-# checksum mirror .github/workflows/ci.yml; recorded in verifier/README.md) and
-# libfaketime. `docker build -f verifier/Dockerfile --target crjson-harness .`;
-# usage in verifier/README.md "Conformance test harness".
-FROM runtime AS crjson-harness
-USER root
+# verifier/src/harness/ plus the two tools it drives: c2patool (pin + checksum
+# mirror .github/workflows/ci.yml) and libfaketime. It carries the same built
+# verifier + c2pa-node the service deploys, but on a newer Debian: c2patool
+# publishes only a glibc build for Linux and it needs 2.38 (bookworm has 2.36).
+# `docker build -f verifier/Dockerfile --target crjson-harness .` — usage in
+# verifier/CRJSON_HARNESS.md.
+FROM --platform=linux/amd64 node:24-trixie-slim AS crjson-harness
 ARG C2PATOOL_VERSION=0.27.15
 ARG C2PATOOL_SHA256=7a035b727a6cdda8ad08d98fe94b3c20febee4aea4e7c1de02571b295730faf0
 RUN apt-get update \
@@ -82,8 +75,19 @@ RUN apt-get update \
   && rm -rf /tmp/c2patool* /var/lib/apt/lists/* \
   && c2patool --version \
   && [ "$(faketime -f '2031-01-01 00:00:00' date -u +%Y)" = "2031" ]
+COPY --from=runtime-base /app /app
+WORKDIR /app
 USER node
-HEALTHCHECK NONE
 # Absolute: callers set -w to their asset directory.
 ENTRYPOINT ["node", "/app/verifier/dist/harness/cli.js"]
 CMD ["--help"]
+
+# ---------- Stage 4: the service — LAST, so it is the default build target ----------
+FROM runtime-base AS runtime
+EXPOSE 8080
+
+# Cloud Run uses its own probes and ignores HEALTHCHECK; this is for docker run / Compose.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://localhost:'+(process.env.PORT||8080)+'/healthz/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+
+CMD ["node", "verifier/dist/server.js"]

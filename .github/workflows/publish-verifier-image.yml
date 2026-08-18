@@ -68,6 +68,9 @@ jobs:
         with:
           context: .
           file: verifier/Dockerfile
+          # The service stage. It is also the Dockerfile's last stage, so this is
+          # the default — named anyway, so adding a stage can never retarget it.
+          target: runtime
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

@@ -163,7 +163,7 @@ Once these are in hand, you're ready for the **Deploy** flow below.
 
    ```bash
    # from the repo root:
-   docker build -f verifier/Dockerfile -t <region>-docker.pkg.dev/<project>/verifier/realreel-verifier:<tag> .
+   docker build -f verifier/Dockerfile --target runtime -t <region>-docker.pkg.dev/<project>/verifier/realreel-verifier:<tag> .
    docker push <region>-docker.pkg.dev/<project>/verifier/realreel-verifier:<tag>
    ```
 
