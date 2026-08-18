@@ -24,7 +24,16 @@ const labels = [
   ["METADATA_ASSERTION_LABEL", METADATA_ASSERTION_LABEL],
 ];
 
+// Second guard, same file: every assertion label the signer authors must be
+// in BUILDER_SETTINGS_JSON's `created_assertion_labels`, or c2pa-rs routes it
+// to `gathered_assertions` (spec 2.4 §10.2.2 — "not sourced from the claim
+// generator") the moment an entry forgets its `"created": true`. The list must
+// also be identical on both platforms.
+const CREATED_LABELS_RE = /"created_assertion_labels":\[([^\]]*)\]/;
+const AUTHORED_LABEL_RE = /"(org\.realreel\.[a-z_]+|c2pa\.metadata)"/g;
+
 let ok = true;
+const createdLabelLists = new Map();
 for (const [platform, rel] of sources) {
   const source = readFileSync(join(root, rel), "utf8");
   for (const [name, label] of labels) {
@@ -33,6 +42,25 @@ for (const [platform, rel] of sources) {
       ok = false;
     }
   }
+  const createdMatch = source.match(CREATED_LABELS_RE);
+  if (!createdMatch) {
+    console.error(`✗ ${platform} (${rel}) has no created_assertion_labels in BUILDER_SETTINGS_JSON.`);
+    ok = false;
+    continue;
+  }
+  const created = new Set(createdMatch[1].split(",").map((l) => l.trim().replace(/^"|"$/g, "")));
+  createdLabelLists.set(platform, [...created].sort().join(","));
+  for (const [, label] of source.matchAll(AUTHORED_LABEL_RE)) {
+    if (!created.has(label)) {
+      console.error(`✗ ${platform} (${rel}) authors "${label}" but BUILDER_SETTINGS_JSON's created_assertion_labels does not list it — c2pa-rs would route it to gathered_assertions.`);
+      ok = false;
+    }
+  }
+}
+if (new Set(createdLabelLists.values()).size > 1) {
+  console.error(`✗ created_assertion_labels differ between platforms: ${[...createdLabelLists].map(([p, l]) => `${p}=[${l}]`).join(" vs ")}`);
+  ok = false;
 }
 if (!ok) process.exit(1);
 console.log(`✓ native assertion labels in lockstep with @realreel/c2pa-trust-core: ${labels.map(([, l]) => `"${l}"`).join(", ")}`);
+console.log(`✓ every authored assertion label is in created_assertion_labels on both platforms`);

@@ -20,6 +20,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
+// The regression guard below verifies the pre-cutover RealReel fixture end to
+// end; see verify-realreel.test.ts for why the retired Stage-2 action names
+// are re-admitted at the test boundary only. Delete with the fixture
+// regeneration pass.
+vi.mock("@realreel/c2pa-trust-core", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@realreel/c2pa-trust-core")>();
+  return {
+    ...mod,
+    REALREEL_UPLOAD_ALLOWED_ACTIONS: new Set([
+      ...mod.REALREEL_UPLOAD_ALLOWED_ACTIONS,
+      "c2pa.resized",
+      "c2pa.rotated",
+    ]),
+  };
+});
+
 vi.mock("../src/db.js", () => {
   const lookupSigningKeyRevocation = vi.fn();
   // consumeAndRecordAttestation is stubbed as a no-op resolve. It

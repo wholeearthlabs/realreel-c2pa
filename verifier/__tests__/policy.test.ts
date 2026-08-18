@@ -226,12 +226,12 @@ function makeRealReelStore(opts: {
   // Defaults match the canonical RealReel manifest shape (verified
   // against __tests__/fixtures/realreel-uploaded.jpg, Pixel 10 capture):
   //   Stage 1: [c2pa.created]
-  //   Stage 2: [c2pa.opened, c2pa.resized, c2pa.transcoded]
+  //   Stage 2: [c2pa.opened, c2pa.resized.proportional, c2pa.transcoded]
   // Tests override either array to exercise rejection paths.
   const stage1Actions = opts.stage1?.actions ?? ["c2pa.created"];
   const stage2Actions = opts.stage2?.actions ?? [
     "c2pa.opened",
-    "c2pa.resized",
+    "c2pa.resized.proportional",
     "c2pa.transcoded",
   ];
   const bindingLabel =
@@ -479,8 +479,10 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
   });
 
   // c2pa.adjustedColor = an editor's action we never emit; c2pa.cropped =
-  // deliberately delisted (a declared crop could conceal recapture edges).
-  for (const action of ["c2pa.adjustedColor", "c2pa.cropped"]) {
+  // deliberately delisted (a declared crop could conceal recapture edges);
+  // c2pa.rotated / c2pa.resized = the retired pre-spec-2.4 spellings, pinned
+  // so the allowlist cutover is a hard one on the verifier too.
+  for (const action of ["c2pa.adjustedColor", "c2pa.cropped", "c2pa.rotated", "c2pa.resized"]) {
     it(`rejects: Stage 2 has disallowed action (${action})`, async () => {
       stubBothKeysValid();
       const store = makeRealReelStore({
@@ -495,10 +497,10 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
     });
   }
 
-  it("accepts: Stage 2 with the canonical upload actions (c2pa.opened, c2pa.resized, c2pa.transcoded)", async () => {
+  it("accepts: Stage 2 with the canonical upload actions (c2pa.opened, c2pa.resized.proportional, c2pa.transcoded)", async () => {
     stubBothKeysValid();
     const store = makeRealReelStore({
-      stage2: { actions: ["c2pa.opened", "c2pa.resized", "c2pa.transcoded"] },
+      stage2: { actions: ["c2pa.opened", "c2pa.resized.proportional", "c2pa.transcoded"] },
     });
     const result = await verifyRealReel(store, "realreel", resolveSource);
     expect(result.sanitized.validation_state).toBe("trusted");
@@ -513,11 +515,12 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
   // REALREEL_UPLOAD_ALLOWED_ACTIONS.
   describe("Roundtrip: every Stage2Action variant accepted", () => {
     const STAGE2_USER_ACTIONS = [
-      "c2pa.rotated",
-      "c2pa.resized",
+      "c2pa.orientation",
+      "c2pa.resized.proportional",
       "c2pa.transcoded",
       "c2pa.trimmed",
       "c2pa.redacted",
+      "c2pa.edited.metadata",
     ];
 
     for (const action of STAGE2_USER_ACTIONS) {
@@ -746,7 +749,7 @@ describe("Policy — attestationRequired strict mode", () => {
           assertions: [
             {
               label: "c2pa.actions.v2",
-              data: { actions: [{ action: "c2pa.opened" }, { action: "c2pa.resized" }] },
+              data: { actions: [{ action: "c2pa.opened" }, { action: "c2pa.resized.proportional" }] },
             },
             { label: "org.realreel.app_attest", data: DEFAULT_APP_ATTEST_DATA },
             { label: "org.realreel.play_integrity", data: DEFAULT_PLAY_INTEGRITY_DATA },
@@ -892,7 +895,7 @@ function makeDrainedStore(opts?: {
           {
             label: "c2pa.actions.v2",
             data: {
-              actions: ["c2pa.opened", "c2pa.resized"].map((action) => ({ action })),
+              actions: ["c2pa.opened", "c2pa.resized.proportional"].map((action) => ({ action })),
             },
           },
         ],
@@ -967,7 +970,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
     // fresh-capture gate fires on it (it has an ingredient) → SIGNATURE_INVALID.
     const store = makeDrainedStore({
       updateHasTimestamp: false, // ← no c2pa.time-stamp → not an Update Manifest
-      updateActions: ["c2pa.opened", "c2pa.resized"], // a real edit
+      updateActions: ["c2pa.opened", "c2pa.resized.proportional"], // a real edit
     });
     await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
@@ -992,7 +995,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
   });
 
   it("runs the capture action allowlist on the TRUE capture", async () => {
-    const store = makeDrainedStore({ captureActions: ["c2pa.created", "c2pa.resized"] });
+    const store = makeDrainedStore({ captureActions: ["c2pa.created", "c2pa.resized.proportional"] });
     await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("Stage 1"),
@@ -1032,7 +1035,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
 
   it("rejects an Update Manifest carrying an editorial action (no edit smuggling)", async () => {
     // Realistic shape: c2pa.opened (allowed) PLUS a smuggled edit (rejected).
-    const store = makeDrainedStore({ updateActions: ["c2pa.opened", "c2pa.resized"] });
+    const store = makeDrainedStore({ updateActions: ["c2pa.opened", "c2pa.resized.proportional"] });
     await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
       detail: expect.stringContaining("Update Manifest"),

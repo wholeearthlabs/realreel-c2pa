@@ -488,9 +488,18 @@ class PhotoAttestModule : Module() {
 
     var sourceStream: FileStream? = null
     var destStream: FileStream? = null
+    var signSettings: C2PASettings? = null
     var builder: Builder? = null
     try {
-      builder = Builder.fromJson(manifestJSON)
+      // Thread SIGN_SETTINGS_JSON into the builder's own context like the
+      // Stage-2 / Update-Manifest paths do (global loadSettings does not
+      // reliably reach a plain Builder.fromJson(json); see the Update-Manifest
+      // path): it carries BUILDER_SETTINGS_JSON. No fallback to a plain
+      // Builder.fromJson(json): that would sign a non-conformant manifest
+      // silently. A throw here reaches JS, which saves the capture unsigned
+      // and reports it — same as iOS.
+      signSettings = C2PASettings.create().updateFromString(SIGN_SETTINGS_JSON, "json")
+      builder = Builder.fromJson(manifestJSON, signSettings)
       builder.setIntent(BuilderIntent.Create(DigitalSourceType.DIGITAL_CAPTURE))
 
       // TSA: when JS passes a tsaUrl (online capture), c2pa-android (via
@@ -524,6 +533,7 @@ class PhotoAttestModule : Module() {
       )
     } finally {
       try { builder?.close() } catch (_: Exception) {}
+      try { signSettings?.close() } catch (_: Exception) {}
       try { sourceStream?.close() } catch (_: Exception) {}
       try { destStream?.close() } catch (_: Exception) {}
     }
@@ -602,13 +612,7 @@ class PhotoAttestModule : Module() {
     // content; the parent's binding stands).
     val manifestJSON = JSONObject().apply {
       put("claim_generator", "$appName/$appVersion")
-      put(
-        "claim_generator_info",
-        JSONArray().put(JSONObject().apply {
-          put("name", appName)
-          put("version", appVersion)
-        }),
-      )
+      put("claim_generator_info", claimGeneratorInfo(appName, appVersion))
       put("title", outputFileName)
     }.toString()
 
@@ -891,25 +895,24 @@ class PhotoAttestModule : Module() {
       // the Update-Manifest path's comment for the original discovery).
       C2PASigner.loadSettings(SIGN_SETTINGS_JSON, "json")
 
-      builder = try {
-        signSettings = C2PASettings.create().updateFromString(
+      signSettings = try {
+        C2PASettings.create().updateFromString(
           settingsWithTrustAnchors(SIGN_SETTINGS_JSON, trustAnchorsPem),
           "json",
         )
-        Builder.fromJson(manifestJSON, signSettings)
       } catch (e: Exception) {
-        // Anchor injection must never take down uploads: a settings key this
-        // c2pa build rejects, or a cert in the (OTA-updatable) pool its PEM
-        // reader chokes on, would otherwise hard-fail EVERY Stage-2 sign.
-        // Degrade to the anchorless path instead.
+        // Anchor injection must never take down uploads: a cert in the
+        // (OTA-updatable) pool the PEM reader chokes on would otherwise
+        // hard-fail EVERY Stage-2 sign. Degrade to the anchorless BASE
+        // settings — never to a settings-less builder, which would drop
+        // BUILDER_SETTINGS_JSON and sign a non-conformant manifest.
         android.util.Log.w(
           "PhotoAttest",
-          "c2pa settings threading failed; signing without trust anchors: ${e.message}",
+          "c2pa trust-anchor settings failed; signing without trust anchors: ${e.message}",
         )
-        try { signSettings?.close() } catch (_: Exception) {}
-        signSettings = null
-        Builder.fromJson(manifestJSON)
+        C2PASettings.create().updateFromString(SIGN_SETTINGS_JSON, "json")
       }
+      builder = Builder.fromJson(manifestJSON, signSettings)
       builder.setIntent(BuilderIntent.Edit)
 
       // Add parent ingredient — c2pa-rs hashes the parent stream + auto-
@@ -1076,6 +1079,17 @@ class PhotoAttestModule : Module() {
 
     val assertions = JSONArray()
 
+    // Authored EMPTY: setIntent(Create) prepends c2pa.created (with
+    // digitalSourceType) into THIS entry, so allActionsIncluded (Program v0.2,
+    // mandatory) and the created flag (spec 2.4 §18.15.2) live on an entry we
+    // control. Mirror of iOS buildCaptureManifestJSON.
+    assertions.put(
+      JSONObject()
+        .put("label", "c2pa.actions.v2")
+        .put("data", JSONObject().put("actions", JSONArray()).put("allActionsIncluded", true))
+        .put("created", true)
+    )
+
     if (isVideo) {
       extractIptcAssertionForVideo(sourceFile, gps, captureTimestampMs)?.let {
         assertions.put(metadataAssertionEntry(it))
@@ -1098,13 +1112,13 @@ class PhotoAttestModule : Module() {
       put("appVersion", appVersion)
       put("deviceTrustLevel", detectKeyTrustLevel(alias))
     }
-    assertions.put(JSONObject().put("label", "org.realreel.capture").put("data", realreelCapture))
+    assertions.put(
+      JSONObject().put("label", "org.realreel.capture").put("data", realreelCapture).put("created", true)
+    )
 
     val manifest = JSONObject().apply {
       put("claim_generator", "$appName/$appVersion")
-      put("claim_generator_info", JSONArray().put(
-        JSONObject().put("name", appName).put("version", appVersion)
-      ))
+      put("claim_generator_info", claimGeneratorInfo(appName, appVersion))
       put("format", mime)
       put("title", title)
       put("assertions", assertions)
@@ -1127,6 +1141,12 @@ class PhotoAttestModule : Module() {
   // c2pa-rs zero-fills the referenced JUMBF Content boxes during sign —
   // including a grandparent capture's assertion when an interposed timestamp
   // Update Manifest sits between Stage 2 and the capture.
+  //
+  // Other entries are copied through with their `parameters` and, when JS
+  // supplied one, `digitalSourceType` (the Program requires it on
+  // c2pa.orientation / c2pa.trimmed; JS knows the parent capture's source
+  // type). The assertion is stamped `allActionsIncluded: true` — the JS list
+  // is a signed claim of completeness (see the JS `Stage2Action` docs).
   private fun buildUploadManifestJSON(
     transformedFile: File,
     transformedMime: String,
@@ -1174,16 +1194,21 @@ class PhotoAttestModule : Module() {
         actionsArray.put(JSONObject().apply {
           put("action", actionName)
           if (params != null) put("parameters", JSONObject(params))
+          (entry["digitalSourceType"] as? String)?.takeIf { it.isNotEmpty() }?.let {
+            put("digitalSourceType", it)
+          }
         })
       }
     }
-    if (actionsArray.length() > 0) {
-      assertions.put(
-        JSONObject()
-          .put("label", "c2pa.actions.v2")
-          .put("data", JSONObject().put("actions", actionsArray))
-      )
-    }
+    // Always authored, even for an empty JS list: c2pa-rs prepends the
+    // c2pa.opened action into THIS entry, so this is where allActionsIncluded
+    // and the created flag have to live.
+    assertions.put(
+      JSONObject()
+        .put("label", "c2pa.actions.v2")
+        .put("data", JSONObject().put("actions", actionsArray).put("allActionsIncluded", true))
+        .put("created", true)
+    )
 
     // Stage-2 metadata describes the TRANSFORMED file (e.g. new dimensions).
     if (isVideo) {
@@ -1214,15 +1239,15 @@ class PhotoAttestModule : Module() {
       // reads it from here rather than a client field. Absent for none mode.
       if (!locationLabel.isNullOrEmpty()) put("locationLabel", locationLabel)
     }
-    assertions.put(JSONObject().put("label", "org.realreel.upload").put("data", realreelUpload))
+    assertions.put(
+      JSONObject().put("label", "org.realreel.upload").put("data", realreelUpload).put("created", true)
+    )
 
     playIntegrityAssertionEntry(attestationEnvelope)?.let { assertions.put(it) }
 
     val manifest = JSONObject().apply {
       put("claim_generator", "$appName/$appVersion")
-      put("claim_generator_info", JSONArray().put(
-        JSONObject().put("name", appName).put("version", appVersion)
-      ))
+      put("claim_generator_info", claimGeneratorInfo(appName, appVersion))
       put("format", transformedMime)
       put("title", title)
       put("assertions", assertions)
@@ -1290,7 +1315,7 @@ class PhotoAttestModule : Module() {
       put("challenge", challenge)
       put("platform", "android")
     }
-    return JSONObject().put("label", "org.realreel.play_integrity").put("data", data)
+    return JSONObject().put("label", "org.realreel.play_integrity").put("data", data).put("created", true)
   }
 
   // Per-capture Play Integrity Standard token. Bound to
@@ -1494,6 +1519,12 @@ class PhotoAttestModule : Module() {
     }
   }
 
+  // claim_generator_info for every manifest kind; mirror of iOS.
+  private fun claimGeneratorInfo(appName: String, appVersion: String): JSONArray =
+    JSONArray().put(
+      JSONObject().put("name", appName).put("version", appVersion).put("specVersion", C2PA_SPEC_VERSION)
+    )
+
   // Wrap extracted metadata into a C2PA 2.x `c2pa.metadata` assertion entry:
   // JSON-LD data with the `@context` namespace map §18.16.2 requires. Every
   // prefix used below must appear here, and each URI must byte-match the
@@ -1501,6 +1532,10 @@ class PhotoAttestModule : Module() {
   // with ASSERTION_METADATA_DISALLOWED otherwise. c2pa-rs routes this exact
   // label into its typed Metadata assertion (JSON JUMBF box), so no `kind`
   // field is needed on the entry.
+  //
+  // `created: true` — spec 2.4 §9.2.6: a c2pa.metadata assertion in
+  // created_assertions is the signer's explicit signal that it stands behind
+  // the values (e.g. the GPS location); gathered would say the opposite.
   private fun metadataAssertionEntry(data: JSONObject): JSONObject {
     data.put("@context", JSONObject().apply {
       put("dc", "http://purl.org/dc/elements/1.1/")
@@ -1510,7 +1545,7 @@ class PhotoAttestModule : Module() {
       put("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/")
       put("Iptc4xmpExt", "http://iptc.org/std/Iptc4xmpExt/2008-02-29/")
     })
-    return JSONObject().put("label", METADATA_ASSERTION_LABEL).put("data", data)
+    return JSONObject().put("label", METADATA_ASSERTION_LABEL).put("data", data).put("created", true)
   }
 
   // ExifInterface enumerates ~80 known tag constants. We pull the well-known
@@ -1788,15 +1823,43 @@ class PhotoAttestModule : Module() {
     // carrying a remote-manifest reference would otherwise beacon an
     // attacker URL at sign time and stall the upload on the network. Same
     // pins, same rationale as the verifier's buildVerifierSettings.
+    //
+    // builder.created_assertion_labels — routes the assertions c2pa-rs
+    // generates for us (parent ingredient, thumbnails, the drain's
+    // c2pa.time-stamp, and c2pa.actions on any path that doesn't author one)
+    // into the claim's `created_assertions`, i.e. attributed to the signer,
+    // instead of c2pa-rs's default `gathered` ("not sourced from the claim
+    // generator", spec 2.4 §10.2.2; §18.15.2 requires the actions assertion
+    // in created outright). Base labels, no .v2/.v3 suffix. The assertions this
+    // module authors are listed too, and ALSO carry `"created": true` on their
+    // entry: either alone suffices, so a new label that misses one is still
+    // created (native/scripts/check-native-labels.mjs pins the list).
+    //
+    // builder.actions.all_actions_included — Conformance Program v0.2 requires
+    // `allActionsIncluded` on every actions assertion; the manifest JSON sets
+    // it explicitly, this covers the drain's auto-generated c2pa.opened.
+    const val BUILDER_SETTINGS_JSON =
+      """"created_assertion_labels":["c2pa.actions","c2pa.ingredient","c2pa.thumbnail.claim","c2pa.thumbnail.ingredient","c2pa.time-stamp","c2pa.metadata","org.realreel.capture","org.realreel.upload","org.realreel.play_integrity","org.realreel.app_attest"],"actions":{"all_actions_included":true}"""
+
     const val SIGN_SETTINGS_JSON =
-      """{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false}}}"""
+      """{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false},$BUILDER_SETTINGS_JSON}}"""
 
     // Update-Manifest drain: auto-timestamp ON with fetch_scope=parent, so
     // c2pa-rs stamps the PARENT (Stage-1) signature it auto-incorporates from
     // the source asset and bakes the c2pa.timestamp assertion. skip_existing=false
     // — a queued capture is, by definition, not yet timestamped.
+    // builder.thumbnail.enabled=false: an Update Manifest shall not contain a
+    // thumbnail assertion (spec 2.4 §11.2.3). c2pa-rs references the parent's
+    // claim thumbnail when the parent validates clean, but GENERATES a
+    // c2pa.thumbnail.ingredient when it does not (e.g. a parent signed under a
+    // root outside the trust pool) — this pins the fallback off.
     const val UPDATE_MANIFEST_SETTINGS_JSON =
-      """{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"}}}"""
+      """{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"},"thumbnail":{"enabled":false},$BUILDER_SETTINGS_JSON}}"""
+
+    // claim_generator_info.specVersion — the spec version this signer targets,
+    // in the SemVer form the spec's CDDL requires; the Conformance Program
+    // requires it to match the CPL record. Lockstep with iOS.
+    const val C2PA_SPEC_VERSION = "2.4.0"
 
     // Inject the client trust pool (trust-core's CLIENT_TRUST_ANCHORS_PEM,
     // passed from JS) into a base settings JSON. With anchors present, the

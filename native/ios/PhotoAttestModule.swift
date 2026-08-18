@@ -625,7 +625,8 @@ public class PhotoAttestModule: Module {
   //  2. Inspects the source file's EXIF (photos) or QuickTime (videos) metadata.
   //  3. Builds a C2PA manifest JSON with three assertion families:
   //       - c2pa.actions.v2 with a single c2pa.created action (carries
-  //         digitalSourceType=digitalCapture via setIntent below; spec §17.5).
+  //         digitalSourceType=digitalCapture via setIntent below; spec §17.5)
+  //         and allActionsIncluded=true.
   //       - c2pa.metadata (JSON-LD, C2PA 2.x §18.16) carrying the file's EXIF
   //         (photos) / QuickTime (videos) metadata so the verifier can
   //         re-anchor against the file's own metadata after Stage 2
@@ -676,15 +677,47 @@ public class PhotoAttestModule: Module {
   // remote_manifest_fetch / ocsp_fetch pinned false — validating a
   // user-chosen parent must never make the device issue an outbound request
   // (Android twin's SIGN_SETTINGS_JSON comment has the full rationale).
+  //
+  // builder.created_assertion_labels — routes the assertions c2pa-rs
+  // generates for us (parent ingredient, thumbnails, the drain's
+  // c2pa.time-stamp, and c2pa.actions on any path that doesn't author one)
+  // into the claim's `created_assertions`, i.e. attributed to the signer,
+  // instead of c2pa-rs's default `gathered` ("not sourced from the claim
+  // generator", spec 2.4 §10.2.2; §18.15.2 requires the actions assertion
+  // in created outright). Base labels, no .v2/.v3 suffix. The assertions this
+  // module authors are listed too, and ALSO carry `"created": true` on their
+  // entry: either alone suffices, so a new label that misses one is still
+  // created (native/scripts/check-native-labels.mjs pins the list).
+  //
+  // builder.actions.all_actions_included — Conformance Program v0.2 requires
+  // `allActionsIncluded` on every actions assertion; the manifest JSON sets
+  // it explicitly, this covers the drain's auto-generated c2pa.opened.
+  private static let BUILDER_SETTINGS_JSON =
+    #""created_assertion_labels":["c2pa.actions","c2pa.ingredient","c2pa.thumbnail.claim","c2pa.thumbnail.ingredient","c2pa.time-stamp","c2pa.metadata","org.realreel.capture","org.realreel.upload","org.realreel.play_integrity","org.realreel.app_attest"],"actions":{"all_actions_included":true}"#
+
   private static let SIGN_SETTINGS_JSON =
-    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false}}}"#
+    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false},"# + BUILDER_SETTINGS_JSON + #"}}"#
 
   // Update-Manifest drain: auto-timestamp ON with fetch_scope=parent, so
   // c2pa-rs stamps the PARENT (Stage-1) signature it auto-incorporates from the
   // source asset and bakes the c2pa.timestamp assertion. skip_existing=false —
   // a queued capture is, by definition, not yet timestamped.
+  // builder.thumbnail.enabled=false: an Update Manifest shall not contain a
+  // thumbnail assertion (spec 2.4 §11.2.3). c2pa-rs references the parent's
+  // claim thumbnail when the parent validates clean, but GENERATES a
+  // c2pa.thumbnail.ingredient when it does not (e.g. a parent signed under a
+  // root outside the trust pool) — this pins the fallback off.
   private static let UPDATE_MANIFEST_SETTINGS_JSON =
-    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"}}}"#
+    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"},"thumbnail":{"enabled":false},"# + BUILDER_SETTINGS_JSON + #"}}"#
+
+  // claim_generator_info.specVersion — the spec version this signer targets,
+  // in the SemVer form the spec's CDDL requires; the Conformance Program
+  // requires it to match the CPL record. Lockstep with Android.
+  private static let C2PA_SPEC_VERSION = "2.4.0"
+
+  private static func claimGeneratorInfo(appName: String, appVersion: String) -> [[String: Any]] {
+    [["name": appName, "version": appVersion, "specVersion": C2PA_SPEC_VERSION]]
+  }
 
   // Inject the client trust pool into a base settings JSON so the recorded
   // parent-ingredient validation sees the real CA + TSA anchors. Mirror of
@@ -1204,7 +1237,7 @@ public class PhotoAttestModule: Module {
     // content; the parent's binding stands).
     let manifestDict: [String: Any] = [
       "claim_generator": "\(appName)/\(appVersion)",
-      "claim_generator_info": [["name": appName, "version": appVersion]],
+      "claim_generator_info": claimGeneratorInfo(appName: appName, appVersion: appVersion),
       "title": outputFileName,
     ]
     let manifestJSONData = try JSONSerialization.data(
@@ -1536,12 +1569,15 @@ public class PhotoAttestModule: Module {
         "assertion": assertion,
         "platform": "ios",
       ] as [String: Any],
+      "created": true,
     ]
   }
 
   // Builds the manifest JSON payload handed to c2pa-rs. setIntent(.create(...))
-  // adds the c2pa.created action with digitalSourceType automatically, so we
-  // only need to enumerate non-action assertions here.
+  // prepends c2pa.created (with digitalSourceType) into the c2pa.actions.v2
+  // entry below, authored EMPTY so that allActionsIncluded (Program v0.2,
+  // mandatory) and the created flag (spec 2.4 §18.15.2) live on an entry we
+  // control.
   private static func buildCaptureManifestJSON(
     sourceURL: URL,
     mime: String,
@@ -1556,6 +1592,12 @@ public class PhotoAttestModule: Module {
     let claimGenerator = "\(appName)/\(appVersion)"
 
     var assertions: [[String: Any]] = []
+
+    assertions.append([
+      "label": "c2pa.actions.v2",
+      "data": ["actions": [] as [[String: Any]], "allActionsIncluded": true] as [String: Any],
+      "created": true,
+    ])
 
     if isVideo {
       if let iptcData = extractIptcAssertionForVideo(
@@ -1593,11 +1635,12 @@ public class PhotoAttestModule: Module {
     assertions.append([
       "label": "org.realreel.capture",
       "data": realreelCapture,
+      "created": true,
     ])
 
     let manifest: [String: Any] = [
       "claim_generator": claimGenerator,
-      "claim_generator_info": [["name": appName, "version": appVersion]],
+      "claim_generator_info": claimGeneratorInfo(appName: appName, appVersion: appVersion),
       "format": mime,
       "title": title,
       "assertions": assertions,
@@ -1631,6 +1674,12 @@ public class PhotoAttestModule: Module {
   // c2pa-rs zero-fills the referenced JUMBF Content boxes during sign —
   // including a grandparent capture's assertion when an interposed timestamp
   // Update Manifest sits between Stage 2 and the capture.
+  //
+  // Other entries are copied through with their `parameters` and, when JS
+  // supplied one, `digitalSourceType` (the Program requires it on
+  // c2pa.orientation / c2pa.trimmed; JS knows the parent capture's source
+  // type). The assertion is stamped `allActionsIncluded: true` — the JS list
+  // is a signed claim of completeness (see the JS `Stage2Action` docs).
   private static func buildUploadManifestJSON(
     transformedURL: URL,
     transformedMime: String,
@@ -1672,15 +1721,20 @@ public class PhotoAttestModule: Module {
       } else {
         var entryOut: [String: Any] = ["action": actionName]
         if let p = params { entryOut["parameters"] = p }
+        if let dst = entry["digitalSourceType"] as? String, !dst.isEmpty {
+          entryOut["digitalSourceType"] = dst
+        }
         actionsArray.append(entryOut)
       }
     }
-    if !actionsArray.isEmpty {
-      assertions.append([
-        "label": "c2pa.actions.v2",
-        "data": ["actions": actionsArray],
-      ])
-    }
+    // Always authored, even for an empty JS list: c2pa-rs prepends the
+    // c2pa.opened action into THIS entry, so this is where allActionsIncluded
+    // and the created flag have to live.
+    assertions.append([
+      "label": "c2pa.actions.v2",
+      "data": ["actions": actionsArray, "allActionsIncluded": true] as [String: Any],
+      "created": true,
+    ])
 
     // Stage-2 metadata describes the TRANSFORMED file (e.g. new dimensions).
     if isVideo {
@@ -1728,6 +1782,7 @@ public class PhotoAttestModule: Module {
     assertions.append([
       "label": "org.realreel.upload",
       "data": realreelUpload,
+      "created": true,
     ])
 
     if let appAttestEntry = try appAttestAssertionEntry(envelope: attestationEnvelope) {
@@ -1736,7 +1791,7 @@ public class PhotoAttestModule: Module {
 
     var manifest: [String: Any] = [
       "claim_generator": claimGenerator,
-      "claim_generator_info": [["name": appName, "version": appVersion]],
+      "claim_generator_info": claimGeneratorInfo(appName: appName, appVersion: appVersion),
       "format": transformedMime,
       "title": title,
       "assertions": assertions,
@@ -1774,6 +1829,9 @@ public class PhotoAttestModule: Module {
   // by scripts/check-native-labels.mjs).
   private static let metadataAssertionLabel = "c2pa.metadata"
 
+  // `created: true` — spec 2.4 §9.2.6: a c2pa.metadata assertion in
+  // created_assertions is the signer's explicit signal that it stands behind
+  // the values (e.g. the GPS location); gathered would say the opposite.
   private static func metadataAssertionEntry(_ data: [String: Any]) -> [String: Any] {
     var data = data
     data["@context"] = [
@@ -1784,7 +1842,7 @@ public class PhotoAttestModule: Module {
       "xmpDM": "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
       "Iptc4xmpExt": "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
     ]
-    return ["label": metadataAssertionLabel, "data": data]
+    return ["label": metadataAssertionLabel, "data": data, "created": true]
   }
 
   // ImageIO returns nested dicts keyed by Exif/TIFF/GPS — we pull the same
@@ -1946,6 +2004,9 @@ public class PhotoAttestModule: Module {
   // every well-formed playable file), since duration isn't a metadata atom
   // but is derived from the track timing — there's nothing camera-side
   // to "win" against.
+  //
+  // Camera optics (exifEX:LensModel, exif:FNumber, exif:FocalLengthIn35mmFilm)
+  // come from the video TRACK's metadata — see emitVideoTrackOptics; iOS-only.
   private static func extractIptcAssertionForVideo(
     at url: URL,
     gps: [String: Any]?,
@@ -2006,9 +2067,76 @@ public class PhotoAttestModule: Module {
       out["xmpDM:duration"] = durSecs
     }
 
+    emitVideoTrackOptics(into: &out, asset: asset)
+
     emitJsGpsToIptc(into: &out, gps: gps)
 
     return out.isEmpty ? nil : out
+  }
+
+  // Camera optics from the VIDEO TRACK's metadata. Apple's Camera writes lens
+  // model, aperture and 35mm-equivalent focal length as QuickTime `mdta` keys
+  // on the video track (exiftool's `VideoKeys` group), not at asset level, so
+  // the `asset.metadata` loop above never sees them. The Stage-2 .MOV → .mp4
+  // transcode drops them, so signing them at capture is what makes the only
+  // camera-optics record a video has attested and durable — the guarantee the
+  // photo path gets from exif:FNumber / exifEX:LensModel. Called at Stage 2
+  // too (shared function): the transformed .mp4 carries no such keys, nothing
+  // is emitted, and the Stage-2 assertion still describes its own file.
+  //
+  // Values are UTF-8 strings in the file (aperture "F1.80", focal length "29"),
+  // reshaped to the photo path's numeric fields. Fail-soft per field. iOS-only:
+  // Android captures carry no track-level optics keys (measured), so the
+  // Kotlin twin has nothing to read.
+  //
+  // AVFoundation has no named identifiers for these keys; `mdta/<key>` is the
+  // identifier it surfaces (keySpace "/" key), keySpace+key match is the
+  // fallback.
+  private static let VIDEO_TRACK_OPTICS_KEYS: [(key: String, field: String)] = [
+    ("com.apple.quicktime.camera.lens_model", "exifEX:LensModel"),
+    ("com.apple.quicktime.camera.lens_irisfnumber", "exif:FNumber"),
+    ("com.apple.quicktime.camera.focal_length.35mm_equivalent", "exif:FocalLengthIn35mmFilm"),
+  ]
+
+  private static func emitVideoTrackOptics(into out: inout [String: Any], asset: AVAsset) {
+    guard let track = asset.tracks(withMediaType: .video).first else { return }
+    for item in track.metadata {
+      let rawIdentifier = item.identifier?.rawValue
+      let rawKey = item.key as? String
+      guard let entry = VIDEO_TRACK_OPTICS_KEYS.first(where: { candidate in
+        rawIdentifier == "mdta/\(candidate.key)"
+          || (item.keySpace == .quickTimeMetadata && rawKey == candidate.key)
+      }) else { continue }
+      // Do not overwrite a value already emitted (duplicate keys on the track).
+      if out[entry.field] != nil { continue }
+      guard let raw = item.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+      else { continue }
+      switch entry.field {
+      case "exifEX:LensModel":
+        out[entry.field] = raw
+      case "exif:FNumber":
+        // Apple writes "F1.80"; EXIF FNumber is the bare rational. Strip an
+        // "F"/"f" prefix and require a finite positive number.
+        var digits = raw
+        if let first = digits.first, first == "F" || first == "f" {
+          digits.removeFirst()
+        }
+        if let value = Double(digits.trimmingCharacters(in: .whitespaces)),
+           value.isFinite, value > 0 {
+          out[entry.field] = value
+        }
+      case "exif:FocalLengthIn35mmFilm":
+        // EXIF FocalLengthIn35mmFilm is a SHORT (integer millimetres). Accept
+        // "29" or "29.0"; reject anything non-positive or non-integral.
+        if let value = Double(raw), value.isFinite, value > 0,
+           value.rounded() == value, value <= Double(UInt16.max) {
+          out[entry.field] = Int(value)
+        }
+      default:
+        continue
+      }
+    }
   }
 
   // ISO 8601 UTC ("2026-05-09T13:12:41Z"). Used for all three dc:date

@@ -44,7 +44,7 @@ Two-stage provenance
 
 Declared actions
   Stage 1: c2pa.created
-  Stage 2: c2pa.opened, c2pa.resized, c2pa.transcoded, c2pa.redacted
+  Stage 2: c2pa.opened, c2pa.resized.proportional, c2pa.transcoded, c2pa.redacted
 ```
 
 The process exits `0` on a Trusted verdict and `1` on a rejection.

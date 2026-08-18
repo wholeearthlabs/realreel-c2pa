@@ -27,7 +27,7 @@ function upload(actions: Array<{ action: string; parameters?: unknown }>): Manif
 
 const PHOTO_UPLOAD = upload([
   { action: "c2pa.opened" },
-  { action: "c2pa.resized", parameters: { "org.realreel.width": 1080, "org.realreel.height": 1440 } },
+  { action: "c2pa.resized.proportional", parameters: { "org.realreel.width": 1080, "org.realreel.height": 1440 } },
   { action: "c2pa.transcoded", parameters: { "org.realreel.quality": 0.8, "org.realreel.format": "image/jpeg" } },
 ]);
 
@@ -55,8 +55,8 @@ describe("extractContentExtent", () => {
   it("ignores non-extent actions (resize/rotate/redact/opened/cropped)", () => {
     const extent = extractContentExtent(upload([
       { action: "c2pa.opened" },
-      { action: "c2pa.rotated", parameters: { "org.realreel.angle": 90 } },
-      { action: "c2pa.resized", parameters: { "org.realreel.width": 1, "org.realreel.height": 1 } },
+      { action: "c2pa.orientation", parameters: { "org.realreel.angle": 90 } },
+      { action: "c2pa.resized.proportional", parameters: { "org.realreel.width": 1, "org.realreel.height": 1 } },
       { action: "c2pa.redacted", parameters: { redacted: "x" } },
       { action: "c2pa.cropped", parameters: { "org.realreel.x": 0, "org.realreel.y": 0, "org.realreel.width": 100, "org.realreel.height": 100 } },
     ]));
@@ -81,8 +81,8 @@ describe("buildContentIdentity", () => {
   });
 
   it("photo: same capture, different transforms → same identity (re-upload collides)", () => {
-    const a = buildContentIdentity(capture("urn:c2pa:CAP"), upload([{ action: "c2pa.resized", parameters: { "org.realreel.width": 1080, "org.realreel.height": 1440 } }]));
-    const b = buildContentIdentity(capture("urn:c2pa:CAP"), upload([{ action: "c2pa.resized", parameters: { "org.realreel.width": 720, "org.realreel.height": 960 } }, { action: "c2pa.rotated", parameters: { "org.realreel.angle": 90 } }]));
+    const a = buildContentIdentity(capture("urn:c2pa:CAP"), upload([{ action: "c2pa.resized.proportional", parameters: { "org.realreel.width": 1080, "org.realreel.height": 1440 } }]));
+    const b = buildContentIdentity(capture("urn:c2pa:CAP"), upload([{ action: "c2pa.resized.proportional", parameters: { "org.realreel.width": 720, "org.realreel.height": 960 } }, { action: "c2pa.orientation", parameters: { "org.realreel.angle": 90 } }]));
     expect(a).toBe(b);
     expect(a).toBe("urn:c2pa:CAP");
   });
