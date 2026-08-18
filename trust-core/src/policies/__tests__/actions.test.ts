@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import {
   CAPTURE_ALLOWED_ACTIONS,
   REALREEL_UPLOAD_ALLOWED_ACTIONS,
+  TRANSITIONAL_RETIRED_UPLOAD_ACTIONS,
   extractManifestActions,
   extractCreatedDigitalSourceType,
   findDisallowedActions,
@@ -51,7 +52,17 @@ describe("allowlist constants — surface contract", () => {
         "c2pa.trimmed",
         "c2pa.redacted",
         "c2pa.edited.metadata",
+        // Transitional, pinned again below so removing them is deliberate.
+        "c2pa.rotated",
+        "c2pa.resized",
       ].sort(),
+    );
+  });
+
+  it("accepts exactly two retired spellings, transitionally", () => {
+    // Delete this case with the set itself once no pre-cutover build uploads.
+    expect([...TRANSITIONAL_RETIRED_UPLOAD_ACTIONS].sort()).toEqual(
+      ["c2pa.resized", "c2pa.rotated"].sort(),
     );
   });
 });

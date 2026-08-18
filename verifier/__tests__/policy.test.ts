@@ -479,10 +479,8 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
   });
 
   // c2pa.adjustedColor = an editor's action we never emit; c2pa.cropped =
-  // deliberately delisted (a declared crop could conceal recapture edges);
-  // c2pa.rotated / c2pa.resized = the retired pre-spec-2.4 spellings, pinned
-  // so the allowlist cutover is a hard one on the verifier too.
-  for (const action of ["c2pa.adjustedColor", "c2pa.cropped", "c2pa.rotated", "c2pa.resized"]) {
+  // deliberately delisted (a declared crop could conceal recapture edges).
+  for (const action of ["c2pa.adjustedColor", "c2pa.cropped"]) {
     it(`rejects: Stage 2 has disallowed action (${action})`, async () => {
       stubBothKeysValid();
       const store = makeRealReelStore({
@@ -494,6 +492,22 @@ describe("Policy — RealReel Stage 2 (active / upload)", () => {
         code: VerifyErrorCode.SIGNATURE_INVALID,
         detail: expect.stringContaining(action),
       });
+    });
+  }
+
+  // The retired pre-spec-2.4 spellings are accepted transitionally, so a build
+  // in the field and the deployed verifier can disagree on the vocabulary
+  // during a staged rollout. Flip these back to rejections when
+  // TRANSITIONAL_RETIRED_UPLOAD_ACTIONS is deleted.
+  for (const action of ["c2pa.rotated", "c2pa.resized"]) {
+    it(`accepts (transitionally): Stage 2 has retired action (${action})`, async () => {
+      stubBothKeysValid();
+      const store = makeRealReelStore({
+        stage2: { actions: ["c2pa.opened", action] },
+      });
+      await expect(
+        verifyRealReel(store, "realreel", resolveSource),
+      ).resolves.toBeDefined();
     });
   }
 

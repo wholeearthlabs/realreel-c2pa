@@ -50,6 +50,21 @@ export const CAPTURE_ALLOWED_ACTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Retired pre-spec-2.4 spellings, still accepted so the cutover is not a flag
+ * day. A build in the field and the deployed verifier have to agree on these
+ * names, and a staged rollout puts both generations in the field at once — so
+ * whichever side moved first would reject the other's uploads.
+ *
+ * DELETE once no pre-cutover build is still uploading (then redeploy the
+ * verifier). Nothing emits these: the emit side moved in the same release that
+ * added them here.
+ */
+export const TRANSITIONAL_RETIRED_UPLOAD_ACTIONS: ReadonlySet<string> = new Set([
+  "c2pa.rotated", //  superseded by c2pa.orientation
+  "c2pa.resized", //  superseded by c2pa.resized.proportional
+]);
+
+/**
  * Action names allowed on RealReel's Stage 2 (upload-time re-sign).
  * See file header for the emit-side cross-reference + the rationale for
  * each entry.
@@ -66,6 +81,7 @@ export const REALREEL_UPLOAD_ALLOWED_ACTIONS: ReadonlySet<string> = new Set([
   "c2pa.redacted", //             location redaction of a PARENT-manifest assertion
   "c2pa.edited.metadata", //      file-level metadata the upload removed (GPS strip,
   //                              re-encode losses); `org.realreel.removed` lists it
+  ...TRANSITIONAL_RETIRED_UPLOAD_ACTIONS,
 ]);
 
 /** A single well-formed action entry: the action name plus its raw, opaque
