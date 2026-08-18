@@ -106,11 +106,17 @@ export interface VerifyResult {
 // attacker-chosen URL (SSRF). ocspFetch is off by default but pinned for the same
 // reason. Both are lossless — RealReel ingests embedded manifests only and does
 // revocation via the datastore, not OCSP.
-export function buildVerifierSettings(trustConfig: TrustConfig): string {
+//
+// Takes only the anchor bundle so the conformance harness (src/harness/) can
+// hand c2pa-rs a Program-supplied trust list through this exact function —
+// same settings, different anchors — instead of mirroring it.
+export function buildVerifierSettings(
+  trust: Pick<TrustConfig, "trustAnchorsBundle">,
+): string {
   return settingsToJson({
     ...createTrustSettings({
       verifyTrustList: false,
-      trustAnchors: trustConfig.trustAnchorsBundle,
+      trustAnchors: trust.trustAnchorsBundle,
     }),
     verify: {
       verifyTimestampTrust: true,

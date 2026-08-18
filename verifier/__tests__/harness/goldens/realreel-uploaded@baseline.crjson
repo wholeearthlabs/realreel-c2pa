@@ -1,0 +1,526 @@
+{
+  "@context": {
+    "@vocab": "https://c2pa.org/crjson",
+    "extras": "https://c2pa.org/crjson/extras"
+  },
+  "manifests": [
+    {
+      "label": "urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1",
+      "assertions": {
+        "c2pa.thumbnail.claim": {
+          "format": "image/jpeg",
+          "identifier": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/c2pa.thumbnail.claim",
+          "hash": "b64'Mpahg9CJON6RerQ+HDZy/HteQ6ZSQQXUEkZU9mQZSHM='"
+        },
+        "c2pa.thumbnail.ingredient": {
+          "format": "image/jpeg",
+          "identifier": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/c2pa.thumbnail.ingredient",
+          "hash": "b64'wHh3eKOwmmc2qc0SB1KXUL2flqZjexAlS/LwxuxjOeo='"
+        },
+        "c2pa.ingredient.v3": {
+          "relationship": "parentOf",
+          "dc:title": "realreel-20260528-124629.jpg",
+          "dc:format": "image/jpeg",
+          "validationResults": {
+            "activeManifest": {
+              "success": [
+                {
+                  "code": "timeStamp.validated",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+                  "explanation": "timestamp message digest matched: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
+                },
+                {
+                  "code": "claimSignature.insideValidity",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+                  "explanation": "claim signature valid"
+                },
+                {
+                  "code": "claimSignature.validated",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+                  "explanation": "claim signature valid"
+                },
+                {
+                  "code": "assertion.hashedURI.match",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.assertions/c2pa.thumbnail.claim",
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.thumbnail.claim"
+                },
+                {
+                  "code": "assertion.hashedURI.match",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.assertions/c2pa.actions.v2",
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.actions.v2"
+                },
+                {
+                  "code": "assertion.hashedURI.match",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.assertions/c2pa.hash.data",
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.hash.data"
+                },
+                {
+                  "code": "assertion.hashedURI.match",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.assertions/stds.exif",
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/stds.exif"
+                },
+                {
+                  "code": "assertion.hashedURI.match",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.assertions/org.realreel.capture",
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/org.realreel.capture"
+                },
+                {
+                  "code": "assertion.dataHash.match",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.assertions/c2pa.hash.data",
+                  "explanation": "data hash valid"
+                }
+              ],
+              "informational": [
+                {
+                  "code": "timeStamp.untrusted",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+                  "explanation": "timestamp cert untrusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
+                }
+              ],
+              "failure": [
+                {
+                  "code": "signingCredential.untrusted",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+                  "explanation": "signing certificate untrusted"
+                }
+              ]
+            }
+          },
+          "instanceID": "xmp:iid:80873373-0f93-48b3-a213-70dfd245c75b",
+          "activeManifest": {
+            "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c",
+            "alg": "sha256",
+            "hash": "b64'A3pOIOFYF9RUBVziYg6kki8Gefkw2w+Y7FZUuXzK8yY='",
+            "pad": "b64''"
+          },
+          "claimSignature": {
+            "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+            "alg": "sha256",
+            "hash": "b64'U45f8lkNgkmOdttIlXMcDI64lswlUnsOeTz0gF6f3ts='",
+            "pad": "b64''"
+          },
+          "thumbnail": {
+            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.ingredient",
+            "hash": "b64'wHh3eKOwmmc2qc0SB1KXUL2flqZjexAlS/LwxuxjOeo='",
+            "pad": "b64''"
+          }
+        },
+        "c2pa.actions.v2": {
+          "actions": [
+            {
+              "action": "c2pa.opened",
+              "parameters": {
+                "ingredients": [
+                  {
+                    "url": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3",
+                    "hash": "b64'+/81zHKcKGaZB3XC1Iu/PbwMDqWdbLIp4+Wlj1gxPbQ='",
+                    "pad": "b64''"
+                  }
+                ]
+              }
+            },
+            {
+              "action": "c2pa.resized",
+              "parameters": {
+                "height": 1440,
+                "width": 1080
+              }
+            },
+            {
+              "action": "c2pa.transcoded",
+              "parameters": {
+                "quality": 0.8,
+                "format": "image/jpeg"
+              }
+            },
+            {
+              "action": "c2pa.redacted",
+              "parameters": {
+                "redacted": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.assertions/stds.exif"
+              }
+            }
+          ]
+        },
+        "stds.exif": {
+          "exif:FNumber": "1.7",
+          "exif:FocalLength": "45300/10000",
+          "exif:ExposureTime": "0.03127543198894714",
+          "tiff:ImageWidth": "1080",
+          "tiff:Orientation": "1",
+          "exif:DateTimeOriginal": "2026:05:28 12:46:28",
+          "tiff:Make": "Google",
+          "exif:ISOSpeedRatings": "57",
+          "tiff:ImageLength": "1440",
+          "tiff:DateTime": "2026:05:28 12:46:28",
+          "tiff:Model": "Pixel 10",
+          "exif:WhiteBalance": "0",
+          "exif:Flash": "0"
+        },
+        "org.realreel.upload": {
+          "appVersion": "0.0.1",
+          "deviceManufacturer": "Google",
+          "deviceModel": "Pixel 10",
+          "deviceTrustLevel": "strongbox",
+          "osVersion": "Android 16 (API 36)"
+        },
+        "org.realreel.play_integrity": {
+          "challenge": "ny5jZCy9qfkdH+YQruqQ/42NDiWPT4gzcVXVsODqWRE=",
+          "platform": "android",
+          "token": "CpsCARCnMGuBIl07hAtaGcTxZKzKKcoTX25jEMsuZ2KkqYeW-ahQsRldivpg98ynNy2GleyrQ4KLtYiragfBzs2M7PvKT7Rk84koa_U4aGuSrM3RzmmG00xk8mUj4BsaDjCcSrAO_rE6EotAvVus8MpIM0PPx9NFqhThUC2vcEWHtqFYoza8JaQrqrGwynXueFsnwQ5YUyTo-o8sRg-sNpUNrfhOad9rIx9L3U67e4mBZvZu2H_N4jK-KHueHShXRZceJvQJBEqfwGxcKpHe64EhDy-AnLO7wYyBZ52vFIuVGiVu2LHjFtN94QDEA9vvfDjOK-y7og6Bd7dMBAxPBusVe5pDkWlMN26w_yfD53azNjoO6iqztmSAK70q5BpoAfDuxvmX-oQ2sfX84qz2JMwh1UC3fDdC8h0-YNH_3o6X4XDedu-nyfcYMbgBCBBlOFhtoY9d7vgFS4Tsbemh4IM0qZXWZAHzXIaJURL_9gwz6eQG5mGm2W4Kx-9i90WPNVRGPFR6zYM"
+        },
+        "c2pa.hash.data": {
+          "exclusions": [
+            {
+              "start": 489,
+              "length": 608552
+            }
+          ],
+          "name": "jumbf manifest",
+          "alg": "sha256",
+          "hash": "b64'i0vbMl0bLFUoLmK6Cr4KX3pB4/1rITFsYHGW5bKPl8E='",
+          "pad": "b64'AAAAAAAAAA=='"
+        }
+      },
+      "claim.v2": {
+        "instanceID": "xmp:iid:039bc854-2a5e-44e8-b01a-4dd43e7f515d",
+        "signature": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.signature",
+        "claim_generator_info": {
+          "name": "RealReel",
+          "version": "0.0.1",
+          "org.contentauth.c2pa_rs": "0.79.5"
+        },
+        "alg": "sha256",
+        "dc:title": "realreel-20260528-124641.jpg",
+        "redacted_assertions": [
+          "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.assertions/stds.exif"
+        ],
+        "created_assertions": [
+          {
+            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.claim",
+            "hash": "b64'Mpahg9CJON6RerQ+HDZy/HteQ6ZSQQXUEkZU9mQZSHM='"
+          },
+          {
+            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.ingredient",
+            "hash": "b64'wHh3eKOwmmc2qc0SB1KXUL2flqZjexAlS/LwxuxjOeo='"
+          },
+          {
+            "url": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3",
+            "hash": "b64'+/81zHKcKGaZB3XC1Iu/PbwMDqWdbLIp4+Wlj1gxPbQ='"
+          },
+          {
+            "url": "self#jumbf=c2pa.assertions/c2pa.actions.v2",
+            "hash": "b64'2Ek8m7Gxn8UXAbStr4qZ9VaLS0/1PolmuniZG7dzgOA='"
+          },
+          {
+            "url": "self#jumbf=c2pa.assertions/c2pa.hash.data",
+            "hash": "b64'qL5XNUfw6Rb4RZC0x1zn0h5y31cqDeP10xMjyAHKjY0='"
+          }
+        ],
+        "gathered_assertions": [
+          {
+            "url": "self#jumbf=c2pa.assertions/stds.exif",
+            "hash": "b64'JHF9ht7M8otNBrqvyKQSnH2jKYecLYQut5U41LfL+0k='"
+          },
+          {
+            "url": "self#jumbf=c2pa.assertions/org.realreel.upload",
+            "hash": "b64'fWSrBcjrEB56vM4E8B3lPPBPlQOPezR2Qf7CQAZKi/U='"
+          },
+          {
+            "url": "self#jumbf=c2pa.assertions/org.realreel.play_integrity",
+            "hash": "b64'TwDHUZxvKynWqp4vAtEP92F5DVG4ApCyhgJwQe6Rsu8='"
+          }
+        ]
+      },
+      "signature": {
+        "algorithm": "es256",
+        "certificateInfo": {
+          "serialNumber": "3fbf2addabc10bda586932159b371fead5fff70b",
+          "issuer": {
+            "CN": "RealReel Issuing CA"
+          },
+          "subject": {
+            "C": "US",
+            "O": "RealReel",
+            "OU": "Production",
+            "CN": "RealReel-Device-Key"
+          },
+          "validity": {
+            "notBefore": "2026-05-27T23:47:27+00:00",
+            "notAfter": "2031-05-26T23:52:27+00:00"
+          }
+        },
+        "timeStampInfo": {
+          "timestamp": "2026-05-28T19:46:41+00:00",
+          "certificateInfo": {
+            "serialNumber": "a80ef184b8df10582d1c476a7957468",
+            "issuer": {
+              "C": "US",
+              "O": "DigiCert, Inc.",
+              "CN": "DigiCert Trusted G4 TimeStamping RSA4096 SHA256 2025 CA1"
+            },
+            "subject": {
+              "C": "US",
+              "O": "DigiCert, Inc.",
+              "CN": "DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
+            },
+            "validity": {
+              "notBefore": "2025-06-04T00:00:00+00:00",
+              "notAfter": "2036-09-03T23:59:59+00:00"
+            }
+          }
+        }
+      },
+      "validationResults": {
+        "success": [
+          {
+            "code": "timeStamp.validated",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.signature",
+            "explanation": "timestamp message digest matched: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
+          },
+          {
+            "code": "timeStamp.trusted",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.signature",
+            "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
+          },
+          {
+            "code": "signingCredential.trusted",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.signature",
+            "explanation": "signing certificate trusted, found in System trust anchors"
+          },
+          {
+            "code": "claimSignature.insideValidity",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.signature",
+            "explanation": "claim signature valid"
+          },
+          {
+            "code": "claimSignature.validated",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.signature",
+            "explanation": "claim signature valid"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/c2pa.thumbnail.claim",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.thumbnail.claim"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/c2pa.thumbnail.ingredient",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.thumbnail.ingredient"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/c2pa.ingredient.v3",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.ingredient.v3"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/c2pa.actions.v2",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.actions.v2"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/c2pa.hash.data",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.hash.data"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/stds.exif",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/stds.exif"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/org.realreel.upload",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/org.realreel.upload"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/org.realreel.play_integrity",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/org.realreel.play_integrity"
+          },
+          {
+            "code": "assertion.dataHash.match",
+            "url": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/c2pa.hash.data",
+            "explanation": "data hash valid"
+          }
+        ],
+        "informational": [],
+        "failure": [],
+        "specVersion": "2.3.0",
+        "validationTime": "2026-08-18T00:00:00+00:00"
+      },
+      "ingredientDeltas": [
+        {
+          "ingredientAssertionURI": "self#jumbf=/c2pa/urn:c2pa:db23f128-3105-45c9-aa78-5270c2d666a1/c2pa.assertions/c2pa.ingredient.v3",
+          "validationDeltas": {
+            "success": [
+              {
+                "code": "timeStamp.trusted",
+                "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+                "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
+              },
+              {
+                "code": "signingCredential.trusted",
+                "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+                "explanation": "signing certificate trusted, found in System trust anchors"
+              }
+            ],
+            "informational": [
+              {
+                "code": "ingredient.claimSignature.validated",
+                "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c",
+                "explanation": "ingredient claimSignature validated"
+              }
+            ],
+            "failure": []
+          }
+        }
+      ]
+    },
+    {
+      "label": "urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c",
+      "assertions": {
+        "c2pa.thumbnail.claim": {
+          "format": "image/jpeg",
+          "identifier": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.assertions/c2pa.thumbnail.claim",
+          "hash": "b64'oCJ7P25/83zAB7R4kH3OaVftASTMy9TJspiIAhRsxME='"
+        },
+        "org.realreel.capture": {
+          "appVersion": "0.0.1",
+          "cameraFacing": "back",
+          "captureSource": "in-app-camera",
+          "capturerUuid": "a73f9e58-7323-4fd6-970e-59fb0b4d2ea4",
+          "deviceManufacturer": "Google",
+          "deviceModel": "Pixel 10",
+          "deviceTrustLevel": "strongbox",
+          "osVersion": "Android 16 (API 36)"
+        },
+        "c2pa.actions.v2": {
+          "actions": [
+            {
+              "action": "c2pa.created",
+              "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
+            }
+          ]
+        },
+        "c2pa.hash.data": {
+          "exclusions": [
+            {
+              "start": 734,
+              "length": 205969
+            }
+          ],
+          "name": "jumbf manifest",
+          "alg": "sha256",
+          "hash": "b64'Rzo4lyrHtBfwCDaz6hZ7u+b3Rrgi0pELIKKA4tKqTZw='",
+          "pad": "b64'AAAAAAAAAA=='"
+        },
+        "stds.exif": {
+          "identifier": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.assertions/stds.exif",
+          "hash": "b64'BEurIInk1HDrzD/QbCnJPE3lvNw0jCYJHYChJByIFIU='"
+        }
+      },
+      "claim.v2": {
+        "instanceID": "xmp:iid:64bb7f8a-b0ab-40b8-8917-e21a52c4e59b",
+        "signature": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+        "claim_generator_info": {
+          "name": "RealReel",
+          "version": "0.0.1",
+          "org.contentauth.c2pa_rs": "0.79.5"
+        },
+        "alg": "sha256",
+        "dc:title": "realreel-20260528-124629.jpg",
+        "created_assertions": [
+          {
+            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.claim",
+            "hash": "b64'oCJ7P25/83zAB7R4kH3OaVftASTMy9TJspiIAhRsxME='"
+          },
+          {
+            "url": "self#jumbf=c2pa.assertions/c2pa.actions.v2",
+            "hash": "b64'QdPUlsrrc8P8LYWh/nrEdx2gNvDoUn2rwAqR2wYkyoI='"
+          },
+          {
+            "url": "self#jumbf=c2pa.assertions/c2pa.hash.data",
+            "hash": "b64'3u4fP+UJqVLtBi3VAy13mXiUZ3DC5O3vF+pDHtF9mXU='"
+          }
+        ],
+        "gathered_assertions": [
+          {
+            "url": "self#jumbf=c2pa.assertions/stds.exif",
+            "hash": "b64'BEurIInk1HDrzD/QbCnJPE3lvNw0jCYJHYChJByIFIU='"
+          },
+          {
+            "url": "self#jumbf=c2pa.assertions/org.realreel.capture",
+            "hash": "b64'LxunreBDF8P2vbjwpWD26q60eoN/PLNTH7OspiYwIkc='"
+          }
+        ]
+      },
+      "signature": {
+        "algorithm": "es256",
+        "certificateInfo": {
+          "serialNumber": "3fbf2addabc10bda586932159b371fead5fff70b",
+          "issuer": {
+            "CN": "RealReel Issuing CA"
+          },
+          "subject": {
+            "C": "US",
+            "O": "RealReel",
+            "OU": "Production",
+            "CN": "RealReel-Device-Key"
+          },
+          "validity": {
+            "notBefore": "2026-05-27T23:47:27+00:00",
+            "notAfter": "2031-05-26T23:52:27+00:00"
+          }
+        },
+        "timeStampInfo": {
+          "timestamp": "2026-05-28T19:46:30+00:00",
+          "certificateInfo": {
+            "serialNumber": "a80ef184b8df10582d1c476a7957468",
+            "issuer": {
+              "C": "US",
+              "O": "DigiCert, Inc.",
+              "CN": "DigiCert Trusted G4 TimeStamping RSA4096 SHA256 2025 CA1"
+            },
+            "subject": {
+              "C": "US",
+              "O": "DigiCert, Inc.",
+              "CN": "DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
+            },
+            "validity": {
+              "notBefore": "2025-06-04T00:00:00+00:00",
+              "notAfter": "2036-09-03T23:59:59+00:00"
+            }
+          }
+        }
+      },
+      "validationResults": {
+        "success": [
+          {
+            "code": "timeStamp.trusted",
+            "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+            "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
+          },
+          {
+            "code": "signingCredential.trusted",
+            "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c/c2pa.signature",
+            "explanation": "signing certificate trusted, found in System trust anchors"
+          }
+        ],
+        "informational": [
+          {
+            "code": "ingredient.claimSignature.validated",
+            "url": "self#jumbf=/c2pa/urn:c2pa:80186606-964a-47ea-824d-71e721e6fe3c",
+            "explanation": "ingredient claimSignature validated"
+          }
+        ],
+        "failure": [],
+        "specVersion": "2.3.0",
+        "validationTime": "2026-08-18T00:00:00+00:00"
+      }
+    }
+  ],
+  "jsonGenerator": {
+    "name": "c2pa-rs",
+    "version": "0.90.15"
+  }
+}
