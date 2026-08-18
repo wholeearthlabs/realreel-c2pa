@@ -61,3 +61,29 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://localhost:'+(process.env.PORT||8080)+'/healthz/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
 CMD ["node", "verifier/dist/server.js"]
+
+# ---------- Stage 3 (opt-in target): crJSON conformance harness ----------
+# verifier/src/harness/ on top of the runtime image — the SAME built verifier +
+# c2pa-node the service deploys — plus the two tools it drives: c2patool (pin +
+# checksum mirror .github/workflows/ci.yml; recorded in verifier/README.md) and
+# libfaketime. `docker build -f verifier/Dockerfile --target crjson-harness .`;
+# usage in verifier/README.md "Conformance test harness".
+FROM runtime AS crjson-harness
+USER root
+ARG C2PATOOL_VERSION=0.27.15
+ARG C2PATOOL_SHA256=7a035b727a6cdda8ad08d98fe94b3c20febee4aea4e7c1de02571b295730faf0
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl faketime \
+  && curl -fsSL -o /tmp/c2patool.tar.gz \
+       "https://github.com/contentauth/c2pa-rs/releases/download/c2patool-v${C2PATOOL_VERSION}/c2patool-v${C2PATOOL_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+  && echo "${C2PATOOL_SHA256}  /tmp/c2patool.tar.gz" | sha256sum -c - \
+  && tar -xzf /tmp/c2patool.tar.gz -C /tmp \
+  && install -m 0755 /tmp/c2patool/c2patool /usr/local/bin/c2patool \
+  && rm -rf /tmp/c2patool* /var/lib/apt/lists/* \
+  && c2patool --version \
+  && [ "$(faketime -f '2031-01-01 00:00:00' date -u +%Y)" = "2031" ]
+USER node
+HEALTHCHECK NONE
+# Absolute: callers set -w to their asset directory.
+ENTRYPOINT ["node", "/app/verifier/dist/harness/cli.js"]
+CMD ["--help"]
