@@ -39,20 +39,25 @@ npm run typecheck:verifier          # tsc, src only
 npm run test:ca                     # deno test — needs Deno >= 2
 npm run test:native                 # vitest — the native TS bridge
 ( cd native && npx tsc --noEmit )   # typecheck the native TS bridge
-npm run lint                        # deno lint + fmt --check, then eslint (native)
+npm run lint                        # every workspace: deno lint + fmt, then eslint
 npm run lint:deno                   # just the Deno services
 npm run lint:native                 # just the native TS bridge
+npm run lint:ts                     # just trust-core + verifier
 npm run lint:fix                    # apply what's auto-fixable
 ```
 
 Binary test fixtures live in **Git LFS**. If `verifier/__tests__/fixtures/*`
 look like ~130-byte text stubs, run `git lfs pull`.
 
-`npm run lint` covers the **Deno** services (`deno lint` + `deno fmt --check`)
-and **`native/`** (ESLint 9 flat config, base from `expo-module-scripts`, run
-with `--max-warnings 0` because universe reports Prettier violations as
-warnings). `trust-core/` and `verifier/` have no linter yet — `tsc` is still
-their only static check.
+`npm run lint` covers every workspace: the **Deno** services (`deno lint` +
+`deno fmt --check`), **`native/`** (ESLint 9 flat config, base from
+`expo-module-scripts`, `--max-warnings 0` because universe reports Prettier
+violations as warnings), and **`trust-core/` + `verifier/`** (type-aware ESLint,
+root `eslint.config.mjs`).
+
+That last one is a small rule set, not `recommendedTypeChecked` — typescript-eslint
+can't run on TypeScript 7, so it lints with a different TypeScript than `tsc`
+uses. `eslint.config.mjs` explains which rules survive that split and why.
 
 ## Conventions
 

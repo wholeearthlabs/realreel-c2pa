@@ -31,6 +31,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Type-aware ESLint. Small rule set by necessity — see eslint.config.mjs.
+      - name: trust-core + verifier — eslint
+        run: npm run lint:ts
+
       # The two emit configs exclude __tests__/ so it never reaches dist/ —
       # which also left it checked by nothing. Same esbuild blind spot as the
       # verifier's test config below; this one is noEmit, so dist/ is unchanged.

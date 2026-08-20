@@ -19,7 +19,7 @@ test-verifier:
 test-ca:
 	npm run test:ca
 
-# Lint every Deno service (ca, ocsp, ocsp-leaf, pki) + the native TS bridge.
+# Lint every workspace: the Deno services, the native bridge, trust-core, verifier.
 lint:
 	npm run lint
 

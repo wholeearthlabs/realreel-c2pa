@@ -22,8 +22,9 @@
     "test:native": "npm test --workspace native",
     "lint:deno": "scripts/lint-deno.sh",
     "lint:native": "npm run lint --workspace native",
-    "lint": "npm run lint:deno && npm run lint:native",
-    "lint:fix": "scripts/lint-deno.sh --fix && npm run lint:fix --workspace native",
+    "lint:ts": "eslint 'trust-core/**/*.ts' 'verifier/**/*.ts'",
+    "lint": "npm run lint:deno && npm run lint:native && npm run lint:ts",
+    "lint:fix": "scripts/lint-deno.sh --fix && npm run lint:fix --workspace native && npm run lint:ts -- --fix",
     "test": "npm run build -w trust-core && npm run test:trust-core && npm run typecheck:verifier && npm run test:verifier && npm run test:ca && npm run test:pki && npm run test:ocsp && npm run test:ocsp-leaf && npm run test:native",
     "demo": "cd verifier && tsx ../examples/verify-demo.ts",
     "changeset": "changeset",
@@ -31,6 +32,8 @@
   },
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.0",
-    "@changesets/cli": "^3.0.0"
+    "@changesets/cli": "^3.0.0",
+    "eslint": "^9.39.5",
+    "typescript-eslint": "^8.67.0"
   }
 }
