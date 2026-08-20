@@ -7,7 +7,11 @@
 // and (d) the response contains only nonces — the DB carries the rest.
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { defaultDeps, handleMintChallenges, type MintChallengesDeps } from "../index.ts";
+import {
+  defaultDeps,
+  handleMintChallenges,
+  type MintChallengesDeps,
+} from "../index.ts";
 import {
   buildRequest,
   fakeAuthUser,
@@ -21,7 +25,10 @@ function buildDeps(opts: {
   userId?: string;
   client?: ReturnType<typeof makeMockSupabaseClient>;
   noUser?: boolean;
-} = {}): { deps: MintChallengesDeps; mockClient: ReturnType<typeof makeMockSupabaseClient> } {
+} = {}): {
+  deps: MintChallengesDeps;
+  mockClient: ReturnType<typeof makeMockSupabaseClient>;
+} {
   const mockClient = opts.client ?? makeMockSupabaseClient();
   const base = makeBaseDeps({
     user: opts.noUser
@@ -53,7 +60,9 @@ Deno.test("mint-attestation-challenges — happy path returns nonces and burns n
     buildRequest({ bearer: "ignored", body: { keyId: KEY_ID, count: 3 } }),
     deps,
   );
-  const { status, body } = await readJsonResponse<{ challenges: string[] }>(res);
+  const { status, body } = await readJsonResponse<{ challenges: string[] }>(
+    res,
+  );
   assertEquals(status, 200);
   assertEquals(body.challenges, ["nonce-a", "nonce-b", "nonce-c"]);
 
@@ -117,7 +126,10 @@ Deno.test("mint-attestation-challenges — malformed JSON body → 400", async (
   // Hand-craft a request with a body that isn't valid JSON.
   const req = new Request("http://localhost/test", {
     method: "POST",
-    headers: { "content-type": "application/json", "authorization": "Bearer x" },
+    headers: {
+      "content-type": "application/json",
+      "authorization": "Bearer x",
+    },
     body: "{not-json",
   });
   const res = await handleMintChallenges(req, deps);
@@ -159,7 +171,8 @@ Deno.test("mint-attestation-challenges — RPC 42501 (key not owned/revoked) →
     data: null,
     error: {
       code: "42501",
-      message: "mint_attestation_challenges: key_id not owned by user or revoked",
+      message:
+        "mint_attestation_challenges: key_id not owned by user or revoked",
     },
   });
   const res = await handleMintChallenges(
@@ -213,8 +226,8 @@ Deno.test("mint-attestation-challenges — rows missing nonce are filtered out",
   mockClient.setNextResult({
     data: [
       { nonce: "good-1", issued_at: "..." },
-      { nonce: "", issued_at: "..." },         // empty — filtered
-      { issued_at: "..." },                     // missing — filtered
+      { nonce: "", issued_at: "..." }, // empty — filtered
+      { issued_at: "..." }, // missing — filtered
       { nonce: "good-2", issued_at: "..." },
     ],
     error: null,
@@ -223,7 +236,9 @@ Deno.test("mint-attestation-challenges — rows missing nonce are filtered out",
     buildRequest({ bearer: "ignored", body: { keyId: KEY_ID, count: 4 } }),
     deps,
   );
-  const { status, body } = await readJsonResponse<{ challenges: string[] }>(res);
+  const { status, body } = await readJsonResponse<{ challenges: string[] }>(
+    res,
+  );
   assertEquals(status, 200);
   assertEquals(body.challenges, ["good-1", "good-2"]);
 });

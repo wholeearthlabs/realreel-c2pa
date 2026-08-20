@@ -40,7 +40,11 @@ export interface ResolvedStatus extends StatusRecord {
 
 export function namespaceIdFromWranglerToml(toml: string): string {
   const m = toml.match(/binding = "OCSP_RESPONSES", id = "([0-9a-f]{32})"/);
-  if (!m) throw new Error("could not find the OCSP_RESPONSES namespace id in wrangler.toml");
+  if (!m) {
+    throw new Error(
+      "could not find the OCSP_RESPONSES namespace id in wrangler.toml",
+    );
+  }
   return m[1];
 }
 
@@ -52,7 +56,9 @@ function checkStatusRecord(r: StatusRecord): StatusRecord {
     throw new Error(`unexpected status '${r.status}' (want good|revoked)`);
   }
   if (!/^[0-9A-Za-z:.+-]*$/.test(r.revocationTime)) {
-    throw new Error("revocationTime contains characters outside an ISO-8601 timestamp");
+    throw new Error(
+      "revocationTime contains characters outside an ISO-8601 timestamp",
+    );
   }
   if (!/^\d*$/.test(r.revocationReason)) {
     throw new Error("revocationReason must be empty or an integer");
@@ -89,10 +95,17 @@ export async function resolveStatus(opts: {
 
   const read = await opts.readPersisted();
   if (read.code === 404) {
-    return { status: "good", revocationTime: "", revocationReason: "", explicit: false };
+    return {
+      status: "good",
+      revocationTime: "",
+      revocationReason: "",
+      explicit: false,
+    };
   }
   if (read.code !== 200) {
-    throw new Error(`reading persisted ica-status from KV failed (HTTP ${read.code})`);
+    throw new Error(
+      `reading persisted ica-status from KV failed (HTTP ${read.code})`,
+    );
   }
   let parsed: Record<string, unknown>;
   try {
@@ -131,7 +144,11 @@ async function fetchOcspBytes(
   const res = await fetchFn(input, init);
   const body = new Uint8Array(await res.arrayBuffer());
   if (res.status !== 200) return null;
-  if (!(res.headers.get("content-type") ?? "").startsWith("application/ocsp-response")) return null;
+  if (
+    !(res.headers.get("content-type") ?? "").startsWith(
+      "application/ocsp-response",
+    )
+  ) return null;
   return body;
 }
 
@@ -140,7 +157,9 @@ async function fetchOcspBytes(
 export async function verifyLive(opts: VerifyLiveOpts): Promise<number> {
   const fetchFn = opts.fetchFn ?? fetch;
   const log = opts.log ?? (() => {});
-  const getUrl = `${opts.url}/${encodeURIComponent(bytesToBase64(opts.requestDer))}`;
+  const getUrl = `${opts.url}/${
+    encodeURIComponent(bytesToBase64(opts.requestDer))
+  }`;
   for (let attempt = 1; attempt <= opts.attempts; attempt++) {
     try {
       const viaPost = await fetchOcspBytes(fetchFn, opts.url, {
@@ -159,9 +178,15 @@ export async function verifyLive(opts: VerifyLiveOpts): Promise<number> {
         );
         return attempt;
       }
-      log(`attempt ${attempt}: live bytes do not yet match the published response`);
+      log(
+        `attempt ${attempt}: live bytes do not yet match the published response`,
+      );
     } catch (err) {
-      log(`attempt ${attempt}: ${err instanceof Error ? err.message : String(err)}`);
+      log(
+        `attempt ${attempt}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
     if (attempt < opts.attempts) await opts.sleep(30_000);
   }
@@ -185,17 +210,27 @@ async function kvConfigFromEnv(): Promise<KvConfig> {
   const token = Deno.env.get("CLOUDFLARE_API_TOKEN") ?? "";
   const accountId = Deno.env.get("CLOUDFLARE_ACCOUNT_ID") ?? "";
   if (!token || !accountId) {
-    throw new Error("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set");
+    throw new Error(
+      "CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set",
+    );
   }
-  const toml = await Deno.readTextFile(new URL("wrangler.toml", import.meta.url));
+  const toml = await Deno.readTextFile(
+    new URL("wrangler.toml", import.meta.url),
+  );
   return { token, accountId, namespaceId: namespaceIdFromWranglerToml(toml) };
 }
 
 async function sha1Target(): Promise<CertIdValues> {
   const dir = new URL("../verifier/trust-sources/realreel/", import.meta.url);
-  const rootPem = await Deno.readTextFile(new URL("realreel-c2pa-root.pem", dir));
-  const icaPem = await Deno.readTextFile(new URL("realreel-claim-signing-ca.pem", dir));
-  const target = (await icaCertIdTargets(rootPem, icaPem)).find((t) => t.hashOid === OID_SHA1);
+  const rootPem = await Deno.readTextFile(
+    new URL("realreel-c2pa-root.pem", dir),
+  );
+  const icaPem = await Deno.readTextFile(
+    new URL("realreel-claim-signing-ca.pem", dir),
+  );
+  const target = (await icaCertIdTargets(rootPem, icaPem)).find((t) =>
+    t.hashOid === OID_SHA1
+  );
   if (!target) throw new Error("no SHA-1 CertID target");
   return target;
 }
@@ -243,14 +278,18 @@ if (import.meta.main) {
         });
         await res.body?.cancel();
         if (res.status !== 200) {
-          throw new Error(`persisting ica-status to KV failed (HTTP ${res.status})`);
+          throw new Error(
+            `persisting ica-status to KV failed (HTTP ${res.status})`,
+          );
         }
         console.log(`persisted ica-status: ${JSON.stringify(record)}`);
         break;
       }
       case "verify-live": {
         const url = env("OCSP_URL") || "http://ocsp.realreel.xyz";
-        const expected = await Deno.readFile(new URL("out/response-sha1.der", import.meta.url));
+        const expected = await Deno.readFile(
+          new URL("out/response-sha1.der", import.meta.url),
+        );
         await verifyLive({
           url,
           requestDer: buildOcspRequestDer(await sha1Target()),
@@ -262,7 +301,9 @@ if (import.meta.main) {
         break;
       }
       default:
-        console.error("usage: refresh-ops.ts <resolve-status|persist-status|verify-live>");
+        console.error(
+          "usage: refresh-ops.ts <resolve-status|persist-status|verify-live>",
+        );
         Deno.exit(2);
     }
   } catch (err) {

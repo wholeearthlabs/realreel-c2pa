@@ -20,7 +20,9 @@ import {
 
 const dir = new URL("../verifier/trust-sources/realreel/", import.meta.url);
 const rootPem = await Deno.readTextFile(new URL("realreel-c2pa-root.pem", dir));
-const icaPem = await Deno.readTextFile(new URL("realreel-claim-signing-ca.pem", dir));
+const icaPem = await Deno.readTextFile(
+  new URL("realreel-claim-signing-ca.pem", dir),
+);
 const assets = { rootPem, icaPem };
 
 // OCSP requests generated with `openssl ocsp -issuer realreel-c2pa-root.pem
@@ -41,7 +43,9 @@ const REQ_WRONG_KEYHASH_HEX =
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(2 * i, 2 * i + 2), 16);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.slice(2 * i, 2 * i + 2), 16);
+  }
   return out;
 }
 function bytesToB64(bytes: Uint8Array): string {
@@ -51,7 +55,9 @@ function bytesToB64(bytes: Uint8Array): string {
 }
 
 const SHA1_STUB = new TextEncoder().encode("pre-signed response (sha1 CertID)");
-const SHA256_STUB = new TextEncoder().encode("pre-signed response (sha256 CertID)");
+const SHA256_STUB = new TextEncoder().encode(
+  "pre-signed response (sha256 CertID)",
+);
 const store: ResponseStore = {
   get: (key) =>
     Promise.resolve(
@@ -68,7 +74,9 @@ function assert(cond: unknown, msg: string): void {
   if (!cond) throw new Error(msg);
 }
 function assertEq<T>(actual: T, expected: T, label: string): void {
-  if (actual !== expected) throw new Error(`${label}: expected ${expected}, got ${actual}`);
+  if (actual !== expected) {
+    throw new Error(`${label}: expected ${expected}, got ${actual}`);
+  }
 }
 function post(der: Uint8Array): Request {
   return new Request("http://ocsp.realreel.xyz/", {
@@ -80,28 +88,56 @@ function post(der: Uint8Array): Request {
 function get(path: string): Request {
   return new Request(`http://ocsp.realreel.xyz${path}`);
 }
-async function expectOcsp(res: Response, body: Uint8Array, label: string): Promise<void> {
+async function expectOcsp(
+  res: Response,
+  body: Uint8Array,
+  label: string,
+): Promise<void> {
   assertEq(res.status, 200, `${label}: status`);
-  assertEq(res.headers.get("content-type"), "application/ocsp-response", `${label}: content-type`);
-  assertEq(res.headers.get("access-control-allow-origin"), "*", `${label}: cors`);
+  assertEq(
+    res.headers.get("content-type"),
+    "application/ocsp-response",
+    `${label}: content-type`,
+  );
+  assertEq(
+    res.headers.get("access-control-allow-origin"),
+    "*",
+    `${label}: cors`,
+  );
   const got = new Uint8Array(await res.arrayBuffer());
   assert(bytesEqual(got, body), `${label}: body bytes`);
 }
 
 Deno.test("POST with the openssl SHA-1 CertID serves the sha1 pre-signed response", async () => {
-  const res = await handleRequest(post(hexToBytes(REQ_SHA1_HEX)), assets, store);
+  const res = await handleRequest(
+    post(hexToBytes(REQ_SHA1_HEX)),
+    assets,
+    store,
+  );
   await expectOcsp(res, SHA1_STUB, "sha1");
-  assertEq(res.headers.get("cache-control"), "public, max-age=3600", "cacheable");
+  assertEq(
+    res.headers.get("cache-control"),
+    "public, max-age=3600",
+    "cacheable",
+  );
 });
 
 Deno.test("POST with the openssl SHA-256 CertID serves the sha256 pre-signed response", async () => {
-  const res = await handleRequest(post(hexToBytes(REQ_SHA256_HEX)), assets, store);
+  const res = await handleRequest(
+    post(hexToBytes(REQ_SHA256_HEX)),
+    assets,
+    store,
+  );
   await expectOcsp(res, SHA256_STUB, "sha256");
 });
 
 Deno.test("GET serves the request encoded base64 in the path (RFC 6960 A.1)", async () => {
   const b64 = bytesToB64(hexToBytes(REQ_SHA1_HEX));
-  const res = await handleRequest(get(`/${encodeURIComponent(b64)}`), assets, store);
+  const res = await handleRequest(
+    get(`/${encodeURIComponent(b64)}`),
+    assets,
+    store,
+  );
   await expectOcsp(res, SHA1_STUB, "get-encoded");
   // Clients differ on percent-encoding '+', '/', '='; raw base64 must work too.
   const raw = await handleRequest(get(`/${b64}`), assets, store);
@@ -109,18 +145,30 @@ Deno.test("GET serves the request encoded base64 in the path (RFC 6960 A.1)", as
 });
 
 Deno.test("a request nonce is ignored, not fatal (RFC 5019 pre-signed operation)", async () => {
-  const res = await handleRequest(post(hexToBytes(REQ_SHA1_NONCE_HEX)), assets, store);
+  const res = await handleRequest(
+    post(hexToBytes(REQ_SHA1_NONCE_HEX)),
+    assets,
+    store,
+  );
   await expectOcsp(res, SHA1_STUB, "nonce");
 });
 
 Deno.test("a different serial under the same issuer is unauthorized, never good", async () => {
-  const res = await handleRequest(post(hexToBytes(REQ_OTHER_SERIAL_HEX)), assets, store);
+  const res = await handleRequest(
+    post(hexToBytes(REQ_OTHER_SERIAL_HEX)),
+    assets,
+    store,
+  );
   await expectOcsp(res, OCSP_UNAUTHORIZED, "other-serial");
   assertEq(res.headers.get("cache-control"), "no-store", "uncacheable");
 });
 
 Deno.test("the ICA serial under a different issuer key is unauthorized", async () => {
-  const res = await handleRequest(post(hexToBytes(REQ_WRONG_KEYHASH_HEX)), assets, store);
+  const res = await handleRequest(
+    post(hexToBytes(REQ_WRONG_KEYHASH_HEX)),
+    assets,
+    store,
+  );
   await expectOcsp(res, OCSP_UNAUTHORIZED, "wrong-keyhash");
 });
 
@@ -147,7 +195,11 @@ Deno.test("a multi-cert request is unauthorized (pre-signed responses cover one 
 });
 
 Deno.test("unparseable POST body is malformedRequest", async () => {
-  const res = await handleRequest(post(new TextEncoder().encode("not ocsp")), assets, store);
+  const res = await handleRequest(
+    post(new TextEncoder().encode("not ocsp")),
+    assets,
+    store,
+  );
   await expectOcsp(res, OCSP_MALFORMED_REQUEST, "garbage");
 });
 
@@ -158,24 +210,39 @@ Deno.test("empty POST body is malformedRequest", async () => {
 
 Deno.test("an oversized POST body is malformedRequest", async () => {
   // Far past MAX_REQUEST_BYTES; a single-CertID request is ~100 bytes.
-  const res = await handleRequest(post(new Uint8Array(64 * 1024)), assets, store);
+  const res = await handleRequest(
+    post(new Uint8Array(64 * 1024)),
+    assets,
+    store,
+  );
   await expectOcsp(res, OCSP_MALFORMED_REQUEST, "oversized");
 });
 
 Deno.test("undecodable GET path is malformedRequest", async () => {
-  const res = await handleRequest(get("/definitely-not-base64!!!"), assets, store);
+  const res = await handleRequest(
+    get("/definitely-not-base64!!!"),
+    assets,
+    store,
+  );
   await expectOcsp(res, OCSP_MALFORMED_REQUEST, "bad-b64");
 });
 
 Deno.test("valid request against an unpopulated store is internalError", async () => {
-  const res = await handleRequest(post(hexToBytes(REQ_SHA1_HEX)), assets, emptyStore);
+  const res = await handleRequest(
+    post(hexToBytes(REQ_SHA1_HEX)),
+    assets,
+    emptyStore,
+  );
   await expectOcsp(res, OCSP_INTERNAL_ERROR, "empty-store");
 });
 
 Deno.test("index page on GET /", async () => {
   const res = await handleRequest(get("/"), assets, store);
   assertEq(res.status, 200, "status");
-  assert((res.headers.get("content-type") ?? "").startsWith("text/html"), "content-type");
+  assert(
+    (res.headers.get("content-type") ?? "").startsWith("text/html"),
+    "content-type",
+  );
   assert((await res.text()).includes("OCSP"), "body");
 });
 
@@ -196,10 +263,15 @@ const LEAF_TARGETS = await leafIssuerTargets(icaPem);
 // serial (the origin, not this router, decides whether the serial is known).
 function leafRequest(hashOid: string): Uint8Array {
   const t = LEAF_TARGETS.find((x) => x.hashOid === hashOid)!;
-  return buildOcspRequestDer({ ...t, serialNumber: new Uint8Array([0x0a, 0x1b, 0x2c]) });
+  return buildOcspRequestDer({
+    ...t,
+    serialNumber: new Uint8Array([0x0a, 0x1b, 0x2c]),
+  });
 }
 const LEAF_STUB = new TextEncoder().encode("origin-signed leaf response");
-function stubForwarder(calls: Uint8Array[]): (der: Uint8Array) => Promise<Response> {
+function stubForwarder(
+  calls: Uint8Array[],
+): (der: Uint8Array) => Promise<Response> {
   return (der) => {
     calls.push(der);
     return Promise.resolve(
@@ -216,9 +288,18 @@ function stubForwarder(calls: Uint8Array[]): (der: Uint8Array) => Promise<Respon
 Deno.test("a leaf CertID is relayed to the leaf responder verbatim, response + caching pass through", async () => {
   const calls: Uint8Array[] = [];
   const der = leafRequest(OID_SHA256);
-  const res = await handleRequest(post(der), assets, store, stubForwarder(calls));
+  const res = await handleRequest(
+    post(der),
+    assets,
+    store,
+    stubForwarder(calls),
+  );
   await expectOcsp(res, LEAF_STUB, "leaf-relay");
-  assertEq(res.headers.get("cache-control"), "public, max-age=300", "origin cache-control");
+  assertEq(
+    res.headers.get("cache-control"),
+    "public, max-age=300",
+    "origin cache-control",
+  );
   assertEq(calls.length, 1, "forwarder calls");
   assert(bytesEqual(calls[0], der), "request DER relayed unmodified");
 });
@@ -243,7 +324,9 @@ Deno.test("origin content-type parameters / casing don't break the relay", async
     () =>
       Promise.resolve(
         new Response(toArrayBuffer(LEAF_STUB), {
-          headers: { "content-type": "Application/OCSP-Response; charset=binary" },
+          headers: {
+            "content-type": "Application/OCSP-Response; charset=binary",
+          },
         }),
       ),
   );
@@ -254,7 +337,9 @@ Deno.test("HEAD leaf requests are not relayed (body would be discarded)", async 
   const calls: Uint8Array[] = [];
   const b64 = bytesToB64(leafRequest(OID_SHA256));
   const res = await handleRequest(
-    new Request(`http://ocsp.realreel.xyz/${encodeURIComponent(b64)}`, { method: "HEAD" }),
+    new Request(`http://ocsp.realreel.xyz/${encodeURIComponent(b64)}`, {
+      method: "HEAD",
+    }),
     assets,
     store,
     stubForwarder(calls),
@@ -316,7 +401,9 @@ Deno.test("OPTIONS preflight returns 204 with CORS incl. content-type header all
   // application/ocsp-request is not CORS-safelisted; without this a browser
   // preflight rejects the POST.
   assert(
-    (res.headers.get("access-control-allow-headers") ?? "").includes("content-type"),
+    (res.headers.get("access-control-allow-headers") ?? "").includes(
+      "content-type",
+    ),
     "allow-headers",
   );
 });

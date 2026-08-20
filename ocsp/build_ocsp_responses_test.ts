@@ -13,17 +13,29 @@ import {
   verifyOcspResponseDer,
 } from "./build-ocsp-responses.ts";
 import { handleRequest } from "./router.ts";
-import { bytesEqual, KV_KEY_BY_HASH_OID, OID_SHA1, OID_SHA256, toArrayBuffer } from "./ocsp.ts";
+import {
+  bytesEqual,
+  KV_KEY_BY_HASH_OID,
+  OID_SHA1,
+  OID_SHA256,
+  toArrayBuffer,
+} from "./ocsp.ts";
 
 const dir = new URL("../verifier/trust-sources/realreel/", import.meta.url);
 const rootPem = await Deno.readTextFile(new URL("realreel-c2pa-root.pem", dir));
-const icaPem = await Deno.readTextFile(new URL("realreel-claim-signing-ca.pem", dir));
-const responderPem = await Deno.readTextFile(new URL("realreel-ocsp-responder-1.pem", dir));
+const icaPem = await Deno.readTextFile(
+  new URL("realreel-claim-signing-ca.pem", dir),
+);
+const responderPem = await Deno.readTextFile(
+  new URL("realreel-ocsp-responder-1.pem", dir),
+);
 
 const priv = p256.utils.randomPrivateKey();
 const pub = p256.getPublicKey(priv, false); // uncompressed point, like an SPKI's key bits
 const signTbs = async (tbs: Uint8Array): Promise<Uint8Array> => {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", toArrayBuffer(tbs)));
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", toArrayBuffer(tbs)),
+  );
   return p256.sign(digest, priv).toDERRawBytes();
 };
 
@@ -41,7 +53,10 @@ const base = {
 function assert(cond: unknown, msg: string): void {
   if (!cond) throw new Error(msg);
 }
-async function assertRejects(fn: () => Promise<unknown>, label: string): Promise<void> {
+async function assertRejects(
+  fn: () => Promise<unknown>,
+  label: string,
+): Promise<void> {
   try {
     await fn();
   } catch {
@@ -62,10 +77,17 @@ Deno.test("good responses build and self-verify for both CertID hash algorithms"
       signerKeyBits: pub,
       expectEmbeddedCertPem: responderPem,
     });
-    assert(verified.signerCn === "RealReel OCSP Responder 1", `signer CN (${verified.signerCn})`);
-    assert(verified.thisUpdate.getTime() === NOW.getTime(), "thisUpdate == now");
     assert(
-      verified.nextUpdate.getTime() - verified.thisUpdate.getTime() === 7 * 86_400_000,
+      verified.signerCn === "RealReel OCSP Responder 1",
+      `signer CN (${verified.signerCn})`,
+    );
+    assert(
+      verified.thisUpdate.getTime() === NOW.getTime(),
+      "thisUpdate == now",
+    );
+    assert(
+      verified.nextUpdate.getTime() - verified.thisUpdate.getTime() ===
+        7 * 86_400_000,
       "validity window is 7 days",
     );
   }
@@ -76,7 +98,12 @@ Deno.test("verification is pinned to the CertID hash algorithm", async () => {
   await assertRejects(
     () =>
       verifyOcspResponseDer(der, {
-        rootPem, icaPem, hashOid: OID_SHA256, status: "good", now: NOW, signerKeyBits: pub,
+        rootPem,
+        icaPem,
+        hashOid: OID_SHA256,
+        status: "good",
+        now: NOW,
+        signerKeyBits: pub,
       }),
     "sha1 response verified as sha256",
   );
@@ -90,7 +117,12 @@ Deno.test("a tampered response fails signature verification", async () => {
   await assertRejects(
     () =>
       verifyOcspResponseDer(tampered, {
-        rootPem, icaPem, hashOid: OID_SHA1, status: "good", now: NOW, signerKeyBits: pub,
+        rootPem,
+        icaPem,
+        hashOid: OID_SHA1,
+        status: "good",
+        now: NOW,
+        signerKeyBits: pub,
       }),
     "tampered response",
   );
@@ -101,7 +133,11 @@ Deno.test("embedded-cert pinning catches the wrong certificate", async () => {
   await assertRejects(
     () =>
       verifyOcspResponseDer(der, {
-        rootPem, icaPem, hashOid: OID_SHA1, status: "good", now: NOW,
+        rootPem,
+        icaPem,
+        hashOid: OID_SHA1,
+        status: "good",
+        now: NOW,
         signerKeyBits: pub,
         expectEmbeddedCertPem: icaPem, // not the responder
       }),
@@ -118,12 +154,22 @@ Deno.test("revoked responses encode and verify; a good-expecting check rejects t
     revocationReason: 1, // keyCompromise
   });
   await verifyOcspResponseDer(der, {
-    rootPem, icaPem, hashOid: OID_SHA1, status: "revoked", now: NOW, signerKeyBits: pub,
+    rootPem,
+    icaPem,
+    hashOid: OID_SHA1,
+    status: "revoked",
+    now: NOW,
+    signerKeyBits: pub,
   });
   await assertRejects(
     () =>
       verifyOcspResponseDer(der, {
-        rootPem, icaPem, hashOid: OID_SHA1, status: "good", now: NOW, signerKeyBits: pub,
+        rootPem,
+        icaPem,
+        hashOid: OID_SHA1,
+        status: "good",
+        now: NOW,
+        signerKeyBits: pub,
       }),
     "revoked response verified as good",
   );
@@ -152,7 +198,10 @@ Deno.test("an expired response fails self-verification", async () => {
   await assertRejects(
     () =>
       verifyOcspResponseDer(der, {
-        rootPem, icaPem, hashOid: OID_SHA1, status: "good",
+        rootPem,
+        icaPem,
+        hashOid: OID_SHA1,
+        status: "good",
         now: new Date(NOW.getTime() + 8 * 86_400_000), // past nextUpdate
         signerKeyBits: pub,
       }),
@@ -169,23 +218,45 @@ Deno.test("built responses round-trip through the router for an openssl request"
     reqDer[i] = parseInt(REQ_SHA1_HEX.slice(2 * i, 2 * i + 2), 16);
   }
 
-  const responseDer = await buildOcspResponseDer({ ...base, hashOid: OID_SHA1 });
+  const responseDer = await buildOcspResponseDer({
+    ...base,
+    hashOid: OID_SHA1,
+  });
   const store = {
     get: (key: string) =>
-      Promise.resolve(key === KV_KEY_BY_HASH_OID[OID_SHA1] ? toArrayBuffer(responseDer) : null),
+      Promise.resolve(
+        key === KV_KEY_BY_HASH_OID[OID_SHA1]
+          ? toArrayBuffer(responseDer)
+          : null,
+      ),
   };
   const res = await handleRequest(
-    new Request("http://ocsp.realreel.xyz/", { method: "POST", body: toArrayBuffer(reqDer) }),
+    new Request("http://ocsp.realreel.xyz/", {
+      method: "POST",
+      body: toArrayBuffer(reqDer),
+    }),
     { rootPem, icaPem },
     store,
   );
   assert(res.status === 200, "status");
-  assert(res.headers.get("content-type") === "application/ocsp-response", "content-type");
+  assert(
+    res.headers.get("content-type") === "application/ocsp-response",
+    "content-type",
+  );
   const served = new Uint8Array(await res.arrayBuffer());
-  assert(bytesEqual(served, responseDer), "served bytes are the pre-signed response");
+  assert(
+    bytesEqual(served, responseDer),
+    "served bytes are the pre-signed response",
+  );
 });
 
 Deno.test("output filenames mirror the KV keys", () => {
-  assert(OUT_FILE_BY_HASH_OID[OID_SHA1] === "response-sha1.der", "sha1 filename");
-  assert(OUT_FILE_BY_HASH_OID[OID_SHA256] === "response-sha256.der", "sha256 filename");
+  assert(
+    OUT_FILE_BY_HASH_OID[OID_SHA1] === "response-sha1.der",
+    "sha1 filename",
+  );
+  assert(
+    OUT_FILE_BY_HASH_OID[OID_SHA256] === "response-sha256.der",
+    "sha256 filename",
+  );
 });

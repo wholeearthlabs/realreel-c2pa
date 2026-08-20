@@ -48,7 +48,10 @@ export const OCSP_UNAUTHORIZED = errorResponse(6);
 // --- Byte / cert helpers --------------------------------------------------
 
 export function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
-  return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
+  return u8.buffer.slice(
+    u8.byteOffset,
+    u8.byteOffset + u8.byteLength,
+  ) as ArrayBuffer;
 }
 
 export function pemToDer(pem: string): Uint8Array {
@@ -64,7 +67,9 @@ export function pemToDer(pem: string): Uint8Array {
 
 export function parseCert(pem: string): pkijs.Certificate {
   const asn1 = asn1js.fromBER(toArrayBuffer(pemToDer(pem)));
-  if (asn1.offset === -1) throw new Error("failed to parse certificate PEM as DER");
+  if (asn1.offset === -1) {
+    throw new Error("failed to parse certificate PEM as DER");
+  }
   return new pkijs.Certificate({ schema: asn1.result });
 }
 
@@ -90,8 +95,13 @@ export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-async function digest(webcryptoAlg: string, data: Uint8Array): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest(webcryptoAlg, toArrayBuffer(data)));
+async function digest(
+  webcryptoAlg: string,
+  data: Uint8Array,
+): Promise<Uint8Array> {
+  return new Uint8Array(
+    await crypto.subtle.digest(webcryptoAlg, toArrayBuffer(data)),
+  );
 }
 
 // --- CertID values --------------------------------------------------------
@@ -111,7 +121,10 @@ export interface CertIdValues {
 // surface as a rejected (and cached) promise, not a synchronous throw at the
 // memo site.
 // deno-lint-ignore require-await
-export async function icaCertIdTargets(rootPem: string, icaPem: string): Promise<CertIdValues[]> {
+export async function icaCertIdTargets(
+  rootPem: string,
+  icaPem: string,
+): Promise<CertIdValues[]> {
   const root = parseCert(rootPem);
   const ica = parseCert(icaPem);
   const issuerNameDer = new Uint8Array(ica.issuer.toSchema().toBER(false));
@@ -120,7 +133,10 @@ export async function icaCertIdTargets(rootPem: string, icaPem: string): Promise
   return Promise.all(
     Object.keys(KV_KEY_BY_HASH_OID).map(async (hashOid) => ({
       hashOid,
-      issuerNameHash: await digest(WEBCRYPTO_ALG_BY_OID[hashOid], issuerNameDer),
+      issuerNameHash: await digest(
+        WEBCRYPTO_ALG_BY_OID[hashOid],
+        issuerNameDer,
+      ),
       issuerKeyHash: await digest(WEBCRYPTO_ALG_BY_OID[hashOid], rootKeyBits),
       serialNumber,
     })),
@@ -166,7 +182,9 @@ const LEAF_WEBCRYPTO_BY_HASH_OID: Record<string, string> = {
 // surface as a rejected (and cached) promise, not a synchronous throw at the
 // memo site.
 // deno-lint-ignore require-await
-export async function leafIssuerTargets(icaPem: string): Promise<IssuerHashes[]> {
+export async function leafIssuerTargets(
+  icaPem: string,
+): Promise<IssuerHashes[]> {
   const ica = parseCert(icaPem);
   const nameDer = new Uint8Array(ica.subject.toSchema().toBER(false));
   const keyBits = subjectPublicKeyBits(ica);
@@ -199,9 +217,15 @@ export function certIdToPkijs(t: CertIdValues): pkijs.CertID {
       algorithmId: t.hashOid,
       algorithmParams: new asn1js.Null(),
     }),
-    issuerNameHash: new asn1js.OctetString({ valueHex: toArrayBuffer(t.issuerNameHash) }),
-    issuerKeyHash: new asn1js.OctetString({ valueHex: toArrayBuffer(t.issuerKeyHash) }),
-    serialNumber: new asn1js.Integer({ valueHex: toArrayBuffer(t.serialNumber) }),
+    issuerNameHash: new asn1js.OctetString({
+      valueHex: toArrayBuffer(t.issuerNameHash),
+    }),
+    issuerKeyHash: new asn1js.OctetString({
+      valueHex: toArrayBuffer(t.issuerKeyHash),
+    }),
+    serialNumber: new asn1js.Integer({
+      valueHex: toArrayBuffer(t.serialNumber),
+    }),
   });
 }
 

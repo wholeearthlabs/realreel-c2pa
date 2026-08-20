@@ -14,8 +14,7 @@ import {
 import { resolveDevAttestation } from "./config.ts";
 
 // Build an `env` accessor from a fixed map.
-const envFrom =
-  (m: Record<string, string | undefined>) => (n: string) => m[n];
+const envFrom = (m: Record<string, string | undefined>) => (n: string) => m[n];
 
 const CANONICAL_APPLE = "com.realreel.app";
 const DEV_APPLE = "com.realreel.app.dev";
@@ -157,7 +156,10 @@ Deno.test("resolveDevAttestation — host spoofing (kong.evil.com) is NOT treate
 Deno.test("resolveDevAttestation — opt-in must be exactly 'true' (not '1'/'TRUE')", () => {
   for (const v of ["1", "TRUE", "yes", ""]) {
     const p = resolveDevAttestation(
-      envFrom({ ALLOW_DEV_BUILD_ATTESTATION: v, SUPABASE_URL: "http://kong:8000" }),
+      envFrom({
+        ALLOW_DEV_BUILD_ATTESTATION: v,
+        SUPABASE_URL: "http://kong:8000",
+      }),
     );
     assertEquals(p.appleBundleId, CANONICAL_APPLE, `optIn=${v}`);
   }

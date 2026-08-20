@@ -18,7 +18,7 @@ import {
   selectOsPatchLevel,
   validateAndroidAttestation,
 } from "./android.ts";
-import { AttestationError, asn1js } from "./pki.ts";
+import { asn1js, AttestationError } from "./pki.ts";
 import { ANDROID_PACKAGE_NAME } from "../config.ts";
 
 interface Fixture {
@@ -587,7 +587,10 @@ Deno.test("evaluateAl2Evidence — signing-cert rows", () => {
   );
   // Attested digest doesn't match any registered one.
   assertEquals(
-    evaluateAl2Evidence(passingDesc({ appSigningCertDigests: [DIGEST_B] }), AL2_OPTS)
+    evaluateAl2Evidence(
+      passingDesc({ appSigningCertDigests: [DIGEST_B] }),
+      AL2_OPTS,
+    )
       .failures,
     ["AL2_APP_SIGNING_CERT_MISMATCH"],
   );
@@ -604,7 +607,9 @@ Deno.test("evaluateAl2Evidence — signing-cert rows", () => {
 Deno.test("evaluateAl2Evidence — app version floor", () => {
   assertEquals(
     evaluateAl2Evidence(
-      passingDesc({ appPackages: [{ name: ANDROID_PACKAGE_NAME, version: 39 }] }),
+      passingDesc({
+        appPackages: [{ name: ANDROID_PACKAGE_NAME, version: 39 }],
+      }),
       AL2_OPTS,
     ).failures,
     ["AL2_APP_VERSION_BELOW_FLOOR"],
@@ -612,7 +617,9 @@ Deno.test("evaluateAl2Evidence — app version floor", () => {
   // Version missing from the attestation → same failure (can't prove floor).
   assertEquals(
     evaluateAl2Evidence(
-      passingDesc({ appPackages: [{ name: ANDROID_PACKAGE_NAME, version: null }] }),
+      passingDesc({
+        appPackages: [{ name: ANDROID_PACKAGE_NAME, version: null }],
+      }),
       AL2_OPTS,
     ).failures,
     ["AL2_APP_VERSION_BELOW_FLOOR"],
@@ -620,7 +627,9 @@ Deno.test("evaluateAl2Evidence — app version floor", () => {
   // No floor configured → version not checked.
   assertEquals(
     evaluateAl2Evidence(
-      passingDesc({ appPackages: [{ name: ANDROID_PACKAGE_NAME, version: null }] }),
+      passingDesc({
+        appPackages: [{ name: ANDROID_PACKAGE_NAME, version: null }],
+      }),
       { ...AL2_OPTS, minAppVersionCode: undefined },
     ).eligible,
     true,
@@ -653,14 +662,18 @@ Deno.test("evaluateAl2Evidence — rootOfTrust rows", () => {
   );
   assertEquals(
     evaluateAl2Evidence(
-      passingDesc({ rootOfTrust: { deviceLocked: false, verifiedBootState: 0 } }),
+      passingDesc({
+        rootOfTrust: { deviceLocked: false, verifiedBootState: 0 },
+      }),
       AL2_OPTS,
     ).failures,
     ["AL2_DEVICE_NOT_LOCKED"],
   );
   assertEquals(
     evaluateAl2Evidence(
-      passingDesc({ rootOfTrust: { deviceLocked: true, verifiedBootState: 2 } }),
+      passingDesc({
+        rootOfTrust: { deviceLocked: true, verifiedBootState: 2 },
+      }),
       AL2_OPTS,
     ).failures,
     ["AL2_VERIFIED_BOOT_NOT_VERIFIED"],
@@ -703,7 +716,8 @@ Deno.test("evaluateAl2Evidence — patch-currency rows and their exact boundarie
     ["AL2_VENDOR_PATCH_FUTURE"],
   );
   assertEquals(
-    evaluateAl2Evidence(passingDesc({ bootPatchLevel: null }), AL2_OPTS).failures,
+    evaluateAl2Evidence(passingDesc({ bootPatchLevel: null }), AL2_OPTS)
+      .failures,
     ["AL2_BOOT_PATCH_STALE"],
   );
   assertEquals(
@@ -740,7 +754,9 @@ Deno.test("readTaggedInt / readTaggedIntSet — EXPLICIT and IMPLICIT shapes", (
         idBlock: { tagClass: 3, tagNumber: 1 },
         value: [
           new asn1js.Set({
-            value: [new asn1js.Integer({ valueHex: new Uint8Array([2]).buffer })],
+            value: [
+              new asn1js.Integer({ valueHex: new Uint8Array([2]).buffer }),
+            ],
           }),
         ],
       }),
@@ -801,12 +817,17 @@ Deno.test("extractDayPatchLevel — YYYYMMDD passthrough, YYYYMM→YYYYMM01, bou
       value: [
         new asn1js.Constructed({
           idBlock: { tagClass: 3, tagNumber: 718 },
-          value: [new asn1js.Integer({ valueHex: new Uint8Array(bytes).buffer })],
+          value: [
+            new asn1js.Integer({ valueHex: new Uint8Array(bytes).buffer }),
+          ],
         }),
       ],
     });
   // 20260701 = 0x01 0x35 0x27 0x5D
-  assertEquals(extractDayPatchLevel(mk([0x01, 0x35, 0x27, 0x5d]), 718), 20260701);
+  assertEquals(
+    extractDayPatchLevel(mk([0x01, 0x35, 0x27, 0x5d]), 718),
+    20260701,
+  );
   // 202607 = 0x03 0x17 0x6F → normalized to 20260701
   assertEquals(extractDayPatchLevel(mk([0x03, 0x17, 0x6f]), 718), 20260701);
   // Absent tag / garbage value → null
@@ -822,7 +843,8 @@ Deno.test("extractAttestationApplicationId — packages with versions + signatur
           new asn1js.Sequence({
             value: [
               new asn1js.OctetString({
-                valueHex: new TextEncoder().encode("com.realreel.app").buffer as ArrayBuffer,
+                valueHex: new TextEncoder().encode("com.realreel.app")
+                  .buffer as ArrayBuffer,
               }),
               new asn1js.Integer({ valueHex: new Uint8Array([42]).buffer }),
             ],
@@ -896,6 +918,8 @@ Deno.test(
       assertEquals(KNOWN.has(f), true, `unknown failure code: ${f}`);
     }
     // Observability breadcrumb: what the committed real device evaluates to.
-    console.log(`[test] strongbox fixture AL2 failures: ${al2.failures.join(",")}`);
+    console.log(
+      `[test] strongbox fixture AL2 failures: ${al2.failures.join(",")}`,
+    );
   },
 );

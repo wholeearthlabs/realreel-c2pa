@@ -169,47 +169,40 @@ function buildDeps(opts: {
       Promise.resolve(
         fakeAuthUser({ id: opts.userId ?? testUserId("alice") }),
       ),
-    requireAal2IfMfaEnrolled: () =>
-      Promise.resolve(opts.aalReject ?? null),
-    enforceRateLimit: () =>
-      Promise.resolve(opts.rateLimit ?? { ok: true }),
+    requireAal2IfMfaEnrolled: () => Promise.resolve(opts.aalReject ?? null),
+    enforceRateLimit: () => Promise.resolve(opts.rateLimit ?? { ok: true }),
     makeServiceRoleClient: () => mockClient.client,
-    validateAppleAttestation:
-      opts.validateAppleAttestationImpl ??
+    validateAppleAttestation: opts.validateAppleAttestationImpl ??
       (() => Promise.resolve({ credCertPublicKey: new Uint8Array(65) })),
-    validateAndroidAttestation:
-      opts.validateAndroidAttestationImpl ??
+    validateAndroidAttestation: opts.validateAndroidAttestationImpl ??
       // Default happy-path stub: returns a recent osPatchLevel so the
       // patch-gate decision in register-signing-key/index.ts:Android-
       // branch always accepts. Individual tests override
       // validateAndroidAttestationImpl to drive specific failure modes.
       (() => Promise.resolve({ osPatchLevel: 209901 })),
-    parseCSRFromPem:
-      opts.parseCSRFromPemImpl ??
+    parseCSRFromPem: opts.parseCSRFromPemImpl ??
       // deno-lint-ignore no-explicit-any
       (((_pem: string) => ({ __mockCsr: true })) as any),
-    verifyCSRSignature:
-      opts.verifyCSRSignatureImpl ?? (() => Promise.resolve()),
+    verifyCSRSignature: opts.verifyCSRSignatureImpl ??
+      (() => Promise.resolve()),
     extractCSRSpkiDer: () => csrSpki,
-    issueLeafChainFromCSR:
-      opts.issueLeafChainImpl ??
+    issueLeafChainFromCSR: opts.issueLeafChainImpl ??
       (() =>
         Promise.resolve({
-          pem: "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
+          pem:
+            "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
           serialDecimal: "12345678",
           serialBytes: new Uint8Array([1, 2, 3, 4]),
           notAfter: new Date("2031-01-01T00:00:00Z"),
         })),
-    loadKmsCredentials:
-      opts.loadKmsCredentialsImpl ??
+    loadKmsCredentials: opts.loadKmsCredentialsImpl ??
       // deno-lint-ignore no-explicit-any
       (() => Promise.resolve({} as any)),
-    kmsSignDigest:
-      opts.kmsSignDigestImpl ?? (() => Promise.resolve(new Uint8Array(64))),
-    getIntermediatePem: () =>
-      opts.intermediatePem ?? VALID_INTERMEDIATE_PEM,
-    ensureIntermediateMatchesKms:
-      opts.ensureIntermediateImpl ?? (() => Promise.resolve()),
+    kmsSignDigest: opts.kmsSignDigestImpl ??
+      (() => Promise.resolve(new Uint8Array(64))),
+    getIntermediatePem: () => opts.intermediatePem ?? VALID_INTERMEDIATE_PEM,
+    ensureIntermediateMatchesKms: opts.ensureIntermediateImpl ??
+      (() => Promise.resolve()),
   };
   return { deps, mockClient };
 }
@@ -266,7 +259,9 @@ Deno.test("register-signing-key — REALREEL_INTERMEDIATE_CERT_PEM empty → 500
     ...deps,
     getUserFromAuthHeader: () => {
       authCalled = true;
-      throw new Error("auth should not be called when intermediate PEM is empty");
+      throw new Error(
+        "auth should not be called when intermediate PEM is empty",
+      );
     },
   };
 
@@ -407,7 +402,10 @@ Deno.test("register-signing-key — truncation never persists a lone surrogate (
   // naive slice(0,64) would keep only the emoji's high half at index 63.
   const label = "x".repeat(63) + "😀" + "y".repeat(50);
   const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildIosBody({ deviceLabel: label }) }),
+    buildRequest({
+      bearer: "alice-jwt",
+      body: buildIosBody({ deviceLabel: label }),
+    }),
     deps,
   );
   assertEquals(res.status, 200);
@@ -455,7 +453,8 @@ Deno.test("register-signing-key — CSR without BEGIN CERTIFICATE REQUEST → 40
     buildRequest({
       bearer: "alice-jwt",
       body: buildIosBody({
-        csr: "-----BEGIN NEW CERTIFICATE REQUEST-----\nx\n-----END NEW CERTIFICATE REQUEST-----",
+        csr:
+          "-----BEGIN NEW CERTIFICATE REQUEST-----\nx\n-----END NEW CERTIFICATE REQUEST-----",
       }),
     }),
     deps,
@@ -633,7 +632,10 @@ Deno.test("register-signing-key — iOS attestation rejected → 400 Invalid att
 Deno.test("register-signing-key — Android attestation rejected → 400", async () => {
   const { deps } = buildDeps({
     validateAndroidAttestationImpl: () => {
-      throw new AttestationError("CHAIN_INVALID", "cert chain validation failed");
+      throw new AttestationError(
+        "CHAIN_INVALID",
+        "cert chain validation failed",
+      );
     },
   });
 
@@ -773,7 +775,10 @@ Deno.test("register-signing-key — Android: generic AttestationError stays mask
   // ATTESTATION_STALE_PATCH gets the special UX treatment.
   const { deps } = buildDeps({
     validateAndroidAttestationImpl: () => {
-      throw new AttestationError("CHAIN_INVALID", "cert chain validation failed");
+      throw new AttestationError(
+        "CHAIN_INVALID",
+        "cert chain validation failed",
+      );
     },
   });
 
@@ -836,7 +841,8 @@ Deno.test("register-signing-key — ensureIntermediateMatchesKms throws (SPKI mi
 
 Deno.test("register-signing-key — issueLeafChainFromCSR throws → 500 Issuance failed", async () => {
   const { deps } = buildDeps({
-    issueLeafChainImpl: () => Promise.reject(new Error("KMS sign network failure")),
+    issueLeafChainImpl: () =>
+      Promise.reject(new Error("KMS sign network failure")),
   });
 
   const res = await handleRegister(
@@ -894,7 +900,9 @@ Deno.test("register-signing-key — iOS happy path → 200 with leafChainPEM + k
   // constant instead of forwarding the validator's return value.
   const SENTINEL_APP_ATTEST_PUBKEY = new Uint8Array(65);
   SENTINEL_APP_ATTEST_PUBKEY[0] = 0x04;
-  for (let i = 1; i < 65; i++) SENTINEL_APP_ATTEST_PUBKEY[i] = 0xa0 | (i & 0x0f);
+  for (let i = 1; i < 65; i++) {
+    SENTINEL_APP_ATTEST_PUBKEY[i] = 0xa0 | (i & 0x0f);
+  }
   const expectedHex = "\\x" +
     Array.from(SENTINEL_APP_ATTEST_PUBKEY)
       .map((b) => b.toString(16).padStart(2, "0"))
@@ -1210,7 +1218,8 @@ Deno.test("register-signing-key — v2 iOS: issuance gets v2 opts + 180d, respon
       issueLeafChainImpl: (_csr, opts) => {
         capturedOpts.push(opts);
         return Promise.resolve({
-          pem: "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
+          pem:
+            "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
           serialDecimal: "12345678",
           serialBytes: new Uint8Array([1, 2, 3, 4]),
           notAfter: new Date("2027-01-24T00:00:00Z"),
@@ -1259,7 +1268,8 @@ Deno.test("register-signing-key — v1 default: no v2 opts to issuance, no assur
     issueLeafChainImpl: (_csr, opts) => {
       capturedOpts.push(opts);
       return Promise.resolve({
-        pem: "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
+        pem:
+          "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
         serialDecimal: "12345678",
         serialBytes: new Uint8Array([1, 2, 3, 4]),
         notAfter: new Date("2031-01-01T00:00:00Z"),

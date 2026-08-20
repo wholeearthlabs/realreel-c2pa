@@ -88,7 +88,9 @@ export async function initSentry(): Promise<void> {
     // Loader failure shouldn't take the edge function down. Stay on
     // consoleFallback and log the load failure for ops.
     console.error(
-      `[sentry-fallback] Sentry SDK failed to load: ${e instanceof Error ? e.message : String(e)} — staying on console fallback`,
+      `[sentry-fallback] Sentry SDK failed to load: ${
+        e instanceof Error ? e.message : String(e)
+      } — staying on console fallback`,
     );
   }
 }

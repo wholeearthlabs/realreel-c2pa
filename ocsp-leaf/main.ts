@@ -58,14 +58,19 @@ if (relaySecret.trim() === "") {
 }
 
 const validityHours = Number(Deno.env.get("OCSP_LEAF_VALIDITY_HOURS") ?? "24");
-if (!Number.isFinite(validityHours) || validityHours < 1 || validityHours > 72) {
+if (
+  !Number.isFinite(validityHours) || validityHours < 1 || validityHours > 72
+) {
   // >72 would let a cached "good" outlive the CP's 72-hour revocation clock.
   throw new Error(
     `OCSP_LEAF_VALIDITY_HOURS must be 1..72, got '${validityHours}'`,
   );
 }
 
-const certsDir = new URL("../verifier/trust-sources/realreel/", import.meta.url);
+const certsDir = new URL(
+  "../verifier/trust-sources/realreel/",
+  import.meta.url,
+);
 const icaPem = await Deno.readTextFile(
   new URL("realreel-claim-signing-ca.pem", certsDir),
 );
@@ -142,7 +147,10 @@ async function getMetadataToken(): Promise<string> {
   if (!resp.ok) {
     throw new Error(`metadata token fetch failed: ${resp.status}`);
   }
-  const json = await resp.json() as { access_token: string; expires_in: number };
+  const json = await resp.json() as {
+    access_token: string;
+    expires_in: number;
+  };
   metadataToken = {
     value: json.access_token,
     expiresAtMs: Date.now() + json.expires_in * 1000,
@@ -252,7 +260,10 @@ function ocspHttpResponse(der: Uint8Array, cacheable: boolean): Response {
   });
 }
 
-async function readRequestDer(req: Request, url: URL): Promise<Uint8Array | null> {
+async function readRequestDer(
+  req: Request,
+  url: URL,
+): Promise<Uint8Array | null> {
   if (req.method === "POST") {
     const body = new Uint8Array(await req.arrayBuffer());
     return body.byteLength > 0 && body.byteLength <= MAX_REQUEST_BYTES

@@ -7,10 +7,7 @@
 // endpoint from being a key-existence oracle.
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import {
-  handleRevoke,
-  type RevokeDeps,
-} from "../index.ts";
+import { handleRevoke, type RevokeDeps } from "../index.ts";
 import {
   assertResponseShapesIdentical,
   buildRequest,
@@ -31,7 +28,10 @@ function buildDeps(opts: {
   rateLimit?: { ok: true } | { ok: false; retryAfter: number };
   aalReject?: Response | null;
   now?: Date;
-} = {}): { deps: RevokeDeps; mockClient: ReturnType<typeof makeMockSupabaseClient> } {
+} = {}): {
+  deps: RevokeDeps;
+  mockClient: ReturnType<typeof makeMockSupabaseClient>;
+} {
   const mockClient = opts.client ?? makeMockSupabaseClient();
   const base = makeBaseDeps({
     user: fakeAuthUser({ id: opts.userId ?? testUserId("alice") }),
@@ -77,9 +77,21 @@ Deno.test("revoke-signing-key — happy path UPDATE has the load-bearing WHERE c
   // Three filters — user_id, key_id, and the revoked_at IS NULL guard
   // that gives idempotency.
   assertEquals(call.filters.length, 3);
-  assertEquals(call.filters[0], { kind: "eq", column: "user_id", value: testUserId("alice") });
-  assertEquals(call.filters[1], { kind: "eq", column: "key_id", value: "alice-key-id" });
-  assertEquals(call.filters[2], { kind: "is", column: "revoked_at", value: null });
+  assertEquals(call.filters[0], {
+    kind: "eq",
+    column: "user_id",
+    value: testUserId("alice"),
+  });
+  assertEquals(call.filters[1], {
+    kind: "eq",
+    column: "key_id",
+    value: "alice-key-id",
+  });
+  assertEquals(call.filters[2], {
+    kind: "is",
+    column: "revoked_at",
+    value: null,
+  });
 });
 
 Deno.test("revoke-signing-key — cross-user attempt: A's JWT cannot revoke B's key", async () => {
@@ -194,7 +206,10 @@ Deno.test("revoke-signing-key — malformed keyId → 400", async () => {
   const cases: Array<{ name: string; body: unknown }> = [
     { name: "missing keyId field", body: {} },
     { name: "keyId is empty string", body: { keyId: "" } },
-    { name: "keyId is too long (>128 chars)", body: { keyId: "x".repeat(129) } },
+    {
+      name: "keyId is too long (>128 chars)",
+      body: { keyId: "x".repeat(129) },
+    },
     { name: "keyId is not a string", body: { keyId: 1234 } },
   ];
   for (const tc of cases) {
@@ -229,7 +244,10 @@ Deno.test("revoke-signing-key — non-POST method → 405", async () => {
 
 Deno.test("revoke-signing-key — DB error surfaces as 500", async () => {
   const { deps, mockClient } = buildDeps();
-  mockClient.setNextResult({ data: null, error: { message: "connection lost" } });
+  mockClient.setNextResult({
+    data: null,
+    error: { message: "connection lost" },
+  });
   const res = await handleRevoke(
     buildRequest({ bearer: "alice", body: { keyId: "any" } }),
     deps,

@@ -45,7 +45,9 @@ import {
 
 // Output filename per hash OID, mirrored by the KV keys in KV_KEY_BY_HASH_OID.
 export const OUT_FILE_BY_HASH_OID: Record<string, string> = Object.fromEntries(
-  Object.entries(KV_KEY_BY_HASH_OID).map(([oid, kvKey]) => [oid, `${kvKey.replace(":", "-")}.der`]),
+  Object.entries(KV_KEY_BY_HASH_OID).map((
+    [oid, kvKey],
+  ) => [oid, `${kvKey.replace(":", "-")}.der`]),
 );
 
 // Returns a DER ECDSA signature (ecdsa-with-SHA256) over the TBS bytes.
@@ -64,12 +66,16 @@ export interface BuildOpts {
   signTbs: SignTbs;
 }
 
-function certStatusSchema(opts: BuildOpts): asn1js.Primitive | asn1js.Constructed {
+function certStatusSchema(
+  opts: BuildOpts,
+): asn1js.Primitive | asn1js.Constructed {
   if (opts.status === "good") {
     // good ::= [0] IMPLICIT NULL — an empty context-0 primitive.
     return new asn1js.Primitive({ idBlock: { tagClass: 3, tagNumber: 0 } });
   }
-  if (!opts.revocationTime) throw new Error("revoked status requires revocationTime");
+  if (!opts.revocationTime) {
+    throw new Error("revoked status requires revocationTime");
+  }
   if (
     opts.revocationReason !== undefined &&
     (!Number.isInteger(opts.revocationReason) ||
@@ -92,10 +98,15 @@ function certStatusSchema(opts: BuildOpts): asn1js.Primitive | asn1js.Constructe
       }),
     );
   }
-  return new asn1js.Constructed({ idBlock: { tagClass: 3, tagNumber: 1 }, value: revokedInfo });
+  return new asn1js.Constructed({
+    idBlock: { tagClass: 3, tagNumber: 1 },
+    value: revokedInfo,
+  });
 }
 
-export async function buildOcspResponseDer(opts: BuildOpts): Promise<Uint8Array> {
+export async function buildOcspResponseDer(
+  opts: BuildOpts,
+): Promise<Uint8Array> {
   const responder = parseCert(opts.responderPem);
   const target = (await icaCertIdTargets(opts.rootPem, opts.icaPem)).find(
     (t) => t.hashOid === opts.hashOid,
@@ -116,11 +127,16 @@ export async function buildOcspResponseDer(opts: BuildOpts): Promise<Uint8Array>
   // responderID byKey: SHA-1 of the responder's subjectPublicKey bits
   // (RFC 6960 §4.2.1 KeyHash). byKey avoids any DN re-encoding concerns.
   const responderKeyHash = new Uint8Array(
-    await crypto.subtle.digest("SHA-1", toArrayBuffer(subjectPublicKeyBits(responder))),
+    await crypto.subtle.digest(
+      "SHA-1",
+      toArrayBuffer(subjectPublicKeyBits(responder)),
+    ),
   );
 
   const responseData = new pkijs.ResponseData({
-    responderID: new asn1js.OctetString({ valueHex: toArrayBuffer(responderKeyHash) }),
+    responderID: new asn1js.OctetString({
+      valueHex: toArrayBuffer(responderKeyHash),
+    }),
     producedAt: now,
     responses: [single],
   });
@@ -131,7 +147,9 @@ export async function buildOcspResponseDer(opts: BuildOpts): Promise<Uint8Array>
 
   const basic = new pkijs.BasicOCSPResponse({
     tbsResponseData: responseData,
-    signatureAlgorithm: new pkijs.AlgorithmIdentifier({ algorithmId: OID_ECDSA_WITH_SHA256 }),
+    signatureAlgorithm: new pkijs.AlgorithmIdentifier({
+      algorithmId: OID_ECDSA_WITH_SHA256,
+    }),
     signature: new asn1js.BitString({ valueHex: toArrayBuffer(signature) }),
     certs: [responder],
   });
@@ -140,7 +158,9 @@ export async function buildOcspResponseDer(opts: BuildOpts): Promise<Uint8Array>
     responseStatus: new asn1js.Enumerated({ value: 0 }), // successful
     responseBytes: new pkijs.ResponseBytes({
       responseType: OID_OCSP_BASIC,
-      response: new asn1js.OctetString({ valueHex: basic.toSchema().toBER(false) }),
+      response: new asn1js.OctetString({
+        valueHex: basic.toSchema().toBER(false),
+      }),
     }),
   });
   return new Uint8Array(response.toSchema().toBER(false));
@@ -178,8 +198,13 @@ export async function verifyOcspResponseDer(
   };
 
   const response = pkijs.OCSPResponse.fromBER(toArrayBuffer(der));
-  if (blockBytes(response.responseStatus)[0] !== 0) fail("responseStatus is not successful");
-  if (!response.responseBytes || response.responseBytes.responseType !== OID_OCSP_BASIC) {
+  if (blockBytes(response.responseStatus)[0] !== 0) {
+    fail("responseStatus is not successful");
+  }
+  if (
+    !response.responseBytes ||
+    response.responseBytes.responseType !== OID_OCSP_BASIC
+  ) {
     fail("responseBytes is not id-pkix-ocsp-basic");
   }
   const basic = pkijs.BasicOCSPResponse.fromBER(
@@ -187,11 +212,15 @@ export async function verifyOcspResponseDer(
   );
 
   if (basic.signatureAlgorithm.algorithmId !== OID_ECDSA_WITH_SHA256) {
-    fail(`unexpected signatureAlgorithm ${basic.signatureAlgorithm.algorithmId}`);
+    fail(
+      `unexpected signatureAlgorithm ${basic.signatureAlgorithm.algorithmId}`,
+    );
   }
 
   const tbsData = basic.tbsResponseData;
-  if (tbsData.responses.length !== 1) fail(`expected 1 SingleResponse, got ${tbsData.responses.length}`);
+  if (tbsData.responses.length !== 1) {
+    fail(`expected 1 SingleResponse, got ${tbsData.responses.length}`);
+  }
   const single = tbsData.responses[0];
 
   const expected = (await icaCertIdTargets(opts.rootPem, opts.icaPem)).find(
@@ -201,22 +230,35 @@ export async function verifyOcspResponseDer(
     fail("CertID does not name the ICA under the requested hash algorithm");
   }
 
-  const statusBlock = single.certStatus as { idBlock: { tagClass: number; tagNumber: number } };
+  const statusBlock = single.certStatus as {
+    idBlock: { tagClass: number; tagNumber: number };
+  };
   const wantTag = opts.status === "good" ? 0 : 1;
-  if (statusBlock.idBlock.tagClass !== 3 || statusBlock.idBlock.tagNumber !== wantTag) {
+  if (
+    statusBlock.idBlock.tagClass !== 3 ||
+    statusBlock.idBlock.tagNumber !== wantTag
+  ) {
     fail(`certStatus is not '${opts.status}'`);
   }
 
   if (!single.nextUpdate) fail("nextUpdate is absent");
-  if (single.thisUpdate.getTime() > opts.now.getTime()) fail("thisUpdate is in the future");
-  if (single.nextUpdate!.getTime() <= opts.now.getTime()) fail("nextUpdate is not in the future");
+  if (single.thisUpdate.getTime() > opts.now.getTime()) {
+    fail("thisUpdate is in the future");
+  }
+  if (single.nextUpdate!.getTime() <= opts.now.getTime()) {
+    fail("nextUpdate is not in the future");
+  }
 
   const certs = basic.certs ?? [];
-  if (certs.length === 0) fail("responder certificate is not embedded in certs");
+  if (certs.length === 0) {
+    fail("responder certificate is not embedded in certs");
+  }
   if (opts.expectEmbeddedCertPem) {
     const want = parseCert(opts.expectEmbeddedCertPem);
     if (!bytesEqual(certs[0].tbsView, want.tbsView)) {
-      fail("embedded certs[0] does not match the expected responder certificate");
+      fail(
+        "embedded certs[0] does not match the expected responder certificate",
+      );
     }
   }
 
@@ -224,12 +266,15 @@ export async function verifyOcspResponseDer(
   const digest = new Uint8Array(
     await crypto.subtle.digest("SHA-256", toArrayBuffer(tbsData.tbsView)),
   );
-  const sig = p256.Signature.fromDER(blockBytes(basic.signature)).toCompactRawBytes();
+  const sig = p256.Signature.fromDER(blockBytes(basic.signature))
+    .toCompactRawBytes();
   if (!p256.verify(sig, digest, signerKeyBits, { lowS: false })) {
     fail("signature does not verify against the responder public key");
   }
 
-  const cnAttr = certs[0].subject.typesAndValues.find((tv) => tv.type === "2.5.4.3");
+  const cnAttr = certs[0].subject.typesAndValues.find((tv) =>
+    tv.type === "2.5.4.3"
+  );
   return {
     producedAt: tbsData.producedAt,
     thisUpdate: single.thisUpdate,
@@ -252,19 +297,31 @@ async function kmsSignTbs(tbs: Uint8Array): Promise<Uint8Array> {
   try {
     await Deno.writeFile(inFile, tbs);
     const args = [
-      "kms", "asymmetric-sign",
-      "--version", version,
-      "--key", key,
-      "--keyring", ring,
-      "--location", loc,
-      "--digest-algorithm", "sha256",
-      "--input-file", inFile,
-      "--signature-file", sigFile,
+      "kms",
+      "asymmetric-sign",
+      "--version",
+      version,
+      "--key",
+      key,
+      "--keyring",
+      ring,
+      "--location",
+      loc,
+      "--digest-algorithm",
+      "sha256",
+      "--input-file",
+      inFile,
+      "--signature-file",
+      sigFile,
     ];
     if (project) args.push("--project", project);
     const out = await new Deno.Command("gcloud", { args }).output();
     if (!out.success) {
-      throw new Error(`gcloud kms asymmetric-sign failed:\n${new TextDecoder().decode(out.stderr)}`);
+      throw new Error(
+        `gcloud kms asymmetric-sign failed:\n${
+          new TextDecoder().decode(out.stderr)
+        }`,
+      );
     }
     return await Deno.readFile(sigFile);
   } finally {
@@ -289,8 +346,13 @@ if (import.meta.main) {
     Deno.exit(2);
   }
   const revocationTimeRaw = getFlag("--revocation-time");
-  const revocationTime = revocationTimeRaw ? new Date(revocationTimeRaw) : undefined;
-  if (status === "revoked" && (!revocationTime || Number.isNaN(revocationTime.getTime()))) {
+  const revocationTime = revocationTimeRaw
+    ? new Date(revocationTimeRaw)
+    : undefined;
+  if (
+    status === "revoked" &&
+    (!revocationTime || Number.isNaN(revocationTime.getTime()))
+  ) {
     console.error("--status revoked requires --revocation-time <ISO-8601>");
     Deno.exit(2);
   }
@@ -298,43 +360,73 @@ if (import.meta.main) {
   let revocationReason: number | undefined;
   if (reasonRaw !== undefined) {
     if (!/^\d+$/.test(reasonRaw) || Number(reasonRaw) > 10) {
-      console.error(`--revocation-reason must be a CRLReason integer 0..10, got '${reasonRaw}'`);
+      console.error(
+        `--revocation-reason must be a CRLReason integer 0..10, got '${reasonRaw}'`,
+      );
       Deno.exit(2);
     }
     revocationReason = Number(reasonRaw);
   }
   const validityDays = Number(Deno.env.get("OCSP_VALIDITY_DAYS") ?? "7");
-  if (!Number.isInteger(validityDays) || validityDays < 1 || validityDays > 30) {
-    console.error(`OCSP_VALIDITY_DAYS must be an integer in 1..30, got '${validityDays}'`);
+  if (
+    !Number.isInteger(validityDays) || validityDays < 1 || validityDays > 30
+  ) {
+    console.error(
+      `OCSP_VALIDITY_DAYS must be an integer in 1..30, got '${validityDays}'`,
+    );
     Deno.exit(2);
   }
 
-  const certsDir = new URL("../verifier/trust-sources/realreel/", import.meta.url);
-  const rootPem = await Deno.readTextFile(new URL("realreel-c2pa-root.pem", certsDir));
-  const icaPem = await Deno.readTextFile(new URL("realreel-claim-signing-ca.pem", certsDir));
-  const responderPem = await Deno.readTextFile(new URL("realreel-ocsp-responder-1.pem", certsDir));
+  const certsDir = new URL(
+    "../verifier/trust-sources/realreel/",
+    import.meta.url,
+  );
+  const rootPem = await Deno.readTextFile(
+    new URL("realreel-c2pa-root.pem", certsDir),
+  );
+  const icaPem = await Deno.readTextFile(
+    new URL("realreel-claim-signing-ca.pem", certsDir),
+  );
+  const responderPem = await Deno.readTextFile(
+    new URL("realreel-ocsp-responder-1.pem", certsDir),
+  );
 
   const now = new Date();
   await Deno.mkdir(outDir, { recursive: true });
 
   for (const hashOid of Object.keys(KV_KEY_BY_HASH_OID)) {
     const der = await buildOcspResponseDer({
-      rootPem, icaPem, responderPem,
-      hashOid, status, revocationTime, revocationReason,
-      now, validityDays, signTbs: kmsSignTbs,
+      rootPem,
+      icaPem,
+      responderPem,
+      hashOid,
+      status,
+      revocationTime,
+      revocationReason,
+      now,
+      validityDays,
+      signTbs: kmsSignTbs,
     });
     const verified = await verifyOcspResponseDer(der, {
-      rootPem, icaPem, hashOid, status, now,
+      rootPem,
+      icaPem,
+      hashOid,
+      status,
+      now,
       expectEmbeddedCertPem: responderPem,
     });
     const outPath = `${outDir}/${OUT_FILE_BY_HASH_OID[hashOid]}`;
     await Deno.writeFile(outPath, der);
     const alg = hashOid === OID_SHA1 ? "sha1" : "sha256";
     console.log(
-      `${outPath} (KV ${KV_KEY_BY_HASH_OID[hashOid]}): ${status} for the ICA, ` +
+      `${outPath} (KV ${
+        KV_KEY_BY_HASH_OID[hashOid]
+      }): ${status} for the ICA, ` +
         `CertID ${alg}, ${der.length} bytes, signed by '${verified.signerCn}', ` +
         `thisUpdate ${verified.thisUpdate.toISOString()}, nextUpdate ${verified.nextUpdate.toISOString()}`,
     );
   }
-  console.log("self-verify OK: signatures check out against the responder certificate.");
+  console.log(
+    "self-verify OK: signatures check out against the responder certificate.",
+  );
 }

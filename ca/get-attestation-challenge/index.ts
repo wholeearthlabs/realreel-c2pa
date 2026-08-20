@@ -17,7 +17,10 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors.ts";
-import { getUserFromAuthHeader, makeServiceRoleClient } from "../_shared/auth.ts";
+import {
+  getUserFromAuthHeader,
+  makeServiceRoleClient,
+} from "../_shared/auth.ts";
 import { enforceRateLimit } from "../_shared/rate_limit.ts";
 
 const DEFAULT_KEY_VERSION = "4";
@@ -29,8 +32,8 @@ const DEFAULT_KEY_VERSION = "4";
 // spammer can't accumulate unbounded enrollment_challenges rows for one
 // user_id before consumed_at GC catches up.
 const RATE_LIMIT_WINDOWS = [
-  { windowSec: 3600, max: 10 },     // 10 challenges / hour
-  { windowSec: 86400, max: 30 },    // 30 challenges / day
+  { windowSec: 3600, max: 10 }, // 10 challenges / hour
+  { windowSec: 86400, max: 30 }, // 30 challenges / day
 ] as const;
 
 serve(async (req: Request) => {

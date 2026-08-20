@@ -26,7 +26,7 @@ import type { AuthUser } from "../auth.ts";
 // real.
 const TEST_USERS = {
   alice: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
-  bob:   "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb",
+  bob: "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb",
 } as const;
 
 export function testUserId(name: keyof typeof TEST_USERS): string {
@@ -180,12 +180,22 @@ export function makeMockSupabaseClient(): MockSupabaseClient {
           return makeChain(call);
         },
         insert(values: unknown) {
-          const call: MockSupabaseCall = { table, op: "insert", values, filters: [] };
+          const call: MockSupabaseCall = {
+            table,
+            op: "insert",
+            values,
+            filters: [],
+          };
           calls.push(call);
           return makeChain(call);
         },
         update(values: unknown) {
-          const call: MockSupabaseCall = { table, op: "update", values, filters: [] };
+          const call: MockSupabaseCall = {
+            table,
+            op: "update",
+            values,
+            filters: [],
+          };
           calls.push(call);
           return makeChain(call);
         },
@@ -236,7 +246,9 @@ export function makeMockSupabaseClient(): MockSupabaseClient {
             }),
           info: (
             _path: string,
-          ): Promise<{ data: { eTag: string; size: number } | null; error: unknown }> =>
+          ): Promise<
+            { data: { eTag: string; size: number } | null; error: unknown }
+          > =>
             Promise.resolve({
               data: { eTag: '"mock-etag"', size: 1024 },
               error: null,
@@ -247,7 +259,10 @@ export function makeMockSupabaseClient(): MockSupabaseClient {
             storageRemoveCalls.push({ bucket, paths: [...paths] });
             const r = nextStorageRemoveResult;
             nextStorageRemoveResult = { data: [], error: null };
-            return Promise.resolve({ data: r.data ?? [], error: r.error ?? null });
+            return Promise.resolve({
+              data: r.data ?? [],
+              error: r.error ?? null,
+            });
           },
           getPublicUrl: (path: string): { data: { publicUrl: string } } => ({
             data: {

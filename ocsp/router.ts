@@ -62,7 +62,10 @@ function headers(extra: Record<string, string>): Headers {
 
 function ocspBytes(bytes: Uint8Array, cache: string): Response {
   return new Response(toArrayBuffer(bytes), {
-    headers: headers({ "content-type": OCSP_CONTENT_TYPE, "cache-control": cache }),
+    headers: headers({
+      "content-type": OCSP_CONTENT_TYPE,
+      "cache-control": cache,
+    }),
   });
 }
 
@@ -123,7 +126,10 @@ function leafTargets(assets: CertAssets): Promise<IssuerHashes[]> {
 // through for browser/intermediary caches (Cloudflare's edge cache does NOT
 // store Worker-constructed responses; repeat-query absorption lives in the
 // origin's per-CertID cache instead).
-async function relayLeaf(der: Uint8Array, forward: LeafForwarder): Promise<Response> {
+async function relayLeaf(
+  der: Uint8Array,
+  forward: LeafForwarder,
+): Promise<Response> {
   try {
     const upstream = await forward(der);
     // Media type only — parameters (charset=…) and case are normalization
@@ -178,14 +184,20 @@ export async function handleRequest(
   } else if (req.method === "GET" || req.method === "HEAD") {
     if (pathname === "/") {
       return new Response(indexHtml, {
-        headers: headers({ "content-type": "text/html; charset=utf-8", "cache-control": CACHE_OK }),
+        headers: headers({
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": CACHE_OK,
+        }),
       });
     }
     der = decodeGetRequest(pathname);
   } else {
     return new Response("Method Not Allowed\n", {
       status: 405,
-      headers: headers({ allow: ALLOW, "content-type": "text/plain; charset=utf-8" }),
+      headers: headers({
+        allow: ALLOW,
+        "content-type": "text/plain; charset=utf-8",
+      }),
     });
   }
 
@@ -206,7 +218,9 @@ export async function handleRequest(
   if (certIds.length !== 1) {
     return ocspBytes(OCSP_UNAUTHORIZED, "no-store");
   }
-  const match = (await targets(assets)).find((t) => certIdMatches(t, certIds[0]));
+  const match = (await targets(assets)).find((t) =>
+    certIdMatches(t, certIds[0])
+  );
   if (!match) {
     // A CertID whose issuer hashes name the ICA is a RealReel leaf — only
     // those are relayed, so this Worker never proxies arbitrary third-party
@@ -227,6 +241,9 @@ export async function handleRequest(
     return ocspBytes(OCSP_INTERNAL_ERROR, "no-store");
   }
   return new Response(bytes, {
-    headers: headers({ "content-type": OCSP_CONTENT_TYPE, "cache-control": CACHE_OK }),
+    headers: headers({
+      "content-type": OCSP_CONTENT_TYPE,
+      "cache-control": CACHE_OK,
+    }),
   });
 }

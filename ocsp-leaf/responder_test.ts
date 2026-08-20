@@ -105,7 +105,10 @@ function leafCertId(serial: number[]): Promise<CertIdValues> {
   });
 }
 
-function makeDeps(status: LeafStatus, over: Partial<ResponderDeps> = {}): ResponderDeps {
+function makeDeps(
+  status: LeafStatus,
+  over: Partial<ResponderDeps> = {},
+): ResponderDeps {
   return {
     issuerTargets: TARGETS,
     responderPem: RESPONDER_PEM,
@@ -120,7 +123,11 @@ function makeDeps(status: LeafStatus, over: Partial<ResponderDeps> = {}): Respon
 // Parse a successful response and return its pieces for assertions.
 function parseSuccessful(der: Uint8Array) {
   const response = pkijs.OCSPResponse.fromBER(toArrayBuffer(der));
-  assertEquals(blockBytes(response.responseStatus)[0], 0, "responseStatus successful");
+  assertEquals(
+    blockBytes(response.responseStatus)[0],
+    0,
+    "responseStatus successful",
+  );
   assert(
     response.responseBytes?.responseType === OID_OCSP_BASIC,
     "responseBytes is id-pkix-ocsp-basic",
@@ -133,7 +140,8 @@ function parseSuccessful(der: Uint8Array) {
 }
 
 function statusTag(single: pkijs.SingleResponse): number {
-  return (single.certStatus as { idBlock: { tagNumber: number } }).idBlock.tagNumber;
+  return (single.certStatus as { idBlock: { tagNumber: number } }).idBlock
+    .tagNumber;
 }
 
 Deno.test("serialToDecimal — matches the ledger's canonical-decimal form incl. DER 0x00 pad", () => {
@@ -147,8 +155,14 @@ Deno.test("serialToDecimal — matches the ledger's canonical-decimal form incl.
 Deno.test("leafIssuerTargets / issuerMatches — leaf CertIDs name the ICA, not the root", async () => {
   const id = await leafCertId([0x42]);
   assert(issuerMatches(TARGETS, id), "ICA-issued CertID matches");
-  const wrong = { ...id, issuerKeyHash: new Uint8Array(id.issuerKeyHash.length) };
-  assert(!issuerMatches(TARGETS, wrong), "foreign issuerKeyHash does not match");
+  const wrong = {
+    ...id,
+    issuerKeyHash: new Uint8Array(id.issuerKeyHash.length),
+  };
+  assert(
+    !issuerMatches(TARGETS, wrong),
+    "foreign issuerKeyHash does not match",
+  );
 });
 
 Deno.test("respond — good / revoked statuses round-trip, signed by the injected key", async () => {
@@ -169,7 +183,11 @@ Deno.test("respond — good / revoked statuses round-trip, signed by the injecte
     assertEquals(Array.from(gotSerial), [0x0a, 0xbc], "serial echoed");
 
     // thisUpdate/nextUpdate window from the injected clock.
-    assertEquals(single.thisUpdate.getTime(), NOW.getTime(), "thisUpdate = now");
+    assertEquals(
+      single.thisUpdate.getTime(),
+      NOW.getTime(),
+      "thisUpdate = now",
+    );
     assertEquals(
       single.nextUpdate!.getTime() - single.thisUpdate.getTime(),
       24 * 3_600_000,
@@ -214,7 +232,11 @@ Deno.test("respond — a never-issued serial is unsigned unauthorized, no signat
       },
     }),
   );
-  assertEquals(Array.from(der), Array.from(OCSP_UNAUTHORIZED), "unauthorized bytes");
+  assertEquals(
+    Array.from(der),
+    Array.from(OCSP_UNAUTHORIZED),
+    "unauthorized bytes",
+  );
   assert(!signed, "not marked cacheable");
   assertEquals(signs, 0, "no KMS signature for serial enumeration");
 });
@@ -222,7 +244,10 @@ Deno.test("respond — a never-issued serial is unsigned unauthorized, no signat
 Deno.test("respond — revoked response carries the revocation time", async () => {
   const revokedAt = new Date("2026-06-15T08:30:00Z");
   const reqDer = buildOcspRequestDer(await leafCertId([0x77]));
-  const { der } = await respond(reqDer, makeDeps({ kind: "revoked", revokedAt }));
+  const { der } = await respond(
+    reqDer,
+    makeDeps({ kind: "revoked", revokedAt }),
+  );
   const { single } = parseSuccessful(der);
   const revokedInfo = single.certStatus as { idBlock: { tagNumber: number } };
   assertEquals(revokedInfo.idBlock.tagNumber, 1, "revoked tag");
@@ -241,7 +266,10 @@ Deno.test("respond — sub-second revoked_at is truncated (DER GeneralizedTime i
   // (Go's encoding/asn1) reject a fractional GeneralizedTime.
   const revokedAt = new Date("2026-06-15T08:30:00.789Z");
   const reqDer = buildOcspRequestDer(await leafCertId([0x78]));
-  const { der } = await respond(reqDer, makeDeps({ kind: "revoked", revokedAt }));
+  const { der } = await respond(
+    reqDer,
+    makeDeps({ kind: "revoked", revokedAt }),
+  );
   const { single } = parseSuccessful(der);
   const timeNode =
     (single.certStatus as unknown as { valueBlock: { value: unknown[] } })
@@ -290,7 +318,11 @@ Deno.test("respond — cache: repeat CertID serves the same bytes with no second
   assertEquals(lookups, 1, "one ledger lookup");
   assertEquals(signs, 1, "one signature");
   assert(second.signed, "cache hit is still marked signed/cacheable");
-  assertEquals(Array.from(second.der), Array.from(first.der), "identical bytes");
+  assertEquals(
+    Array.from(second.der),
+    Array.from(first.der),
+    "identical bytes",
+  );
   // A different serial is a different cache key.
   await respond(buildOcspRequestDer(await leafCertId([0x0e])), deps);
   assertEquals(signs, 2, "distinct serial signs again");
@@ -300,7 +332,10 @@ Deno.test("respond — foreign issuer → unauthorized, no lookup, no signature"
   let lookups = 0;
   let signs = 0;
   const id = await leafCertId([0x01]);
-  const foreign = { ...id, issuerNameHash: new Uint8Array(id.issuerNameHash.length) };
+  const foreign = {
+    ...id,
+    issuerNameHash: new Uint8Array(id.issuerNameHash.length),
+  };
   const { der, signed } = await respond(
     buildOcspRequestDer(foreign),
     makeDeps({ kind: "good" }, {
@@ -314,7 +349,11 @@ Deno.test("respond — foreign issuer → unauthorized, no lookup, no signature"
       },
     }),
   );
-  assertEquals(Array.from(der), Array.from(OCSP_UNAUTHORIZED), "unauthorized bytes");
+  assertEquals(
+    Array.from(der),
+    Array.from(OCSP_UNAUTHORIZED),
+    "unauthorized bytes",
+  );
   assert(!signed, "error form is not cacheable");
   assertEquals(lookups, 0, "no ledger lookup for foreign issuers");
   assertEquals(signs, 0, "no KMS signature spent on foreign issuers");
@@ -325,7 +364,11 @@ Deno.test("respond — garbage request → malformedRequest", async () => {
     new Uint8Array([0xde, 0xad, 0xbe, 0xef]),
     makeDeps({ kind: "good" }),
   );
-  assertEquals(Array.from(der), Array.from(OCSP_MALFORMED_REQUEST), "malformed bytes");
+  assertEquals(
+    Array.from(der),
+    Array.from(OCSP_MALFORMED_REQUEST),
+    "malformed bytes",
+  );
   assert(!signed, "error form is not cacheable");
 });
 
@@ -334,15 +377,22 @@ Deno.test("respond — multi-CertID request → unauthorized (single-status poli
   // Hand-build a two-Request OCSPRequest.
   const single = buildOcspRequestDer(id);
   const parsed = asn1js.fromBER(toArrayBuffer(single));
-  const tbs = (parsed.result as asn1js.Sequence).valueBlock.value[0] as asn1js.Sequence;
+  const tbs = (parsed.result as asn1js.Sequence).valueBlock
+    .value[0] as asn1js.Sequence;
   const requestList = tbs.valueBlock.value[0] as asn1js.Sequence;
   requestList.valueBlock.value.push(requestList.valueBlock.value[0]);
   const doubled = new Uint8Array(
-    new asn1js.Sequence({ value: [new asn1js.Sequence({ value: [requestList] })] })
+    new asn1js.Sequence({
+      value: [new asn1js.Sequence({ value: [requestList] })],
+    })
       .toBER(false),
   );
   const { der } = await respond(doubled, makeDeps({ kind: "good" }));
-  assertEquals(Array.from(der), Array.from(OCSP_UNAUTHORIZED), "unauthorized bytes");
+  assertEquals(
+    Array.from(der),
+    Array.from(OCSP_UNAUTHORIZED),
+    "unauthorized bytes",
+  );
 });
 
 Deno.test("buildLeafOcspResponseDer — openssl-style sanity via pkijs re-parse of certs and responderID", async () => {
@@ -365,5 +415,9 @@ Deno.test("buildLeafOcspResponseDer — openssl-style sanity via pkijs re-parse 
   const gotKeyHash = blockBytes(
     basic.tbsResponseData.responderID as asn1js.OctetString,
   );
-  assertEquals(Array.from(gotKeyHash), Array.from(wantKeyHash), "responderID byKey");
+  assertEquals(
+    Array.from(gotKeyHash),
+    Array.from(wantKeyHash),
+    "responderID byKey",
+  );
 });

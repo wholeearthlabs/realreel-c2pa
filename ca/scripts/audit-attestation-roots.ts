@@ -57,8 +57,12 @@ const ACKNOWLEDGED_UNPUBLISHED_PINS: Record<string, string> = {
 const ACKNOWLEDGED_UNPINNED_PUBLISHED: Record<string, string> = {};
 
 async function sha256OfPem(pem: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", pemToDer(pem) as BufferSource);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    pemToDer(pem) as BufferSource,
+  );
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 // Strict positive-integer parse: Number() turns "999_999"/"abc" into NaN and
@@ -71,7 +75,9 @@ function parsePositiveInt(
 ): number {
   if (value === undefined || value.trim() === "") return fallback;
   if (!/^\d+$/.test(value.trim()) || Number(value) < 1) {
-    throw new Error(`${name} must be a positive integer, got: ${JSON.stringify(value)}`);
+    throw new Error(
+      `${name} must be a positive integer, got: ${JSON.stringify(value)}`,
+    );
   }
   return Number(value);
 }
@@ -105,7 +111,9 @@ function auditPins(
     try {
       const notAfter = parseCertFromPem(pem).notAfter.value;
       const t = notAfter.getTime();
-      if (!Number.isFinite(t)) return { id, notAfter: null, days: null, status: "ERROR" };
+      if (!Number.isFinite(t)) {
+        return { id, notAfter: null, days: null, status: "ERROR" };
+      }
       const days = Math.floor((t - now.getTime()) / MS_PER_DAY);
       const status = days < critDays ? "CRIT" : days < warnDays ? "WARN" : "OK";
       return { id, notAfter, days, status };
@@ -118,7 +126,12 @@ function auditPins(
   return { rows, exitCode: hasCrit ? 2 : hasWarn ? 1 : 0 };
 }
 
-function render(rows: Row[], now: Date, warnDays: number, critDays: number): string {
+function render(
+  rows: Row[],
+  now: Date,
+  warnDays: number,
+  critDays: number,
+): string {
   const idW = Math.max("id".length, ...rows.map((r) => r.id.length));
   const line = (id: string, na: string, days: string, status: string) =>
     `${id.padEnd(idW)}  ${na.padEnd(11)}  ${days.padStart(6)}  ${status}`;
@@ -180,14 +193,18 @@ async function checkGooglePublishedSet(): Promise<Drift> {
     if (!Array.isArray(json) || json.some((p) => typeof p !== "string")) {
       throw new Error("expected a JSON array of PEM strings");
     }
-    pinnedFps = new Set(await Promise.all(GOOGLE_HW_ATTESTATION_ROOT_PEMS.map(sha256OfPem)));
-    publishedFps = new Set(await Promise.all((json as string[]).map(sha256OfPem)));
+    pinnedFps = new Set(
+      await Promise.all(GOOGLE_HW_ATTESTATION_ROOT_PEMS.map(sha256OfPem)),
+    );
+    publishedFps = new Set(
+      await Promise.all((json as string[]).map(sha256OfPem)),
+    );
   } catch (e) {
     return {
       status: "UNAVAILABLE",
       notes: [
         `DRIFT CHECK UNAVAILABLE after ${DRIFT_FETCH_ATTEMPTS} attempts: ` +
-          `${e instanceof Error ? e.message : String(e)}`,
+        `${e instanceof Error ? e.message : String(e)}`,
         `Endpoint: ${GOOGLE_ROOT_ENDPOINT}`,
         "Until this is fixed the rotation watch is blind, so a new Google root could ship unnoticed.",
       ],
@@ -201,7 +218,11 @@ async function checkGooglePublishedSet(): Promise<Drift> {
     if (pinnedFps.has(fp)) continue;
     const reason = ACKNOWLEDGED_UNPINNED_PUBLISHED[fp];
     if (reason) {
-      notes.push(`(acknowledged) Google publishes a root we do not pin: ${reason} [sha256=${fp.slice(0, 16)}…]`);
+      notes.push(
+        `(acknowledged) Google publishes a root we do not pin: ${reason} [sha256=${
+          fp.slice(0, 16)
+        }…]`,
+      );
       continue;
     }
     unacknowledged++;
@@ -217,7 +238,11 @@ async function checkGooglePublishedSet(): Promise<Drift> {
     if (publishedFps.has(fp)) continue;
     const reason = ACKNOWLEDGED_UNPUBLISHED_PINS[fp];
     if (reason) {
-      notes.push(`(acknowledged) We pin a root Google no longer publishes: ${reason} [sha256=${fp.slice(0, 16)}…]`);
+      notes.push(
+        `(acknowledged) We pin a root Google no longer publishes: ${reason} [sha256=${
+          fp.slice(0, 16)
+        }…]`,
+      );
       continue;
     }
     unacknowledged++;
@@ -239,14 +264,24 @@ async function main(): Promise<number> {
   let warnDays: number;
   let critDays: number;
   try {
-    warnDays = parsePositiveInt(Deno.env.get("ATTEST_ROOT_WARN_DAYS"), DEFAULT_WARN_DAYS, "ATTEST_ROOT_WARN_DAYS");
-    critDays = parsePositiveInt(Deno.env.get("ATTEST_ROOT_CRIT_DAYS"), DEFAULT_CRIT_DAYS, "ATTEST_ROOT_CRIT_DAYS");
+    warnDays = parsePositiveInt(
+      Deno.env.get("ATTEST_ROOT_WARN_DAYS"),
+      DEFAULT_WARN_DAYS,
+      "ATTEST_ROOT_WARN_DAYS",
+    );
+    critDays = parsePositiveInt(
+      Deno.env.get("ATTEST_ROOT_CRIT_DAYS"),
+      DEFAULT_CRIT_DAYS,
+      "ATTEST_ROOT_CRIT_DAYS",
+    );
   } catch (e) {
     console.log(`CONFIG ERROR: ${e instanceof Error ? e.message : String(e)}`);
     return 2;
   }
   if (warnDays < critDays) {
-    console.log(`CONFIG ERROR: WARN window (${warnDays}d) must be >= CRIT window (${critDays}d).`);
+    console.log(
+      `CONFIG ERROR: WARN window (${warnDays}d) must be >= CRIT window (${critDays}d).`,
+    );
     return 2;
   }
 
@@ -261,17 +296,25 @@ async function main(): Promise<number> {
   // a CRIT expiry never masks concurrent drift in the issue body.
   const problems: string[] = [];
   if (expiryExit === EXIT_CRIT) {
-    problems.push(`CRIT: a pinned attestation root is expired, within ${critDays}d, or unparseable — rotate now.`);
+    problems.push(
+      `CRIT: a pinned attestation root is expired, within ${critDays}d, or unparseable — rotate now.`,
+    );
   }
   if (drift.status === "DRIFT") {
-    problems.push("DRIFT: the pinned Google root set no longer matches Google's published set — see above.");
+    problems.push(
+      "DRIFT: the pinned Google root set no longer matches Google's published set — see above.",
+    );
   }
   if (drift.status === "UNAVAILABLE") {
-    problems.push("BLIND: the drift check could not run, so the rotation watch is not working — see above.");
+    problems.push(
+      "BLIND: the drift check could not run, so the rotation watch is not working — see above.",
+    );
   }
   if (expiryExit === EXIT_WARN) {
     const w = rows.find((r) => r.status === "WARN")!;
-    problems.push(`WARN: ${w.id} expires in ${w.days}d. Rotate the pin in ca/_shared/attestation/roots.ts before then.`);
+    problems.push(
+      `WARN: ${w.id} expires in ${w.days}d. Rotate the pin in ca/_shared/attestation/roots.ts before then.`,
+    );
   }
 
   if (problems.length === 0) {

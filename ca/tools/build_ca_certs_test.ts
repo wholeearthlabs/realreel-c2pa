@@ -54,14 +54,16 @@ function decodeKu(
 function assertCriticalities(c: pkijs.Certificate, label: string) {
   assert(ext(c, OID_BC)?.critical === true, `${label}: BC must be critical`);
   assert(ext(c, OID_KU)?.critical === true, `${label}: KU must be critical`);
-  for (const [oid, name] of [
-    [OID_EKU, "EKU"],
-    [OID_POLICIES, "certificatePolicies"],
-    [OID_AIA, "AIA"],
-    [OID_SKI, "SKI"],
-    [OID_AKI, "AKI"],
-    [OID_NOCHECK, "ocsp-nocheck"],
-  ] as const) {
+  for (
+    const [oid, name] of [
+      [OID_EKU, "EKU"],
+      [OID_POLICIES, "certificatePolicies"],
+      [OID_AIA, "AIA"],
+      [OID_SKI, "SKI"],
+      [OID_AKI, "AKI"],
+      [OID_NOCHECK, "ocsp-nocheck"],
+    ] as const
+  ) {
     const e = ext(c, oid);
     if (e) assert(!e.critical, `${label}: ${name} must be non-critical`);
   }
@@ -194,7 +196,10 @@ Deno.test("root profile: self-signed, P-384, GeneralizedTime past 2049, SKI==AKI
       findExtensionByOid(c, OID_BC)!.buffer as ArrayBuffer,
     ).result,
   });
-  assert(bc.cA === true && bc.pathLenConstraint === 1, "root BC CA:TRUE pathlen 1");
+  assert(
+    bc.cA === true && bc.pathLenConstraint === 1,
+    "root BC CA:TRUE pathlen 1",
+  );
 
   assertCriticalities(c, "root");
   const ku = decodeKu(c);
@@ -215,7 +220,10 @@ Deno.test("root profile: self-signed, P-384, GeneralizedTime past 2049, SKI==AKI
   assert(akiHex.includes(skiHex.slice(4)), "root AKI must embed its own SKI");
 
   const serialBytes = new Uint8Array(c.serialNumber.valueBlock.valueHexView);
-  assert(serialBytes.length <= 20 && (serialBytes[0] & 0x80) === 0, "positive ≤20-octet serial");
+  assert(
+    serialBytes.length <= 20 && (serialBytes[0] & 0x80) === 0,
+    "positive ≤20-octet serial",
+  );
 });
 
 Deno.test("serial normalization: high-bit and zero leading bytes yield minimal positive DER", async () => {
@@ -263,7 +271,10 @@ Deno.test("ica profile: chains to root, EKU trio, C2PA policy OID, AIA with OCSP
       findExtensionByOid(c, OID_BC)!.buffer as ArrayBuffer,
     ).result,
   });
-  assert(bc.cA === true && bc.pathLenConstraint === 0, "ica BC CA:TRUE pathlen 0");
+  assert(
+    bc.cA === true && bc.pathLenConstraint === 0,
+    "ica BC CA:TRUE pathlen 0",
+  );
 
   assertCriticalities(c, "ica");
   const ku = decodeKu(c);
@@ -306,7 +317,10 @@ Deno.test("ica profile: chains to root, EKU trio, C2PA policy OID, AIA with OCSP
   });
   const methods = aia.accessDescriptions.map((d) => d.accessMethod);
   assert(methods.includes("1.3.6.1.5.5.7.48.1"), "AIA must include id-ad-ocsp");
-  assert(methods.includes("1.3.6.1.5.5.7.48.2"), "AIA should include caIssuers");
+  assert(
+    methods.includes("1.3.6.1.5.5.7.48.2"),
+    "AIA should include caIssuers",
+  );
   const urls = aia.accessDescriptions.map((d) => d.accessLocation.value);
   assert(urls.includes("http://ocsp.realreel.xyz"), "OCSP URL");
   assert(
@@ -367,7 +381,10 @@ Deno.test("ocsp profile: chains to root, EKU exactly OCSPSigning, nocheck presen
   );
 
   assert(findExtensionByOid(c, OID_NOCHECK) !== null, "ocsp-nocheck present");
-  assert(findExtensionByOid(c, OID_AIA) === null, "responder MUST NOT carry AIA");
+  assert(
+    findExtensionByOid(c, OID_AIA) === null,
+    "responder MUST NOT carry AIA",
+  );
 });
 
 Deno.test("ocsp-leaf profile: ICA-signed, chains root→ICA→responder, AKI is the ICA's SKI, responder profile identical to `ocsp`", async () => {
@@ -398,17 +415,26 @@ Deno.test("ocsp-leaf profile: ICA-signed, chains root→ICA→responder, AKI is 
   } catch {
     rootThrew = true;
   }
-  assert(rootThrew, "selfVerify must reject the root as issuer of an ICA-signed cert");
+  assert(
+    rootThrew,
+    "selfVerify must reject the root as issuer of an ICA-signed cert",
+  );
 
   const c = parseCertFromPem(pem);
   await verifyChainToTrustedRoots([c, ica.cert], [ca.rootCert]);
-  assert(c.issuer.isEqual(ica.cert.subject), "issuer DN must be the ICA's subject");
+  assert(
+    c.issuer.isEqual(ica.cert.subject),
+    "issuer DN must be the ICA's subject",
+  );
 
   const hexOf = (b: Uint8Array) =>
     [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
   const aki = hexOf(findExtensionByOid(c, OID_AKI)!);
   const icaSki = hexOf(findExtensionByOid(ica.cert, OID_SKI)!);
-  assert(aki.includes(icaSki.slice(4)), "AKI must embed the ICA's SKI, not the root's");
+  assert(
+    aki.includes(icaSki.slice(4)),
+    "AKI must embed the ICA's SKI, not the root's",
+  );
   const rootSki = hexOf(findExtensionByOid(ca.rootCert, OID_SKI)!);
   assert(!aki.includes(rootSki.slice(4)), "AKI must not be the root's SKI");
 
@@ -441,7 +467,10 @@ Deno.test("ocsp-leaf profile: ICA-signed, chains root→ICA→responder, AKI is 
   );
 
   assert(findExtensionByOid(c, OID_NOCHECK) !== null, "ocsp-nocheck present");
-  assert(findExtensionByOid(c, OID_AIA) === null, "responder MUST NOT carry AIA");
+  assert(
+    findExtensionByOid(c, OID_AIA) === null,
+    "responder MUST NOT carry AIA",
+  );
   assert(
     findExtensionByOid(c, OID_POLICIES) === null,
     "responder MUST NOT carry certificatePolicies",
@@ -478,7 +507,10 @@ Deno.test("PROFILES pin: literal values match the runbook Appendix A table", () 
   assert(r.kmsKey === "realreel-root", "root KMS key");
   assert(r.validityDays === 9131, "root 9131d");
   assert(r.basicConstraints.pathLen === 1, "root pathlen 1");
-  assert(r.eku === null && r.aia === null && r.certificatePolicies === null, "root minimal extensions");
+  assert(
+    r.eku === null && r.aia === null && r.certificatePolicies === null,
+    "root minimal extensions",
+  );
 
   const i = PROFILES.ica;
   assert(i.cn === "RealReel Claim Signing CA", "ica CN");
@@ -524,12 +556,24 @@ Deno.test("PROFILES pin: literal values match the runbook Appendix A table", () 
     JSON.stringify(l.eku) === JSON.stringify(["1.3.6.1.5.5.7.3.9"]),
     "ocsp-leaf EKU",
   );
-  assert(l.aia === null && l.certificatePolicies === null, "ocsp-leaf minimal extensions");
+  assert(
+    l.aia === null && l.certificatePolicies === null,
+    "ocsp-leaf minimal extensions",
+  );
 
   // Who signs what — the field that separates the two responder profiles.
-  assert(r.signerKey === "realreel-root" && r.issuerCn === null, "root self-signs");
-  assert(i.signerKey === "realreel-root" && i.issuerCn === r.cn, "ica is root-signed");
-  assert(o.signerKey === "realreel-root" && o.issuerCn === r.cn, "ocsp is root-signed");
+  assert(
+    r.signerKey === "realreel-root" && r.issuerCn === null,
+    "root self-signs",
+  );
+  assert(
+    i.signerKey === "realreel-root" && i.issuerCn === r.cn,
+    "ica is root-signed",
+  );
+  assert(
+    o.signerKey === "realreel-root" && o.issuerCn === r.cn,
+    "ocsp is root-signed",
+  );
   assert(
     l.signerKey === "realreel-claim-ica" && l.issuerCn === i.cn,
     "ocsp-leaf is ICA-signed",
@@ -565,9 +609,15 @@ Deno.test("lint: runs inside buildCaCert and rejects a >1827d issuing CA", async
 Deno.test("lint: rejects root pathLen 3 and CA-flagged responder", () => {
   for (
     const [name, bad] of [
-      ["root", { ...PROFILES.root, basicConstraints: { cA: true, pathLen: 3 } }],
+      ["root", {
+        ...PROFILES.root,
+        basicConstraints: { cA: true, pathLen: 3 },
+      }],
       ["ocsp", { ...PROFILES.ocsp, basicConstraints: { cA: true } }],
-      ["ocsp-leaf", { ...PROFILES["ocsp-leaf"], basicConstraints: { cA: true } }],
+      ["ocsp-leaf", {
+        ...PROFILES["ocsp-leaf"],
+        basicConstraints: { cA: true },
+      }],
     ] as const
   ) {
     let threw = false;
@@ -585,16 +635,33 @@ Deno.test("lint: responder profiles must not swap delegators, outlive 366d, or s
   const cases: Array<[string, Parameters<typeof lintProfile>[1], string]> = [
     // A leaf-status responder signed by the ROOT is not an authorized
     // responder for leaves (RFC 6960 §4.2.2.2) — no client would accept it.
-    ["ocsp-leaf", { ...L, signerKey: "realreel-root", issuerCn: "RealReel C2PA Root CA" }, "root-delegated leaf responder"],
+    ["ocsp-leaf", {
+      ...L,
+      signerKey: "realreel-root",
+      issuerCn: "RealReel C2PA Root CA",
+    }, "root-delegated leaf responder"],
     // ...and the mirror image: ICA-signed ICA-status responder.
-    ["ocsp", { ...PROFILES.ocsp, signerKey: "realreel-claim-ica", issuerCn: "RealReel Claim Signing CA" }, "ICA-delegated ICA responder"],
+    ["ocsp", {
+      ...PROFILES.ocsp,
+      signerKey: "realreel-claim-ica",
+      issuerCn: "RealReel Claim Signing CA",
+    }, "ICA-delegated ICA responder"],
     // ocsp-nocheck + a long life = an unrevocable cert for that whole life.
     ["ocsp-leaf", { ...L, validityDays: 730 }, "730d ocsp-nocheck responder"],
-    ["ocsp", { ...PROFILES.ocsp, validityDays: 367 }, "367d ocsp-nocheck responder"],
+    [
+      "ocsp",
+      { ...PROFILES.ocsp, validityDays: 367 },
+      "367d ocsp-nocheck responder",
+    ],
     // selfSigned/issuerCn must agree — the CLI branches on selfSigned but the
     // pre-sign issuer guard reads issuerCn.
     ["ocsp-leaf", { ...L, selfSigned: true }, "selfSigned with an issuerCn"],
-    ["root", { ...PROFILES.root, selfSigned: true, issuerCn: null, signerKey: "realreel-claim-ica" }, "self-signed by another key"],
+    ["root", {
+      ...PROFILES.root,
+      selfSigned: true,
+      issuerCn: null,
+      signerKey: "realreel-claim-ica",
+    }, "self-signed by another key"],
   ];
   for (const [name, bad, label] of cases) {
     let threw = false;

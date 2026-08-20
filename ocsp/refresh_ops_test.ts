@@ -12,17 +12,19 @@ import {
   buildOcspRequestDer,
   bytesEqual,
   bytesToBase64,
+  certIdMatches,
   icaCertIdTargets,
   OID_SHA1,
   OID_SHA256,
   parseOcspRequestCertIds,
-  certIdMatches,
   toArrayBuffer,
 } from "./ocsp.ts";
 
 const dir = new URL("../verifier/trust-sources/realreel/", import.meta.url);
 const rootPem = await Deno.readTextFile(new URL("realreel-c2pa-root.pem", dir));
-const icaPem = await Deno.readTextFile(new URL("realreel-claim-signing-ca.pem", dir));
+const icaPem = await Deno.readTextFile(
+  new URL("realreel-claim-signing-ca.pem", dir),
+);
 
 // Same openssl-generated reference request router_test.ts pins.
 const REQ_SHA1_HEX =
@@ -32,9 +34,14 @@ function assert(cond: unknown, msg: string): void {
   if (!cond) throw new Error(msg);
 }
 function assertEq<T>(actual: T, expected: T, label: string): void {
-  if (actual !== expected) throw new Error(`${label}: expected ${expected}, got ${actual}`);
+  if (actual !== expected) {
+    throw new Error(`${label}: expected ${expected}, got ${actual}`);
+  }
 }
-async function assertRejects(fn: () => Promise<unknown>, label: string): Promise<void> {
+async function assertRejects(
+  fn: () => Promise<unknown>,
+  label: string,
+): Promise<void> {
   try {
     await fn();
   } catch {
@@ -44,10 +51,13 @@ async function assertRejects(fn: () => Promise<unknown>, label: string): Promise
 }
 const hexToBytes = (hex: string): Uint8Array => {
   const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(2 * i, 2 * i + 2), 16);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.slice(2 * i, 2 * i + 2), 16);
+  }
   return out;
 };
-const neverRead = () => Promise.reject(new Error("readPersisted must not be called"));
+const neverRead = () =>
+  Promise.reject(new Error("readPersisted must not be called"));
 
 Deno.test("explicit dispatch input wins without touching KV", async () => {
   const resolved = await resolveStatus({
@@ -113,9 +123,15 @@ Deno.test("malformed persisted records are rejected", async () => {
       readPersisted: () => Promise.resolve({ code: 200, body }),
     });
   await assertRejects(() => inherit("not json"), "non-JSON body");
-  await assertRejects(() => inherit(JSON.stringify({ status: "eaten" })), "unknown status");
+  await assertRejects(
+    () => inherit(JSON.stringify({ status: "eaten" })),
+    "unknown status",
+  );
   // status=revoked persisted without a time must not re-sign silently
-  await assertRejects(() => inherit(JSON.stringify({ status: "revoked" })), "revoked w/o time");
+  await assertRejects(
+    () => inherit(JSON.stringify({ status: "revoked" })),
+    "revoked w/o time",
+  );
   // Values become GitHub step outputs (line-based) and argv — newlines are an
   // injection attempt, not data.
   await assertRejects(
@@ -142,17 +158,30 @@ Deno.test("explicit revoked without a time is rejected", async () => {
 });
 
 Deno.test("namespace id extraction matches the committed wrangler.toml", async () => {
-  const toml = await Deno.readTextFile(new URL("wrangler.toml", import.meta.url));
-  assertEq(namespaceIdFromWranglerToml(toml), "544330752c3d4641a96ba2192cc2e9ab", "namespace id");
+  const toml = await Deno.readTextFile(
+    new URL("wrangler.toml", import.meta.url),
+  );
+  assertEq(
+    namespaceIdFromWranglerToml(toml),
+    "544330752c3d4641a96ba2192cc2e9ab",
+    "namespace id",
+  );
 });
 
 Deno.test("buildOcspRequestDer reproduces openssl's request byte-for-byte (SHA-1)", async () => {
-  const target = (await icaCertIdTargets(rootPem, icaPem)).find((t) => t.hashOid === OID_SHA1)!;
-  assert(bytesEqual(buildOcspRequestDer(target), hexToBytes(REQ_SHA1_HEX)), "request bytes");
+  const target = (await icaCertIdTargets(rootPem, icaPem)).find((t) =>
+    t.hashOid === OID_SHA1
+  )!;
+  assert(
+    bytesEqual(buildOcspRequestDer(target), hexToBytes(REQ_SHA1_HEX)),
+    "request bytes",
+  );
 });
 
 Deno.test("built SHA-256 requests round-trip through the request parser", async () => {
-  const target = (await icaCertIdTargets(rootPem, icaPem)).find((t) => t.hashOid === OID_SHA256)!;
+  const target = (await icaCertIdTargets(rootPem, icaPem)).find((t) =>
+    t.hashOid === OID_SHA256
+  )!;
   const parsed = parseOcspRequestCertIds(buildOcspRequestDer(target));
   assertEq(parsed.length, 1, "one CertID");
   assert(certIdMatches(parsed[0], target), "CertID round-trip");

@@ -33,8 +33,8 @@ import { MAX_SIGNING_KEY_ID_CHARS } from "../_shared/config.ts";
 
 // Tight per-user limits. Enrollment is rare; revocation is rarer.
 const RATE_LIMIT_WINDOWS = [
-  { windowSec: 3600, max: 20 },   // 20 revocations / hour
-  { windowSec: 86400, max: 60 },  // 60 revocations / day
+  { windowSec: 3600, max: 20 }, // 20 revocations / hour
+  { windowSec: 86400, max: 60 }, // 60 revocations / day
 ] as const;
 
 interface RevokeBody {
@@ -140,7 +140,9 @@ export async function handleRevoke(
   }
 
   console.log(
-    `[revoke-signing-key] revoked user=${user.id} key_id=${keyId.slice(0, 12)}…`,
+    `[revoke-signing-key] revoked user=${user.id} key_id=${
+      keyId.slice(0, 12)
+    }…`,
   );
   return jsonResponse({ ok: true });
 }

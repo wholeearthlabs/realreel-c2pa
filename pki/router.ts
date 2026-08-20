@@ -33,7 +33,9 @@ export function pemToDer(pem: string): Uint8Array<ArrayBuffer> {
 // subtle.digest throws on a view onto a SharedArrayBuffer. Stating it in the
 // signature beats the `as unknown as BufferSource` this used to carry — every
 // caller already hands over `pemToDer` output or a fresh `new Uint8Array(...)`.
-export async function sha256HexUpper(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+export async function sha256HexUpper(
+  bytes: Uint8Array<ArrayBuffer>,
+): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -58,17 +60,27 @@ function indexHtml(rootFingerprint: string): string {
 </body></html>`;
 }
 
-export async function handleRequest(req: Request, assets: CertAssets): Promise<Response> {
+export async function handleRequest(
+  req: Request,
+  assets: CertAssets,
+): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
-      headers: headers({ allow: ALLOW, "access-control-allow-methods": ALLOW, "access-control-max-age": "86400" }),
+      headers: headers({
+        allow: ALLOW,
+        "access-control-allow-methods": ALLOW,
+        "access-control-max-age": "86400",
+      }),
     });
   }
   if (req.method !== "GET" && req.method !== "HEAD") {
     return new Response("Method Not Allowed\n", {
       status: 405,
-      headers: headers({ allow: ALLOW, "content-type": "text/plain; charset=utf-8" }),
+      headers: headers({
+        allow: ALLOW,
+        "content-type": "text/plain; charset=utf-8",
+      }),
     });
   }
 
@@ -84,24 +96,34 @@ export async function handleRequest(req: Request, assets: CertAssets): Promise<R
       });
     case "/realreel-c2pa-root.pem":
       return new Response(assets.rootPem, {
-        headers: headers({ "content-type": "application/x-pem-file; charset=utf-8", "cache-control": CACHE }),
+        headers: headers({
+          "content-type": "application/x-pem-file; charset=utf-8",
+          "cache-control": CACHE,
+        }),
       });
     case "/realreel-claim-signing-ca.cer":
       return new Response(pemToDer(assets.icaPem), {
         headers: headers({
           "content-type": "application/pkix-cert",
-          "content-disposition": 'inline; filename="realreel-claim-signing-ca.cer"',
+          "content-disposition":
+            'inline; filename="realreel-claim-signing-ca.cer"',
           "cache-control": CACHE,
         }),
       });
     case "/realreel-claim-signing-ca.pem":
       return new Response(assets.icaPem, {
-        headers: headers({ "content-type": "application/x-pem-file; charset=utf-8", "cache-control": CACHE }),
+        headers: headers({
+          "content-type": "application/x-pem-file; charset=utf-8",
+          "cache-control": CACHE,
+        }),
       });
     case "/": {
       const fingerprint = await sha256HexUpper(pemToDer(assets.rootPem));
       return new Response(indexHtml(fingerprint), {
-        headers: headers({ "content-type": "text/html; charset=utf-8", "cache-control": CACHE }),
+        headers: headers({
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": CACHE,
+        }),
       });
     }
     default:

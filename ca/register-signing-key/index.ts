@@ -232,7 +232,8 @@ export const defaultDeps: RegisterDeps = {
   issueLeafChainFromCSR,
   loadKmsCredentials,
   kmsSignDigest,
-  getIntermediatePem: () => Deno.env.get("REALREEL_INTERMEDIATE_CERT_PEM") ?? "",
+  getIntermediatePem: () =>
+    Deno.env.get("REALREEL_INTERMEDIATE_CERT_PEM") ?? "",
   ensureIntermediateMatchesKms: buildCachedIntermediateCheck({
     kmsGetPublicKey,
     parseCertFromPem,
@@ -244,8 +245,8 @@ export const defaultDeps: RegisterDeps = {
 // limits can be tight without hurting legitimate use. Attackers spamming
 // register-signing-key (e.g. with stolen JWTs) are cut off quickly.
 const RATE_LIMIT_WINDOWS = [
-  { windowSec: 3600, max: 5 },     // 5 enrollments / hour
-  { windowSec: 86400, max: 20 },   // 20 enrollments / day
+  { windowSec: 3600, max: 5 }, // 5 enrollments / hour
+  { windowSec: 86400, max: 20 }, // 20 enrollments / day
 ] as const;
 
 const ALLOWED_PLATFORMS = ["ios", "android-strongbox", "android-tee"] as const;
@@ -306,7 +307,9 @@ export async function handleRegister(
 
   const intermediatePem = deps.getIntermediatePem();
   if (!intermediatePem) {
-    console.error("[register-signing-key] REALREEL_INTERMEDIATE_CERT_PEM unset");
+    console.error(
+      "[register-signing-key] REALREEL_INTERMEDIATE_CERT_PEM unset",
+    );
     return jsonResponse({ error: "Server misconfiguration" }, { status: 500 });
   }
 
@@ -370,7 +373,9 @@ export async function handleRegister(
     typeof challenge !== "string" ||
     typeof csrPem !== "string"
   ) {
-    return jsonResponse({ error: "Missing or malformed fields" }, { status: 400 });
+    return jsonResponse({ error: "Missing or malformed fields" }, {
+      status: 400,
+    });
   }
 
   // deviceLabel is a COSMETIC display field (Devices-screen row label, never
@@ -397,8 +402,9 @@ export async function handleRegister(
     // normalized — the label is stored verbatim.
     const clamped = deviceLabel.slice(0, MAX_DEVICE_LABEL_CHARS);
     const lastUnit = clamped.charCodeAt(clamped.length - 1);
-    deviceLabelToPersist =
-      lastUnit >= 0xd800 && lastUnit <= 0xdbff ? clamped.slice(0, -1) : clamped;
+    deviceLabelToPersist = lastUnit >= 0xd800 && lastUnit <= 0xdbff
+      ? clamped.slice(0, -1)
+      : clamped;
   }
 
   // Accept both omitted (undefined) and explicit null. Today's client sends
@@ -410,7 +416,9 @@ export async function handleRegister(
       supersedeKeyId.length === 0 ||
       supersedeKeyId.length > MAX_SIGNING_KEY_ID_CHARS
     ) {
-      return jsonResponse({ error: "Malformed supersedeKeyId" }, { status: 400 });
+      return jsonResponse({ error: "Malformed supersedeKeyId" }, {
+        status: 400,
+      });
     }
   }
 
@@ -457,7 +465,9 @@ export async function handleRegister(
   // burning a challenge issued for v4 and registering under a different
   // version. burnedKeyVersion is the RPC's scalar text return.
   if (burnedKeyVersion !== keyVersion) {
-    return jsonResponse({ error: "Challenge / keyVersion mismatch" }, { status: 400 });
+    return jsonResponse({ error: "Challenge / keyVersion mismatch" }, {
+      status: 400,
+    });
   }
 
   // === Validate attestation ===
@@ -473,7 +483,9 @@ export async function handleRegister(
     if (platform === "ios") attestationBytes = base64ToBytes(attestation);
   } catch (e) {
     console.warn(
-      `[register-signing-key] base64 decode failed user=${user.id}: ${e instanceof Error ? e.message : String(e)}`,
+      `[register-signing-key] base64 decode failed user=${user.id}: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
     );
     return jsonResponse({ error: "Invalid attestation" }, { status: 400 });
   }
@@ -566,8 +578,9 @@ export async function handleRegister(
         challenge: challengeBytes,
         sePublicKey,
         packageName: ANDROID_PACKAGE_NAME,
-        expectedSecurityLevel:
-          platform === "android-strongbox" ? "strongbox" : "tee",
+        expectedSecurityLevel: platform === "android-strongbox"
+          ? "strongbox"
+          : "tee",
         minOsPatchLevel,
         // Always evaluate the AL2 evidence table (even under v1) so fleet
         // AL2-eligibility is observable in logs before the v2 flip; the
@@ -583,7 +596,9 @@ export async function handleRegister(
       } else {
         console.log(
           `[register-signing-key] AL2 degraded to AL1 user=${user.id} ` +
-            `failures=${androidResult.al2?.failures.join(",") ?? "not-evaluated"}`,
+            `failures=${
+              androidResult.al2?.failures.join(",") ?? "not-evaluated"
+            }`,
         );
       }
     }

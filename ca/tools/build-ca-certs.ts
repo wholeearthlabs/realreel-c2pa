@@ -230,7 +230,9 @@ export function lintProfile(name: string, p: CaProfile): void {
     if (!p.basicConstraints.cA || p.basicConstraints.pathLen !== 0) {
       fail("issuing CA must be CA:TRUE pathlen 0");
     }
-    if (!kuIs(0x06, 1)) fail("issuing CA KU must be exactly keyCertSign|cRLSign");
+    if (!kuIs(0x06, 1)) {
+      fail("issuing CA KU must be exactly keyCertSign|cRLSign");
+    }
     if (!p.aia?.ocspUrl) fail("issuing CA MUST carry AIA/OCSP");
     if (!p.certificatePolicies?.includes(OID.c2paCertPolicy)) {
       fail("issuing CA MUST carry the C2PA certificate policy OID");
@@ -246,7 +248,9 @@ export function lintProfile(name: string, p: CaProfile): void {
   }
   if (name === "ocsp" || name === "ocsp-leaf") {
     if (p.basicConstraints.cA) fail("OCSP responder must be CA:FALSE");
-    if (!kuIs(0x80, 7)) fail("OCSP responder KU must be exactly digitalSignature");
+    if (!kuIs(0x80, 7)) {
+      fail("OCSP responder KU must be exactly digitalSignature");
+    }
     if (
       !p.ocspNoCheck || p.eku?.length !== 1 || p.eku[0] !== OID.ekuOcspSigning
     ) {
@@ -325,8 +329,10 @@ export function assertIssuerCn(
 // --- Small helpers --------------------------------------------------------
 
 function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
-  return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as
-    | ArrayBuffer;
+  return u8.buffer.slice(
+    u8.byteOffset,
+    u8.byteOffset + u8.byteLength,
+  ) as ArrayBuffer;
 }
 
 function spkiPemToDer(pem: string): Uint8Array {
@@ -443,13 +449,18 @@ export async function buildCaCert(
   // RFC 5280 §4.1.2.5: dates through 2049 use UTCTime, 2050+ MUST use
   // GeneralizedTime. The 25-year root crosses that boundary.
   const timeType = (d: Date) => (d.getUTCFullYear() >= 2050 ? 1 : 0);
-  cert.notBefore = new pkijs.Time({ type: timeType(notBefore), value: notBefore });
+  cert.notBefore = new pkijs.Time({
+    type: timeType(notBefore),
+    value: notBefore,
+  });
   cert.notAfter = new pkijs.Time({ type: timeType(notAfter), value: notAfter });
 
   {
     const asn1 = asn1js.fromBER(toArrayBuffer(inputs.subjectSpkiDer));
     if (asn1.offset === -1) throw new Error("unparseable subject SPKI");
-    cert.subjectPublicKeyInfo = new pkijs.PublicKeyInfo({ schema: asn1.result });
+    cert.subjectPublicKeyInfo = new pkijs.PublicKeyInfo({
+      schema: asn1.result,
+    });
   }
 
   const sigAlg = new pkijs.AlgorithmIdentifier({
@@ -580,7 +591,9 @@ export async function selfVerify(
     throw new Error("self-verify FAILED: signed TBS differs from approved TBS");
   }
 
-  if (hex(extractSpkiDer(parsed)) !== hex(new Uint8Array(expectedSubjectSpkiDer))) {
+  if (
+    hex(extractSpkiDer(parsed)) !== hex(new Uint8Array(expectedSubjectSpkiDer))
+  ) {
     throw new Error(
       "self-verify FAILED: certified public key differs from the KMS-fetched subject SPKI",
     );
@@ -628,7 +641,9 @@ export async function renderReview(
     `Not before:     ${cert.notBefore.value.toISOString()}`,
     `Not after:      ${cert.notAfter.value.toISOString()}  (${p.validityDays} days)`,
     `Sig algorithm:  ecdsa-with-SHA384, by KMS key '${p.signerKey}'`,
-    `Subject key:    EC ${curveNameFromSpkiDer(subjectSpkiDer)}, from KMS key '${p.kmsKey}'`,
+    `Subject key:    EC ${
+      curveNameFromSpkiDer(subjectSpkiDer)
+    }, from KMS key '${p.kmsKey}'`,
     `SPKI SHA-256:   ${hex(await sha("SHA-256", subjectSpkiDer))}`,
     `SKI:            ${hex(decodeSki(cert))}`,
     `AKI:            ${hex(decodeAki(cert))}`,

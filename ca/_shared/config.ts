@@ -74,10 +74,12 @@ export function resolveDevAttestation(
   // the fully-resolved id, so a copied `<base>.dev` value here would pin
   // `<base>.dev.dev` and every dev enrollment would fail looking like a
   // device problem. Fail fast instead.
-  for (const [name, value] of [
-    ["APPLE_BUNDLE_ID", appleBase],
-    ["ANDROID_PACKAGE_NAME", androidBase],
-  ]) {
+  for (
+    const [name, value] of [
+      ["APPLE_BUNDLE_ID", appleBase],
+      ["ANDROID_PACKAGE_NAME", androidBase],
+    ]
+  ) {
     if (value.endsWith(".dev")) {
       throw new Error(
         `${name}='${value}' ends in .dev — this env var is the BASE app id; ` +

@@ -25,8 +25,8 @@ import {
   extractCSRSpkiDer,
   extractSpkiDer,
   extractSubjectPublicKeyBytes,
-  findExtensionByOid,
   finalizeLeafPEM,
+  findExtensionByOid,
   issueLeafChainFromCSR,
   parseCertFromPem,
   parseCSRFromPem,
@@ -554,12 +554,12 @@ Deno.test(
       // validity is irrelevant here — we're asserting shape only.
       return Promise.resolve(
         new Uint8Array(
-        new asn1js.Sequence({
-          value: [
-            new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
-            new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
-          ],
-        }).toBER(false),
+          new asn1js.Sequence({
+            value: [
+              new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
+              new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
+            ],
+          }).toBER(false),
         ),
       );
     };
@@ -723,7 +723,8 @@ Deno.test(
     await assertRejects(
       () =>
         issueLeafChainFromCSR(csr, {
-          intermediatePem: "-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----\n",
+          intermediatePem:
+            "-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----\n",
           validityDays: 180,
           signer: () =>
             Promise.resolve(
@@ -886,7 +887,6 @@ Deno.test(
   },
 );
 
-
 Deno.test("describeCertChain — strips line-break vectors from a crafted DN so it cannot forge log lines", async () => {
   // describeCertChain feeds an operator log; a device could present a cert
   // whose CN carries line-break chars to inject fake log entries. Output must
@@ -905,7 +905,9 @@ Deno.test("describeCertChain — degrades gracefully on a cert with an unparseab
   // Invalid Date pkijs would surface) must render "invalid", not throw and
   // escalate the 400 rejection into a 500.
   const fakeCert = {
-    serialNumber: { valueBlock: { valueHexView: new Uint8Array([0x01, 0x02]) } },
+    serialNumber: {
+      valueBlock: { valueHexView: new Uint8Array([0x01, 0x02]) },
+    },
     subject: { typesAndValues: [] },
     issuer: { typesAndValues: [] },
     notBefore: { value: new Date("2026-01-01T00:00:00Z") },
@@ -981,12 +983,12 @@ async function issueV2Leaf(
       assertEquals(digest.length, 48); // SHA-384 digest under v2
       return Promise.resolve(
         new Uint8Array(
-        new asn1js.Sequence({
-          value: [
-            new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
-            new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
-          ],
-        }).toBER(false),
+          new asn1js.Sequence({
+            value: [
+              new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
+              new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
+            ],
+          }).toBER(false),
         ),
       );
     },
@@ -1086,11 +1088,17 @@ Deno.test("v2 leaf — AIA has OCSP + caIssuers HTTP URIs", async () => {
 
 Deno.test("v2 leaf — c2pa-al carries the granted level as a bare OID", async () => {
   const al1 = await issueV2Leaf("ios", "AL1", 180);
-  const al1Oid = parseInner(al1.leaf, "1.3.6.1.4.1.62558.3") as asn1js.ObjectIdentifier;
+  const al1Oid = parseInner(
+    al1.leaf,
+    "1.3.6.1.4.1.62558.3",
+  ) as asn1js.ObjectIdentifier;
   assertEquals(al1Oid.valueBlock.toString(), "1.3.6.1.4.1.62558.3.10");
 
   const al2 = await issueV2Leaf("android", "AL2", 90);
-  const al2Oid = parseInner(al2.leaf, "1.3.6.1.4.1.62558.3") as asn1js.ObjectIdentifier;
+  const al2Oid = parseInner(
+    al2.leaf,
+    "1.3.6.1.4.1.62558.3",
+  ) as asn1js.ObjectIdentifier;
   assertEquals(al2Oid.valueBlock.toString(), "1.3.6.1.4.1.62558.3.20");
 });
 

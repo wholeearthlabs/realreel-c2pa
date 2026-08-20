@@ -121,12 +121,16 @@ export async function handleMintChallenges(
       return jsonResponse({ error: error.message }, { status: 400 });
     }
     console.error("[mint-attestation-challenges] rpc error", error);
-    return jsonResponse({ error: "Failed to mint challenges" }, { status: 500 });
+    return jsonResponse({ error: "Failed to mint challenges" }, {
+      status: 500,
+    });
   }
 
   if (!Array.isArray(data)) {
     console.error("[mint-attestation-challenges] unexpected rpc result", data);
-    return jsonResponse({ error: "Failed to mint challenges" }, { status: 500 });
+    return jsonResponse({ error: "Failed to mint challenges" }, {
+      status: 500,
+    });
   }
 
   const challenges = data

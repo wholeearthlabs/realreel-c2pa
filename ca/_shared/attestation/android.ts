@@ -789,7 +789,9 @@ export function extractOsPatchLevel(authList: any): number | null {
       const innerTagNumber = innerInt?.idBlock?.tagNumber;
       // Universal class (1) + tag number 2 == ASN.1 INTEGER.
       if (innerTagClass !== 1 || innerTagNumber !== 2) return null;
-      const innerHex = innerInt?.valueBlock?.valueHexView as Uint8Array | undefined;
+      const innerHex = innerInt?.valueBlock?.valueHexView as
+        | Uint8Array
+        | undefined;
       if (innerHex && innerHex.length) {
         raw = new Uint8Array(innerHex);
       } else {
