@@ -365,9 +365,18 @@ export type Stage2Action =
    */
   | {
       action: 'c2pa.resized.proportional';
-      parameters: { 'org.realreel.width': number; 'org.realreel.height': number };
+      parameters: {
+        'org.realreel.width': number;
+        'org.realreel.height': number;
+      };
     }
-  | { action: 'c2pa.transcoded'; parameters?: { 'org.realreel.quality'?: number; 'org.realreel.format'?: string } }
+  | {
+      action: 'c2pa.transcoded';
+      parameters?: {
+        'org.realreel.quality'?: number;
+        'org.realreel.format'?: string;
+      };
+    }
   /** Video trim. */
   | {
       action: 'c2pa.trimmed';
@@ -411,7 +420,7 @@ export type Stage2Action =
    * action, so a dual-writing parent (c2pa.metadata + legacy stds.exif)
    * can have both assertions redacted in one signing pass.
    */
-  | { action: 'c2pa.redacted';   parameters: { assertionLabel: string } };
+  | { action: 'c2pa.redacted'; parameters: { assertionLabel: string } };
 
 export interface SignC2PAUploadOptions {
   /** Same as Stage 1 — the server-issued cert chain (leaf + RealReel intermediate) from enrollment. */
@@ -633,7 +642,10 @@ interface NativeModule {
   deleteKey(alias: string): Promise<void>;
   generateKey(alias: string): Promise<GenerateKeyResult>;
   getPublicKey(alias: string): Promise<string>;
-  getAttestation(alias: string, challengeBase64: string): Promise<AttestationResult>;
+  getAttestation(
+    alias: string,
+    challengeBase64: string,
+  ): Promise<AttestationResult>;
   generateAndAttestKey(
     alias: string,
     challengeBase64: string,
@@ -828,7 +840,8 @@ export const PhotoAttest = {
     alias: string,
     appAttestKeyId: string,
     challengeBase64: string,
-  ) => native.generateCaptureAttestation(alias, appAttestKeyId, challengeBase64),
+  ) =>
+    native.generateCaptureAttestation(alias, appAttestKeyId, challengeBase64),
 
   /**
    * Android-only Play Integrity counterpart of {@link generateCaptureAttestation}.
@@ -842,10 +855,8 @@ export const PhotoAttest = {
    * Play Integrity request and surfaces the failure code unchanged. See
    * `lib/perCaptureAttestation.ts` for the retry-with-backoff path.
    */
-  generatePlayIntegrityToken: (
-    alias: string,
-    challengeBase64: string,
-  ) => native.generatePlayIntegrityToken(alias, challengeBase64),
+  generatePlayIntegrityToken: (alias: string, challengeBase64: string) =>
+    native.generatePlayIntegrityToken(alias, challengeBase64),
 
   /**
    * Stage 1 of two-stage C2PA signing. Hashes the captured media, builds a
@@ -900,15 +911,16 @@ export const PhotoAttest = {
     alias: string,
     mediaPath: string,
     options: SignC2PACaptureOptions,
-  ) => native.signC2PACapture({
-    alias,
-    mediaPath: normalizeMediaPath(mediaPath),
-    certChainPEM: options.certChainPEM,
-    capturerUuid: options.capturerUuid,
-    gps: options.gps ?? null,
-    captureTimestampMs: options.captureTimestampMs ?? null,
-    tsaUrl: options.tsaUrl ?? null,
-  }),
+  ) =>
+    native.signC2PACapture({
+      alias,
+      mediaPath: normalizeMediaPath(mediaPath),
+      certChainPEM: options.certChainPEM,
+      capturerUuid: options.capturerUuid,
+      gps: options.gps ?? null,
+      captureTimestampMs: options.captureTimestampMs ?? null,
+      tsaUrl: options.tsaUrl ?? null,
+    }),
 
   /**
    * Stage 2 of two-stage C2PA signing. Re-signs a transformed asset, with the
@@ -953,24 +965,26 @@ export const PhotoAttest = {
     alias: string,
     transformedMediaPath: string,
     options: SignC2PAUploadOptions,
-  ) => native.signC2PAUpload({
-    alias,
-    parentMediaPath: normalizeMediaPath(options.parentMediaPath),
-    transformedMediaPath: normalizeMediaPath(transformedMediaPath),
-    certChainPEM: options.certChainPEM,
-    actions: options.actions,
-    gps: options.gps ?? null,
-    locationLabel: options.locationLabel ?? null,
-    captureTimestampMs: options.captureTimestampMs ?? null,
-    // `== null`, not truthiness: native hard-fails on an empty path by design,
-    // and collapsing it to null here would silently drop the claim thumbnail.
-    claimThumbnailPath: options.claimThumbnailPath == null
-      ? null
-      : normalizeMediaPath(options.claimThumbnailPath),
-    attestationEnvelope: options.attestationEnvelope ?? null,
-    tsaUrl: options.tsaUrl ?? null,
-    trustAnchorsPem: options.trustAnchorsPem ?? null,
-  }),
+  ) =>
+    native.signC2PAUpload({
+      alias,
+      parentMediaPath: normalizeMediaPath(options.parentMediaPath),
+      transformedMediaPath: normalizeMediaPath(transformedMediaPath),
+      certChainPEM: options.certChainPEM,
+      actions: options.actions,
+      gps: options.gps ?? null,
+      locationLabel: options.locationLabel ?? null,
+      captureTimestampMs: options.captureTimestampMs ?? null,
+      // `== null`, not truthiness: native hard-fails on an empty path by design,
+      // and collapsing it to null here would silently drop the claim thumbnail.
+      claimThumbnailPath:
+        options.claimThumbnailPath == null
+          ? null
+          : normalizeMediaPath(options.claimThumbnailPath),
+      attestationEnvelope: options.attestationEnvelope ?? null,
+      tsaUrl: options.tsaUrl ?? null,
+      trustAnchorsPem: options.trustAnchorsPem ?? null,
+    }),
 
   /**
    * TSA drain: stamp a queued offline capture by wrapping it in a C2PA Update
@@ -986,13 +1000,14 @@ export const PhotoAttest = {
   signTimestampUpdateManifest: (
     alias: string,
     options: SignTimestampUpdateManifestOptions,
-  ) => native.signTimestampUpdateManifest({
-    alias,
-    parentMediaPath: normalizeMediaPath(options.parentMediaPath),
-    certChainPEM: options.certChainPEM,
-    tsaUrl: options.tsaUrl,
-    trustAnchorsPem: options.trustAnchorsPem ?? null,
-  }),
+  ) =>
+    native.signTimestampUpdateManifest({
+      alias,
+      parentMediaPath: normalizeMediaPath(options.parentMediaPath),
+      certChainPEM: options.certChainPEM,
+      tsaUrl: options.tsaUrl,
+      trustAnchorsPem: options.trustAnchorsPem ?? null,
+    }),
 
   /**
    * Overwrite a MediaLibrary asset's bytes in place (TSA drain: replace a

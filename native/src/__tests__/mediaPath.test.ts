@@ -4,9 +4,9 @@ import { normalizeMediaPath } from '../mediaPath';
 
 describe('normalizeMediaPath — plain paths', () => {
   it('returns an absolute path unchanged', () => {
-    expect(normalizeMediaPath('/storage/emulated/0/DCIM/Camera/IMG_1.jpg')).toBe(
-      '/storage/emulated/0/DCIM/Camera/IMG_1.jpg',
-    );
+    expect(
+      normalizeMediaPath('/storage/emulated/0/DCIM/Camera/IMG_1.jpg'),
+    ).toBe('/storage/emulated/0/DCIM/Camera/IMG_1.jpg');
   });
 
   it('does NOT decode a plain path', () => {
@@ -38,9 +38,9 @@ describe('normalizeMediaPath — file:// URIs', () => {
   });
 
   it('decodes non-ASCII escapes as UTF-8', () => {
-    expect(normalizeMediaPath('file:///storage/emulated/0/%C3%89t%C3%A9/a.jpg')).toBe(
-      '/storage/emulated/0/Été/a.jpg',
-    );
+    expect(
+      normalizeMediaPath('file:///storage/emulated/0/%C3%89t%C3%A9/a.jpg'),
+    ).toBe('/storage/emulated/0/Été/a.jpg');
   });
 
   it('decodes an escaped literal percent exactly once', () => {
@@ -57,7 +57,9 @@ describe('normalizeMediaPath — file:// URIs', () => {
     // `AVURLAsset.url` for a PHAsset video carries `#asset-metadata`, which is
     // not part of the path and leaves the file unopenable if kept.
     expect(
-      normalizeMediaPath('file:///var/mobile/Media/DCIM/IMG_2.mov#asset-metadata'),
+      normalizeMediaPath(
+        'file:///var/mobile/Media/DCIM/IMG_2.mov#asset-metadata',
+      ),
     ).toBe('/var/mobile/Media/DCIM/IMG_2.mov');
   });
 

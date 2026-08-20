@@ -1,4 +1,8 @@
-import { ConfigPlugin, withDangerousMod, withXcodeProject } from '@expo/config-plugins';
+import {
+  ConfigPlugin,
+  withDangerousMod,
+  withXcodeProject,
+} from '@expo/config-plugins';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -39,7 +43,8 @@ const C2PA_PODFILE_SENTINEL = '# c2pa-ios-spm-pod-attach';
 // on it today and the exact pin is a conservative, reproducible choice. If a
 // future c2pa-ios bump needs a swift-certificates that 1.19.1 can't satisfy,
 // relax this to a range matching upstream rather than letting the two diverge.
-const SWIFT_CERT_REPOSITORY_URL = 'https://github.com/apple/swift-certificates.git';
+const SWIFT_CERT_REPOSITORY_URL =
+  'https://github.com/apple/swift-certificates.git';
 const SWIFT_CERT_PRODUCT_NAME = 'X509';
 const SWIFT_CERT_VERSION = '1.19.1';
 const SWIFT_CERT_PODFILE_SENTINEL = '# swift-certificates-spm-pod-attach';
@@ -59,7 +64,7 @@ function readC2paVersion(): string {
   const version = fs.readFileSync(sentinel, 'utf8').trim();
   if (!/^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$/.test(version)) {
     throw new Error(
-      `[@realreel/photo-attest] ios/C2PA.version is not a valid version: ${JSON.stringify(version)}`
+      `[@realreel/photo-attest] ios/C2PA.version is not a valid version: ${JSON.stringify(version)}`,
     );
   }
   return version;
@@ -138,7 +143,7 @@ function injectIntoPodfile(podfilePath: string, c2paVersion: string): void {
         repo: C2PA_REPOSITORY_URL,
         product: C2PA_PRODUCT_NAME,
         version: c2paVersion,
-      })
+      }),
     );
   }
   if (!podfile.includes(SWIFT_CERT_PODFILE_SENTINEL)) {
@@ -149,7 +154,7 @@ function injectIntoPodfile(podfilePath: string, c2paVersion: string): void {
         repo: SWIFT_CERT_REPOSITORY_URL,
         product: SWIFT_CERT_PRODUCT_NAME,
         version: SWIFT_CERT_VERSION,
-      })
+      }),
     );
   }
   if (snippets.length === 0) {
@@ -160,7 +165,7 @@ function injectIntoPodfile(podfilePath: string, c2paVersion: string): void {
   if (!marker.test(podfile)) {
     throw new Error(
       '[@realreel/photo-attest] Could not find react_native_post_install(...) in the ' +
-        'Podfile to anchor the SPM injection. Is this an Expo-generated iOS project?'
+        'Podfile to anchor the SPM injection. Is this an Expo-generated iOS project?',
     );
   }
   podfile = podfile.replace(marker, `$1${snippets.join('')}`);
@@ -171,7 +176,10 @@ const withC2PAiOS: ConfigPlugin = (config) => {
   return withDangerousMod(config, [
     'ios',
     (cfg) => {
-      const podfilePath = path.join(cfg.modRequest.platformProjectRoot, 'Podfile');
+      const podfilePath = path.join(
+        cfg.modRequest.platformProjectRoot,
+        'Podfile',
+      );
       injectIntoPodfile(podfilePath, readC2paVersion());
       return cfg;
     },
@@ -189,7 +197,8 @@ const withC2PAiOS: ConfigPlugin = (config) => {
 // target's final build phase clears the collision (a harmless no-op on
 // non-archive builds, which have no such file). maplibre-react-native ships the
 // same remedy.
-const SIGNATURE_PHASE_NAME = 'Remove duplicate C2PAC.xcframework signature (Xcode archive fix)';
+const SIGNATURE_PHASE_NAME =
+  'Remove duplicate C2PAC.xcframework signature (Xcode archive fix)';
 // Substring of the phase name; the guard matches on it so a phase from an
 // earlier prebuild (or a consumer's own copy of this workaround) isn't re-added.
 const SIGNATURE_PHASE_KEY = 'C2PAC.xcframework signature';
@@ -200,7 +209,8 @@ const withRemoveC2PACSignature: ConfigPlugin = (config) =>
 
     // Idempotent across re-runs of `expo prebuild` against an existing ios/.
     // (The phase map also holds `<uuid>_comment` strings, hence the typeof check.)
-    const shellPhases = project.hash.project.objects.PBXShellScriptBuildPhase || {};
+    const shellPhases =
+      project.hash.project.objects.PBXShellScriptBuildPhase || {};
     const alreadyAdded = Object.values(shellPhases).some((phase) => {
       const name = (phase as { name?: unknown }).name;
       return typeof name === 'string' && name.includes(SIGNATURE_PHASE_KEY);
@@ -215,9 +225,10 @@ const withRemoveC2PACSignature: ConfigPlugin = (config) =>
         targetUuid,
         {
           shellPath: '/bin/sh',
-          shellScript: 'rm -rf "$CONFIGURATION_BUILD_DIR/C2PAC.xcframework-ios.signature"',
+          shellScript:
+            'rm -rf "$CONFIGURATION_BUILD_DIR/C2PAC.xcframework-ios.signature"',
         },
-        undefined
+        undefined,
       );
       // `alwaysOutOfDate` isn't in xcode's typed phase shape; set it directly so
       // the phase runs every build (it has no inputs/outputs) and Xcode doesn't warn.
