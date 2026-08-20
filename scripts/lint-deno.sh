@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
 #
-# Lint + format-check every Deno service in the repo.
+# Lint + format-check every Deno service.
 #
-# Deno's config is per-directory (each service keeps its own deno.json so their
-# node_modules/.deno caches stay separate — see ca/deno.json), so this walks the
-# services rather than linting from the root: a root-level `deno lint` would
-# miss each service's rule config.
+# Walks the services rather than linting from the root: Deno resolves config
+# per-directory, so a root-level `deno lint` would miss each service's rules.
 #
-# Formatting is scoped to TypeScript. The markdown here is hand-wrapped prose
-# and hand-aligned tables, and `deno fmt` reflows both, so every deno.json
-# excludes **/*.md from fmt.
-#
-# Usage:
-#   scripts/lint-deno.sh          # check   (CI, `npm run lint`)
+#   scripts/lint-deno.sh          # check   (`npm run lint`)
 #   scripts/lint-deno.sh --fix    # rewrite (`npm run lint:fix`)
 
 set -uo pipefail

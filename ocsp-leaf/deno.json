@@ -2,8 +2,7 @@
   "//": "Deno config for the leaf-status OCSP responder (Cloud Run). Mirrors ocsp/deno.json pins; the import map also resolves the bare specifiers inside the shared modules this service imports from ../ocsp and ../ca/_shared.",
   "version": "0.2.1",
   "nodeModulesDir": "auto",
-  "//fmt": "fmt is TypeScript-only: the markdown here is hand-wrapped prose and",
-  "//fmt1": "hand-aligned tables, both of which deno fmt reflows.",
+  "//fmt": "fmt skips markdown: it's hand-wrapped here and deno fmt reflows it.",
   "fmt": {
     "exclude": ["**/*.md"]
   },
