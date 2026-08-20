@@ -47,8 +47,9 @@ export interface GenerateAndAttestKeyResult extends GenerateKeyResult {
 /**
  * Error codes thrown by native. JS callers should branch on `error.code`
  * (Expo modules surface native errors as `Error` instances; the native side
- * sets the code via `Promise.reject(code, message, ...)` on Android and
- * `promise.reject(code, message)` on iOS).
+ * sets the code via `CodedException(code, message, cause)` on Android and the
+ * `PhotoAttestError` Exception subclass on iOS — never
+ * `promise.reject(code, message)`, whose message expo-modules-core discards).
  */
 export type PhotoAttestErrorCode =
   | 'HARDWARE_UNAVAILABLE'
@@ -77,7 +78,20 @@ export type PhotoAttestErrorCode =
   /** `overwriteMediaLibraryAsset`: the MediaLibrary asset id no longer resolves
    *  — the user deleted the queued capture from the gallery between enqueue and
    *  drain. The drain treats this as "dequeue and move on," never an error. */
-  | 'ASSET_NOT_FOUND';
+  | 'ASSET_NOT_FOUND'
+  /** `overwriteMediaLibraryAsset`: the write-back of the stamped bytes failed
+   *  for a reason other than the asset being gone — missing staged source, no
+   *  editing input (iOS limited Photos access), staging copy failure, no
+   *  MediaStore write access (Android). Retryable. Never C2PA_SIGN_FAILED:
+   *  signing already succeeded by the time the overwrite runs. */
+  | 'MEDIA_OVERWRITE_FAILED'
+  /** iOS-only, `overwriteMediaLibraryAsset`: PhotoKit validated and refused
+   *  the content edit; the underlying error domain + code is in the message.
+   *  `PHPhotosErrorDomain 3302` is `PHPhotosErrorInvalidResource` — resource
+   *  validation failed, of which a non-upright (EXIF `Orientation` ≠ 1) render
+   *  is the cause we have observed, not the only possible one. Retryable in
+   *  principle; whether a given cause can ever succeed depends on the cause. */
+  | 'MEDIA_OVERWRITE_REJECTED';
 
 /**
  * Stage-2 (upload) iOS App Attest envelope (one arm of {@link AttestationEnvelope}).
@@ -720,7 +734,9 @@ interface NativeModule {
    *
    * Rejects (without mutating the asset) with ASSET_NOT_FOUND if the id no
    * longer resolves (user deleted it from the gallery between enqueue and
-   * drain) so the caller can dequeue it.
+   * drain) so the caller can dequeue it, MEDIA_OVERWRITE_FAILED if the
+   * write-back couldn't be set up, or (iOS) MEDIA_OVERWRITE_REJECTED if the
+   * library refused the edit.
    */
   overwriteMediaLibraryAsset(options: {
     assetId: string;
@@ -983,7 +999,8 @@ export const PhotoAttest = {
    * queued capture with its stamped version). See the native bridge contract
    * for the per-platform mechanism (Android MediaStore stream; iOS PhotoKit
    * content-edit). Rejects with ASSET_NOT_FOUND if the asset was deleted from
-   * the gallery since enqueue — the drain dequeues on that.
+   * the gallery since enqueue — the drain dequeues on that — or with
+   * MEDIA_OVERWRITE_FAILED / (iOS) MEDIA_OVERWRITE_REJECTED.
    */
   overwriteMediaLibraryAsset: (assetId: string, sourcePath: string) =>
     native.overwriteMediaLibraryAsset({

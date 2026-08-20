@@ -54,9 +54,9 @@ public class PhotoAttestModule: Module {
             "platform": "ios",
           ])
         } catch let err as PhotoAttestError {
-          promise.reject(err.code, err.message)
+          promise.reject(err)
         } catch {
-          promise.reject("ATTESTATION_FAILED", error.localizedDescription)
+          promise.reject(PhotoAttestError(code: "ATTESTATION_FAILED", message: error.localizedDescription))
         }
       }
     }
@@ -79,9 +79,9 @@ public class PhotoAttestModule: Module {
           )
           promise.resolve(["assertion": assertion])
         } catch let err as PhotoAttestError {
-          promise.reject(err.code, err.message)
+          promise.reject(err)
         } catch {
-          promise.reject("APP_ATTEST_FAILED", error.localizedDescription)
+          promise.reject(PhotoAttestError(code: "APP_ATTEST_FAILED", message: error.localizedDescription))
         }
       }
     }
@@ -93,10 +93,7 @@ public class PhotoAttestModule: Module {
     // Bridged as a single options dict (mirror of signC2PAUpload) for the typed
     // JS options shape. Capture is a single-pass sign with no embedded
     // per-capture attestation (device trust is established at enrollment +
-    // re-proven at Stage-2 upload). Uses the Promise pattern so
-    // PhotoAttestError's code/message surface to JS as the rejection's
-    // code/message (Swift's NSError bridging would otherwise reduce a struct
-    // Error to a generic "error 1").
+    // re-proven at Stage-2 upload).
     AsyncFunction("signC2PACapture") { (options: [String: Any], promise: Promise) in
       do {
         guard let alias = options["alias"] as? String else {
@@ -125,16 +122,15 @@ public class PhotoAttestModule: Module {
         )
         promise.resolve(result)
       } catch let err as PhotoAttestError {
-        promise.reject(err.code, err.message)
+        promise.reject(err)
       } catch {
-        promise.reject("C2PA_SIGN_FAILED", error.localizedDescription)
+        promise.reject(PhotoAttestError(code: "C2PA_SIGN_FAILED", message: error.localizedDescription))
       }
     }
 
     // Bridged as a single options dict — symmetric with Android, where Expo
     // modules' AsyncFunction overload set caps at 8 typed params and Stage 2
-    // sits right at the cap. Uses the Promise pattern for the same reason
-    // signC2PACapture does (see comment above).
+    // sits right at the cap.
     AsyncFunction("signC2PAUpload") { (options: [String: Any], promise: Promise) in
       do {
         guard let alias = options["alias"] as? String else {
@@ -173,9 +169,9 @@ public class PhotoAttestModule: Module {
         )
         promise.resolve(result)
       } catch let err as PhotoAttestError {
-        promise.reject(err.code, err.message)
+        promise.reject(err)
       } catch {
-        promise.reject("C2PA_SIGN_FAILED", error.localizedDescription)
+        promise.reject(PhotoAttestError(code: "C2PA_SIGN_FAILED", message: error.localizedDescription))
       }
     }
 
@@ -207,9 +203,9 @@ public class PhotoAttestModule: Module {
         )
         promise.resolve(result)
       } catch let err as PhotoAttestError {
-        promise.reject(err.code, err.message)
+        promise.reject(err)
       } catch {
-        promise.reject("C2PA_SIGN_FAILED", error.localizedDescription)
+        promise.reject(PhotoAttestError(code: "C2PA_SIGN_FAILED", message: error.localizedDescription))
       }
     }
 
@@ -219,11 +215,11 @@ public class PhotoAttestModule: Module {
     // from the gallery since enqueue.
     AsyncFunction("overwriteMediaLibraryAsset") { (options: [String: Any], promise: Promise) in
       guard let assetId = options["assetId"] as? String else {
-        promise.reject("INVALID_CAPTURE_CONTEXT", "missing 'assetId'")
+        promise.reject(PhotoAttestError(code: "INVALID_CAPTURE_CONTEXT", message: "missing 'assetId'"))
         return
       }
       guard let sourcePath = options["sourcePath"] as? String else {
-        promise.reject("INVALID_CAPTURE_CONTEXT", "missing 'sourcePath'")
+        promise.reject(PhotoAttestError(code: "INVALID_CAPTURE_CONTEXT", message: "missing 'sourcePath'"))
         return
       }
       PhotoAttestModule.overwriteMediaLibraryAsset(
@@ -256,9 +252,9 @@ public class PhotoAttestModule: Module {
             throw error
           }
         } catch let err as PhotoAttestError {
-          promise.reject(err.code, err.message)
+          promise.reject(err)
         } catch {
-          promise.reject("ATTESTATION_FAILED", error.localizedDescription)
+          promise.reject(PhotoAttestError(code: "ATTESTATION_FAILED", message: error.localizedDescription))
         }
       }
     }
@@ -266,9 +262,31 @@ public class PhotoAttestModule: Module {
 
   // MARK: - Internals
 
-  private struct PhotoAttestError: Error {
-    let code: String
+  // The JS-facing message comes from `String(reflecting:)` → `debugDescription`,
+  // whose default prefixes the name and appends the Swift file:line, and the base
+  // `reason` is the literal "undefined reason" — which is why
+  // `promise.reject(code, message)` and plain Swift errors lose the message.
+  // Supplying `reason` and trimming `debugDescription` to it makes a rejection
+  // reach JS as its real code and message. Always reject with the error object.
+  // (Overriding `message` would not work: the protocol witness is bound at
+  // `Exception`'s conformance, so a subclass property is never consulted.)
+  private final class PhotoAttestError: Exception, @unchecked Sendable {
     let message: String
+
+    init(
+      code: String,
+      message: String,
+      file: String = #fileID,
+      line: UInt = #line,
+      function: String = #function
+    ) {
+      self.message = message
+      super.init(name: code, description: message, code: code, file: file, line: line, function: function)
+    }
+
+    override var reason: String { message }
+
+    override var debugDescription: String { reason }
   }
 
   private struct AttestationOutcome {
@@ -1345,8 +1363,8 @@ public class PhotoAttestModule: Module {
   // Does a PHAsset still exist for this local identifier? Used to classify
   // overwrite failures: a gone asset → ASSET_NOT_FOUND (the drain reclaims and
   // dequeues it, matching Android's FileNotFoundException → ASSET_NOT_FOUND);
-  // a present-but-unwritable asset → C2PA_SIGN_FAILED (retryable). Cheap
-  // synchronous fetch.
+  // a present-but-unwritable asset → MEDIA_OVERWRITE_FAILED /
+  // MEDIA_OVERWRITE_REJECTED (retryable). Cheap synchronous fetch.
   private static func phAssetExists(_ assetId: String) -> Bool {
     PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil).firstObject != nil
   }
@@ -1358,7 +1376,10 @@ public class PhotoAttestModule: Module {
   ) {
     let sourceURL = URL(fileURLWithPath: sourcePath)
     guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-      promise.reject("C2PA_SIGN_FAILED", "stamped source file does not exist: \(sourceURL.path)")
+      promise.reject(PhotoAttestError(
+        code: "MEDIA_OVERWRITE_FAILED",
+        message: "stamped source file does not exist: \(sourceURL.path)"
+      ))
       return
     }
 
@@ -1368,7 +1389,10 @@ public class PhotoAttestModule: Module {
     let fetch = PHAsset.fetchAssets(withLocalIdentifiers: [localId], options: nil)
     guard let asset = fetch.firstObject else {
       // Deleted from the gallery between enqueue and drain — caller dequeues.
-      promise.reject("ASSET_NOT_FOUND", "no PHAsset for local identifier \(assetId)")
+      promise.reject(PhotoAttestError(
+        code: "ASSET_NOT_FOUND",
+        message: "no PHAsset for local identifier \(assetId)"
+      ))
       return
     }
 
@@ -1381,12 +1405,19 @@ public class PhotoAttestModule: Module {
         // No editing input. This is the asset-deleted-after-fetch TOCTOU window
         // (and the limited / add-only Photos authorization case). Re-check
         // existence so a genuinely-gone asset is reported ASSET_NOT_FOUND (the
-        // drain dequeues it) rather than C2PA_SIGN_FAILED (which would retry it
-        // forever). If it's still present, it's a real, retryable failure.
+        // drain dequeues it) rather than MEDIA_OVERWRITE_FAILED (which would
+        // retry it forever). If it's still present, it's a real, retryable
+        // failure.
         if !phAssetExists(localId) {
-          promise.reject("ASSET_NOT_FOUND", "PHAsset \(assetId) no longer exists (deleted after fetch)")
+          promise.reject(PhotoAttestError(
+            code: "ASSET_NOT_FOUND",
+            message: "PHAsset \(assetId) no longer exists (deleted after fetch)"
+          ))
         } else {
-          promise.reject("C2PA_SIGN_FAILED", "could not obtain PHContentEditingInput for \(assetId) (asset present — likely limited Photos access)")
+          promise.reject(PhotoAttestError(
+            code: "MEDIA_OVERWRITE_FAILED",
+            message: "could not obtain PHContentEditingInput for \(assetId) (asset present — likely limited Photos access)"
+          ))
         }
         return
       }
@@ -1405,7 +1436,10 @@ public class PhotoAttestModule: Module {
         }
         try FileManager.default.copyItem(at: sourceURL, to: output.renderedContentURL)
       } catch {
-        promise.reject("C2PA_SIGN_FAILED", "failed to stage rendered content: \(error.localizedDescription)")
+        promise.reject(PhotoAttestError(
+          code: "MEDIA_OVERWRITE_FAILED",
+          message: "failed to stage rendered content: \(error.localizedDescription)"
+        ))
         return
       }
       PHPhotoLibrary.shared().performChanges {
@@ -1416,25 +1450,27 @@ public class PhotoAttestModule: Module {
           promise.resolve(nil)
           return
         }
-        // Classify the failure: a not-found / deleted asset → ASSET_NOT_FOUND
-        // (drain reclaims + dequeues, matching Android); anything else stays
-        // C2PA_SIGN_FAILED (retryable). Prefer the explicit PHPhotosError code
-        // when available, else fall back to a version-agnostic re-fetch.
+        // A not-found / deleted asset → ASSET_NOT_FOUND (drain dequeues,
+        // matching Android); anything else → MEDIA_OVERWRITE_REJECTED with the
+        // error domain + code in the message (3302 = PHPhotosErrorInvalidResource,
+        // observed for non-upright renders) so causes split in telemetry.
         var gone = !phAssetExists(localId)
         if #available(iOS 15, *), let phErr = error as? PHPhotosError,
            phErr.code == .identifierNotFound {
           gone = true
         }
         if gone {
-          promise.reject(
-            "ASSET_NOT_FOUND",
-            "PHAsset \(assetId) gone during content edit: \(error?.localizedDescription ?? "unknown")"
-          )
+          promise.reject(PhotoAttestError(
+            code: "ASSET_NOT_FOUND",
+            message: "PHAsset \(assetId) gone during content edit: \(error?.localizedDescription ?? "unknown")"
+          ))
         } else {
-          promise.reject(
-            "C2PA_SIGN_FAILED",
-            "PhotoKit content edit failed: \(error?.localizedDescription ?? "unknown error")"
-          )
+          let nsError = error.map { $0 as NSError }
+          let domainAndCode = nsError.map { " (\($0.domain) \($0.code))" } ?? ""
+          promise.reject(PhotoAttestError(
+            code: "MEDIA_OVERWRITE_REJECTED",
+            message: "PhotoKit content edit failed\(domainAndCode): \(error?.localizedDescription ?? "unknown error")"
+          ))
         }
       }
     }

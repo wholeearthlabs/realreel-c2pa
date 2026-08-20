@@ -701,13 +701,18 @@ class PhotoAttestModule : Module() {
   // the bytes with no user prompt (scoped storage grants the owner write
   // access). Throws ASSET_NOT_FOUND if the entry is gone (deleted from the
   // gallery since enqueue) so the caller dequeues it.
+  // Overwrite failures use MEDIA_OVERWRITE_FAILED (never C2PA_SIGN_FAILED —
+  // signing already succeeded by the time this runs) so telemetry can
+  // distinguish write-back problems from sign problems. MediaStore gives no
+  // refusal signal to split out, so iOS's MEDIA_OVERWRITE_REJECTED has no
+  // Android analogue; a mid-copy failure lands here as _FAILED.
   private fun overwriteMediaLibraryAssetInternal(assetId: String, sourcePath: String) {
     val source = File(sourcePath)
     if (!source.exists()) {
-      throw CodedException("C2PA_SIGN_FAILED", "stamped source file does not exist: $sourcePath", null)
+      throw CodedException("MEDIA_OVERWRITE_FAILED", "stamped source file does not exist: $sourcePath", null)
     }
     val context = appContext.reactContext
-      ?: throw CodedException("C2PA_SIGN_FAILED", "No app context available", null)
+      ?: throw CodedException("MEDIA_OVERWRITE_FAILED", "No app context available", null)
     // expo-media-library's Asset.id is a MediaStore content:// uri; its last
     // path segment is the row id.
     val id = Uri.parse(assetId).lastPathSegment?.toLongOrNull()
@@ -732,9 +737,9 @@ class PhotoAttestModule : Module() {
       throw CodedException("ASSET_NOT_FOUND", "MediaStore entry $assetId not found: ${e.message}", e)
     } catch (e: SecurityException) {
       // App doesn't own the entry — shouldn't happen for `Asset.create` assets.
-      throw CodedException("C2PA_SIGN_FAILED", "No write access to MediaStore entry $assetId: ${e.message}", e)
+      throw CodedException("MEDIA_OVERWRITE_FAILED", "No write access to MediaStore entry $assetId: ${e.message}", e)
     } catch (e: Exception) {
-      throw CodedException("C2PA_SIGN_FAILED", "Failed to overwrite MediaStore entry $assetId: ${e.message}", e)
+      throw CodedException("MEDIA_OVERWRITE_FAILED", "Failed to overwrite MediaStore entry $assetId: ${e.message}", e)
     }
   }
 
