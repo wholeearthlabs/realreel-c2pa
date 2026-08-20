@@ -2,7 +2,21 @@
   "//": "Deno project config for edge function code under ca/.",
   "//1": "Lives at ca/ rather than repo root so its node_modules/.deno cache",
   "//2": "doesn't intermix with the React Native project's yarn-managed node_modules.",
+  "//3": "lint: no-import-prefix wants the inline std/esm.sh/npm: specifiers moved",
+  "//4": "into the import map below. These functions deploy from source through a",
+  "//5": "pipeline outside this repo (RELEASING.md), so we can't verify that deploy",
+  "//6": "honors this import map; until it is, the pins stay where they resolve today.",
+  "//7": "fmt is TypeScript-only: the markdown here is hand-wrapped prose and",
+  "//8": "hand-aligned tables, both of which deno fmt reflows.",
   "nodeModulesDir": "auto",
+  "lint": {
+    "rules": {
+      "exclude": ["no-import-prefix"]
+    }
+  },
+  "fmt": {
+    "exclude": ["**/*.md"]
+  },
   "imports": {
     "pkijs": "npm:pkijs@3.2.4",
     "asn1js": "npm:asn1js@3.0.5",

@@ -984,7 +984,6 @@ Deno.test(
 Deno.test("buildCachedIntermediateCheck — caches success across calls", async () => {
   let kmsCalls = 0;
   const check = buildCachedIntermediateCheck({
-    // deno-lint-ignore no-explicit-any
     kmsGetPublicKey: () => {
       kmsCalls++;
       return Promise.resolve({
@@ -1022,10 +1021,16 @@ Deno.test("buildCachedIntermediateCheck — clears cache on KMS algorithm mismat
     extractSpkiDer: () => new Uint8Array([1, 2, 3]),
   });
 
-  // deno-lint-ignore no-explicit-any
-  await assertRejects(() => check({} as any, "intermediate-pem"), AttestationError);
-  // deno-lint-ignore no-explicit-any
-  await assertRejects(() => check({} as any, "intermediate-pem"), AttestationError);
+  await assertRejects(
+    // deno-lint-ignore no-explicit-any
+    () => check({} as any, "intermediate-pem"),
+    AttestationError,
+  );
+  await assertRejects(
+    // deno-lint-ignore no-explicit-any
+    () => check({} as any, "intermediate-pem"),
+    AttestationError,
+  );
 
   // Both calls hit KMS — the failing call clears the cache so a
   // subsequent fix-and-retry doesn't need a process restart.
@@ -1047,10 +1052,16 @@ Deno.test("buildCachedIntermediateCheck — clears cache on SPKI mismatch", asyn
     extractSpkiDer: () => new Uint8Array([9, 9, 9]), // != KMS spki
   });
 
-  // deno-lint-ignore no-explicit-any
-  await assertRejects(() => check({} as any, "intermediate-pem"), AttestationError);
-  // deno-lint-ignore no-explicit-any
-  await assertRejects(() => check({} as any, "intermediate-pem"), AttestationError);
+  await assertRejects(
+    // deno-lint-ignore no-explicit-any
+    () => check({} as any, "intermediate-pem"),
+    AttestationError,
+  );
+  await assertRejects(
+    // deno-lint-ignore no-explicit-any
+    () => check({} as any, "intermediate-pem"),
+    AttestationError,
+  );
   assertEquals(kmsCalls, 2);
 });
 

@@ -95,14 +95,14 @@ async function testSignTbs(tbs: Uint8Array): Promise<Uint8Array> {
 const NOW = new Date("2026-07-27T12:00:00Z");
 const TARGETS = await leafIssuerTargets(ICA_PEM);
 
-async function leafCertId(serial: number[]): Promise<CertIdValues> {
+function leafCertId(serial: number[]): Promise<CertIdValues> {
   const t = TARGETS.find((x) => x.hashOid === OID_SHA1)!;
-  return {
+  return Promise.resolve({
     hashOid: t.hashOid,
     issuerNameHash: t.issuerNameHash,
     issuerKeyHash: t.issuerKeyHash,
     serialNumber: new Uint8Array(serial),
-  };
+  });
 }
 
 function makeDeps(status: LeafStatus, over: Partial<ResponderDeps> = {}): ResponderDeps {

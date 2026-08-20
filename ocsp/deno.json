@@ -2,6 +2,11 @@
   "//": "Deno config for the realreel-ocsp Worker + refresh tool (mirrors ca/deno.json).",
   "//1": "nodeModulesDir auto also feeds `wrangler deploy` bundling — run `deno install` (or the tests) before the first deploy.",
   "nodeModulesDir": "auto",
+  "//fmt": "fmt is TypeScript-only: the markdown here is hand-wrapped prose and",
+  "//fmt1": "hand-aligned tables, both of which deno fmt reflows.",
+  "fmt": {
+    "exclude": ["**/*.md"]
+  },
   "imports": {
     "pkijs": "npm:pkijs@3.2.4",
     "asn1js": "npm:asn1js@3.0.5",

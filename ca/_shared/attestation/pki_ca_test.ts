@@ -451,8 +451,10 @@ Deno.test("buildLeafCertificate / encodeTBS / finalizeLeafPEM — full round-tri
   );
   // deno-lint-ignore no-explicit-any
   const akiSeq = (leafAkiAsn.result.valueBlock as any).value;
-  // deno-lint-ignore no-explicit-any
-  const leafAkiKeyId = new Uint8Array((akiSeq[0].valueBlock as any).valueHexView);
+  const leafAkiKeyId = new Uint8Array(
+    // deno-lint-ignore no-explicit-any
+    (akiSeq[0].valueBlock as any).valueHexView,
+  );
   assertEquals(ctEqual(intSkiBytes, leafAkiKeyId), true);
 
   // Full chain validates leaf → intermediate → root via the existing engine.
@@ -546,17 +548,19 @@ Deno.test(
     const intermediatePem = certToPem(intermediate.cert);
 
     let observedDigestLen = -1;
-    const signer = async (digest: Uint8Array): Promise<Uint8Array> => {
+    const signer = (digest: Uint8Array): Promise<Uint8Array> => {
       observedDigestLen = digest.length;
       // Syntactically-valid DER ECDSA SEQUENCE { r=1, s=1 }. Cryptographic
       // validity is irrelevant here — we're asserting shape only.
-      return new Uint8Array(
+      return Promise.resolve(
+        new Uint8Array(
         new asn1js.Sequence({
           value: [
             new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
             new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
           ],
         }).toBER(false),
+        ),
       );
     };
 
@@ -721,7 +725,10 @@ Deno.test(
         issueLeafChainFromCSR(csr, {
           intermediatePem: "-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----\n",
           validityDays: 180,
-          signer: async () => new Uint8Array([0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01]),
+          signer: () =>
+            Promise.resolve(
+              new Uint8Array([0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01]),
+            ),
         }),
       AttestationError,
       "intermediate",
@@ -970,15 +977,17 @@ async function issueV2Leaf(
     // Shape-only signer (mirrors the v1 orchestration tests): asserts the v2
     // digest is SHA-384 and returns a syntactically-valid DER SEQUENCE. The
     // cryptographically-valid chain is covered by the round-trip test below.
-    signer: async (digest: Uint8Array): Promise<Uint8Array> => {
+    signer: (digest: Uint8Array): Promise<Uint8Array> => {
       assertEquals(digest.length, 48); // SHA-384 digest under v2
-      return new Uint8Array(
+      return Promise.resolve(
+        new Uint8Array(
         new asn1js.Sequence({
           value: [
             new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
             new asn1js.Integer({ valueHex: new Uint8Array([0x01]).buffer }),
           ],
         }).toBER(false),
+        ),
       );
     },
   });

@@ -1,0 +1,10 @@
+{
+  "//": "Deno config for the pki Worker. index.ts is a thin wrapper that hands",
+  "//1": "wrangler's bundled PEMs to the pure router in router.ts, so lint/fmt/test",
+  "//2": "all run under Deno here (see .github/workflows/ci.yml).",
+  "//fmt": "fmt is TypeScript-only: the markdown here is hand-wrapped prose and",
+  "//fmt1": "hand-aligned tables, both of which deno fmt reflows.",
+  "fmt": {
+    "exclude": ["**/*.md"]
+  }
+}

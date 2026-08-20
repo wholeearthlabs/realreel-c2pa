@@ -226,26 +226,28 @@ export function makeMockSupabaseClient(): MockSupabaseClient {
     storage: {
       from(bucket: string) {
         return {
-          createSignedUrl: async (
+          createSignedUrl: (
             _path: string,
             _ttl: number,
-          ): Promise<{ data: { signedUrl: string } | null; error: unknown }> => ({
-            data: { signedUrl: "https://mock-signed-url.example.invalid/x" },
-            error: null,
-          }),
-          info: async (
+          ): Promise<{ data: { signedUrl: string } | null; error: unknown }> =>
+            Promise.resolve({
+              data: { signedUrl: "https://mock-signed-url.example.invalid/x" },
+              error: null,
+            }),
+          info: (
             _path: string,
-          ): Promise<{ data: { eTag: string; size: number } | null; error: unknown }> => ({
-            data: { eTag: '"mock-etag"', size: 1024 },
-            error: null,
-          }),
-          remove: async (
+          ): Promise<{ data: { eTag: string; size: number } | null; error: unknown }> =>
+            Promise.resolve({
+              data: { eTag: '"mock-etag"', size: 1024 },
+              error: null,
+            }),
+          remove: (
             paths: string[],
           ): Promise<{ data: unknown; error: unknown }> => {
             storageRemoveCalls.push({ bucket, paths: [...paths] });
             const r = nextStorageRemoveResult;
             nextStorageRemoveResult = { data: [], error: null };
-            return { data: r.data ?? [], error: r.error ?? null };
+            return Promise.resolve({ data: r.data ?? [], error: r.error ?? null });
           },
           getPublicUrl: (path: string): { data: { publicUrl: string } } => ({
             data: {
@@ -307,9 +309,9 @@ export function makeBaseDeps(opts: {
   now?: Date;
 }): BaseDeps {
   return {
-    getUserFromAuthHeader: async () => opts.user ?? null,
-    requireAal2IfMfaEnrolled: async () => opts.aalReject ?? null,
-    enforceRateLimit: async () => opts.rateLimit ?? { ok: true },
+    getUserFromAuthHeader: () => Promise.resolve(opts.user ?? null),
+    requireAal2IfMfaEnrolled: () => Promise.resolve(opts.aalReject ?? null),
+    enforceRateLimit: () => Promise.resolve(opts.rateLimit ?? { ok: true }),
     makeServiceRoleClient: () =>
       opts.client ?? (makeMockSupabaseClient().client),
     now: () => opts.now ?? new Date("2026-05-14T12:00:00Z"),

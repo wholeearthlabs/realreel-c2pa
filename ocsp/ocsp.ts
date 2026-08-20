@@ -106,6 +106,11 @@ export interface CertIdValues {
 // The CertID values a client asking about the ICA will send, for each
 // supported hash algorithm. Derived at runtime from the same trust-source
 // PEMs the verifier ships, so they can never drift from the deployed certs.
+// `async` is deliberate despite the body having no `await`: router.ts memoizes
+// the returned promise without awaiting it, so a PEM-parse failure has to
+// surface as a rejected (and cached) promise, not a synchronous throw at the
+// memo site.
+// deno-lint-ignore require-await
 export async function icaCertIdTargets(rootPem: string, icaPem: string): Promise<CertIdValues[]> {
   const root = parseCert(rootPem);
   const ica = parseCert(icaPem);
@@ -156,6 +161,11 @@ const LEAF_WEBCRYPTO_BY_HASH_OID: Record<string, string> = {
   [OID_SHA512]: "SHA-512",
 };
 
+// `async` is deliberate despite the body having no `await`: router.ts memoizes
+// the returned promise without awaiting it, so a PEM-parse failure has to
+// surface as a rejected (and cached) promise, not a synchronous throw at the
+// memo site.
+// deno-lint-ignore require-await
 export async function leafIssuerTargets(icaPem: string): Promise<IssuerHashes[]> {
   const ica = parseCert(icaPem);
   const nameDer = new Uint8Array(ica.subject.toSchema().toBER(false));
