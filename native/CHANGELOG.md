@@ -1,5 +1,32 @@
 # @realreel/photo-attest
 
+## 0.7.0
+
+### Minor Changes
+
+- [`fec2993`](https://github.com/wholeearthlabs/realreel-c2pa/commit/fec2993bd2f828fb4ee0affd96cabb9345f71c54) Thanks [@boojamya](https://github.com/boojamya)! - Native rejection messages now reach JS, and gallery write-back failures get their own error codes.
+
+  iOS `PhotoAttestError` is now an expo-modules `Exception` subclass. expo-modules-core derives the JS-facing message from `String(reflecting:)` → `debugDescription`, and the base `reason` is the literal `"undefined reason"`, so every `promise.reject(code, message)` in the module was discarding its message — JS saw `CODE: undefined reason (at ExpoModulesCore/Promise.swift:65)` regardless of the real failure. All reject sites now pass the error object itself, and the subclass trims `debugDescription` to the message so nothing leaks native source coordinates into consumer logs.
+
+  **Error codes change on several functions.** `overwriteMediaLibraryAsset` failures no longer masquerade as `C2PA_SIGN_FAILED` (signing has already succeeded by the time the write-back runs): new `MEDIA_OVERWRITE_FAILED` for staging and access failures, and iOS-only `MEDIA_OVERWRITE_REJECTED` when PhotoKit validates and refuses the content edit, with the underlying error domain and code in the message (`PHPhotosErrorDomain 3302` is `PHPhotosErrorInvalidResource` — general resource validation; a non-upright render is the cause we have observed, not the only one it covers). `ASSET_NOT_FOUND` semantics are unchanged.
+
+  Separately, `deleteKey`, `generateKey`, `getPublicKey` and `generateCSR` throw rather than taking a `Promise`. Their errors previously reached JS as `ERR_UNEXPECTED`; now that the error type is an `Exception`, expo surfaces the real code (`KEY_NOT_FOUND`, `KEY_ALREADY_EXISTS`, `HARDWARE_UNAVAILABLE`, …). Consumers branching on — or alerting on — `ERR_UNEXPECTED` from those four functions need updating.
+
+### Patch Changes
+
+- [`89d72fd`](https://github.com/wholeearthlabs/realreel-c2pa/commit/89d72fdbf444001c8fefd908a24bc0086d11dd13) Thanks [@boojamya](https://github.com/boojamya)! - Formatting-only pass over the package source. No API, type, or behavior change.
+
+  `npm run lint` had never actually run here: ESLint 9 requires a flat config and
+  there was none anywhere in the repo, so `expo-module lint` failed to start on a
+  clean checkout. The package now has `eslint.config.js` (base from
+  `expo-module-scripts`) and a `.prettierrc` pinning `singleQuote`, which is what
+  the source was already written in — without it Prettier's default would have
+  flipped every string in the package.
+
+  `src/` ships in the published tarball, so the reflow changes published bytes;
+  hence the patch bump. Lint also now covers the config plugin (`plugin/src`),
+  `app.plugin.js` and the release scripts, none of which were linted before.
+
 ## 0.6.0
 
 ### Minor Changes
@@ -7,6 +34,7 @@
 - [#44](https://github.com/wholeearthlabs/realreel-c2pa/pull/44) [`1dbadcb`](https://github.com/wholeearthlabs/realreel-c2pa/commit/1dbadcb0ee74747521309ae68bb8740e29f12985) Thanks [@boojamya](https://github.com/boojamya)! - C2PA Conformance Program v0.2 / Content Credentials 2.4 signer cutover. Every manifest photo-attest emits changes shape; the trust-core Stage-2 action allowlist changes with it, so the two land together and the app's upload path (which emits the actions) must move in the same release.
 
   photo-attest (both platforms, lockstep):
+
   - `claim_generator_info.specVersion = "2.4.0"` on every manifest (capture, upload, timestamp Update Manifest). SemVer form per spec 2.4 §10.2.2; the Conformance Program requires the key and requires it to match the CPL record.
   - Every assertion this module authors — `c2pa.actions.v2`, `c2pa.metadata`, `org.realreel.capture` / `.upload` / `.app_attest` / `.play_integrity` — is now a **created** assertion (`created_assertions`), attributed to the signer. Previously all of them landed in `gathered_assertions` (c2pa-rs's default), which spec 2.4 §10.2.2 defines as "not sourced from the claim generator", and §18.15.2 now requires the actions assertion in `created_assertions` outright. Builder-generated assertions (parent ingredient, claim + ingredient thumbnails, drain `c2pa.time-stamp`) are routed the same way through `builder.created_assertion_labels`. Android Stage 1 threads the sign settings into the builder context like the other paths, so both platforms and all three manifest kinds agree.
   - `allActionsIncluded: true` on every actions assertion (Program v0.2 makes the field mandatory). Stage 1 now authors an explicit `c2pa.actions.v2` entry that c2pa-rs prepends `c2pa.created` into. This is a signed claim of completeness — see the `Stage2Action` docs for what it commits the upload path to.
@@ -40,6 +68,7 @@
 - [`bfae840`](https://github.com/wholeearthlabs/realreel-c2pa/commit/bfae840b3c9b62c6dbb80b9f3012d088a454ab63) Thanks [@boojamya](https://github.com/boojamya)! - Consult the CA + TSA Trust Lists at ingredient ingest (C2PA generator conformance). trust-core now ships `CLIENT_TRUST_ANCHORS_PEM` on the dedicated `@realreel/c2pa-trust-core/trust-anchors` subpath (kept out of the root barrel so non-signing surfaces don't carry the 27 KB pool) — a generated client projection of the trust pool the RealReel verifier loads at boot: content-source CA roots + the C2PA TSA Trust List, minus entries marked `client_bundle: false` in trust-sources.yaml (the general-purpose DigiCert/SSL.com TSA roots stay verifier-private, so the generator never records trust for TSAs off the C2PA TSA Trust List). Byte-lockstep with the verifier's loader is CI-asserted. photo-attest's `signC2PAUpload` and `signTimestampUpdateManifest` accept it as `trustAnchorsPem` and feed it to c2pa-rs, so the parent-ingredient validation recorded into the signed `c2pa.ingredient.v3` `validationResults` sees the real pool instead of running anchorless and permanently recording `signingCredential.untrusted` / `timeStamp.untrusted` for parents that are in fact trusted (e.g. a wrapped Pixel capture's Google chain and Pixel TSA). Failure semantics are availability-first: trust failures against the pool are record-only, and a pool the native c2pa build cannot load degrades the sign to the anchorless path with a warning instead of failing the upload. The base sign settings additionally pin `remote_manifest_fetch`/`ocsp_fetch` off (validating a user-chosen parent must never issue an outbound request), matching the verifier. Omitting the option runs ingredient validation without trust verification.
 
 - [`5001976`](https://github.com/wholeearthlabs/realreel-c2pa/commit/50019764d14e33aed8e5c752d71fd1bebccb866e) Thanks [@boojamya](https://github.com/boojamya)! - Emit the C2PA 2.x `c2pa.metadata` assertion (JSON-LD with `@context`) instead of the deprecated `stds.exif` / `stds.iptc` on both stages — the conformance program rejects deprecated standard assertions on claim-v2 manifests (`validation:no_deprecated_assertions`). Data stays within the c2pa-rs `c2pa.metadata` allowed-field list:
+
   - Photo GPS is now serialized as XMP GPSCoordinate strings (`"34,16.8548N"`); the separate `exif:GPSLatitudeRef` / `GPSLongitudeRef` fields are gone (not allowlisted — hemisphere folds into the value).
   - Lens identity moves to `exifEX:LensMake` / `exifEX:LensModel`.
   - iOS photos now emit the same explicit key subset as Android instead of dumping every ImageIO key (non-allowlisted keys fail claim-v2 validation).

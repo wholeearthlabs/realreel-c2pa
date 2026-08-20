@@ -1,5 +1,25 @@
 # @realreel/verifier
 
+## 0.10.2
+
+### Patch Changes
+
+- [#48](https://github.com/wholeearthlabs/realreel-c2pa/pull/48) [`15521cb`](https://github.com/wholeearthlabs/realreel-c2pa/commit/15521cb9ea04ffaf35105ba1c5de3ed13b71fd1e) Thanks [@boojamya](https://github.com/boojamya)! - Drop the four unused `@peculiar/*` dependencies: `@peculiar/asn1-android`, `@peculiar/asn1-schema` and `@peculiar/asn1-x509` (runtime) plus `@peculiar/x509` (dev).
+
+  Nothing imports them. They arrived with the initial OSS migration and no TypeScript file in the repo's history has ever referenced one — the verifier reads certificate and attestation structure through `c2pa-node` and the trust-core helpers, and the Android `KeyDescription` parsing that would want them lives in `ca/`, which is Deno and resolves `pkijs`/`asn1js` through its own pinned import map.
+
+  Removing them takes 19 packages out of the tree — 8 of them (`@peculiar/asn1-android`, `-schema`, `-x509`, `@peculiar/utils`, `asn1js`, `pvtsutils`, `pvutils`, `tslib`) off the runtime graph and so out of the shipped image. That also retires an unattested link: `@peculiar/asn1-*` 2.9.0 published without the npm provenance attestation 2.8.0 carried, so the image stopped shipping attested copies of those three at the previous release.
+
+  No behavior change — the removed packages were never loaded.
+
+- [#41](https://github.com/wholeearthlabs/realreel-c2pa/pull/41) [`1d2cd3d`](https://github.com/wholeearthlabs/realreel-c2pa/commit/1d2cd3d00730c294e7d13f732815f630076ef223) Thanks [@dependabot](https://github.com/apps/dependabot)! - Runtime dependency bumps: `fastify` 5.11.3 → 5.12.0, `@sentry/node` 10.69.0 → 10.70.0, `google-auth-library` 11.0.0 → 11.0.2, and `@peculiar/asn1-android` / `@peculiar/asn1-x509` 2.8.0 → 2.9.0 (pulling `@peculiar/asn1-schema` 2.9.0).
+
+  None of it touches a trust decision. fastify 5.12.0 adds the `Reply.prototype.mediaType` getter and makes `reply.removeHeader()` clear the header off the raw response too — the verifier calls neither, and `/verify` never reads `Content-Type`. `google-auth-library` 11.0.2 is a transitive-dependency refresh on the Play Integrity path. `@sentry/node` 10.70.0 is Cloudflare/Solid fixes plus MCP SDK v2 support, none of it on the Node request path.
+
+  The `@peculiar/asn1-*` packages are declared but imported nowhere in the verifier. 2.9.0 is additive upstream (`RelativeObjectIdentifier`, RFC 9925 `id-alg-unsigned`) on top of a TypeScript 7 / oxlint toolchain migration — and that migration also dropped their npm provenance attestation, which 2.8.0 carried. Nothing loads them, so there is no execution risk, but the image still ships them: worth deleting the three outright rather than carrying an unattested chain.
+
+  `tsx` and the expo devDependency bumps in this group carry no changeset — the image installs with `--omit=dev` and no published build output moves.
+
 ## 0.10.1
 
 ### Patch Changes
@@ -24,6 +44,7 @@
 - [#44](https://github.com/wholeearthlabs/realreel-c2pa/pull/44) [`1dbadcb`](https://github.com/wholeearthlabs/realreel-c2pa/commit/1dbadcb0ee74747521309ae68bb8740e29f12985) Thanks [@boojamya](https://github.com/boojamya)! - C2PA Conformance Program v0.2 / Content Credentials 2.4 signer cutover. Every manifest photo-attest emits changes shape; the trust-core Stage-2 action allowlist changes with it, so the two land together and the app's upload path (which emits the actions) must move in the same release.
 
   photo-attest (both platforms, lockstep):
+
   - `claim_generator_info.specVersion = "2.4.0"` on every manifest (capture, upload, timestamp Update Manifest). SemVer form per spec 2.4 §10.2.2; the Conformance Program requires the key and requires it to match the CPL record.
   - Every assertion this module authors — `c2pa.actions.v2`, `c2pa.metadata`, `org.realreel.capture` / `.upload` / `.app_attest` / `.play_integrity` — is now a **created** assertion (`created_assertions`), attributed to the signer. Previously all of them landed in `gathered_assertions` (c2pa-rs's default), which spec 2.4 §10.2.2 defines as "not sourced from the claim generator", and §18.15.2 now requires the actions assertion in `created_assertions` outright. Builder-generated assertions (parent ingredient, claim + ingredient thumbnails, drain `c2pa.time-stamp`) are routed the same way through `builder.created_assertion_labels`. Android Stage 1 threads the sign settings into the builder context like the other paths, so both platforms and all three manifest kinds agree.
   - `allActionsIncluded: true` on every actions assertion (Program v0.2 makes the field mandatory). Stage 1 now authors an explicit `c2pa.actions.v2` entry that c2pa-rs prepends `c2pa.created` into. This is a signed claim of completeness — see the `Stage2Action` docs for what it commits the upload path to.
