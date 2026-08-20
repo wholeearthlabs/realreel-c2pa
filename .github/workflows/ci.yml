@@ -224,6 +224,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ESLint 9 needs a flat config to start at all; native/eslint.config.js
+      # supplies it (base from expo-module-scripts). --max-warnings 0 is what
+      # gives the gate teeth — eslint-config-universe reports prettier
+      # violations as warnings, which would otherwise exit 0.
+      - name: native — eslint
+        run: npm run lint --workspace native
+
       - name: native — tsc (TS bridge only)
         run: npx tsc --noEmit
         working-directory: native

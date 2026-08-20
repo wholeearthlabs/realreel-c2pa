@@ -48,7 +48,7 @@
     "build": "expo-module build",
     "build:plugin": "expo-module build plugin",
     "clean": "expo-module clean",
-    "lint": "expo-module lint",
+    "lint": "eslint src plugin/src app.plugin.js scripts --max-warnings 0",
     "prepare": "expo-module prepare",
     "prepublishOnly": "expo-module prepublishOnly",
     "prepack": "npm run build:plugin",
@@ -56,7 +56,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check:native-labels": "node scripts/check-native-labels.mjs",
-    "verify:packaging": "node scripts/verify-packaging.mjs"
+    "verify:packaging": "node scripts/verify-packaging.mjs",
+    "lint:fix": "eslint src plugin/src app.plugin.js scripts --fix"
   },
   "peerDependencies": {
     "expo": "*",

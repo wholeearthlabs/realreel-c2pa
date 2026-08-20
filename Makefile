@@ -19,7 +19,7 @@ test-verifier:
 test-ca:
 	npm run test:ca
 
-# Lint + format-check every Deno service (ca, ocsp, ocsp-leaf, pki).
+# Lint every Deno service (ca, ocsp, ocsp-leaf, pki) + the native TS bridge.
 lint:
 	npm run lint
 

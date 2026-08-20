@@ -39,17 +39,20 @@ npm run typecheck:verifier          # tsc, src only
 npm run test:ca                     # deno test — needs Deno >= 2
 npm run test:native                 # vitest — the native TS bridge
 ( cd native && npx tsc --noEmit )   # typecheck the native TS bridge
-npm run lint                        # deno lint + fmt --check, every Deno service
+npm run lint                        # deno lint + fmt --check, then eslint (native)
+npm run lint:deno                   # just the Deno services
+npm run lint:native                 # just the native TS bridge
 npm run lint:fix                    # apply what's auto-fixable
 ```
 
 Binary test fixtures live in **Git LFS**. If `verifier/__tests__/fixtures/*`
 look like ~130-byte text stubs, run `git lfs pull`.
 
-`npm run lint` covers the **Deno** services only (`ca/`, `ocsp/`, `ocsp-leaf/`,
-`pki/`) — `trust-core/`, `verifier/` and `native/` have no linter yet, and
-`native/`'s own `lint` script is broken (no ESLint flat config). `tsc` is still
-the only static check on the TypeScript workspaces.
+`npm run lint` covers the **Deno** services (`deno lint` + `deno fmt --check`)
+and **`native/`** (ESLint 9 flat config, base from `expo-module-scripts`, run
+with `--max-warnings 0` because universe reports Prettier violations as
+warnings). `trust-core/` and `verifier/` have no linter yet — `tsc` is still
+their only static check.
 
 ## Conventions
 
