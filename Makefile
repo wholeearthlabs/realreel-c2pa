@@ -4,7 +4,7 @@
 # there's one entry point across the Node workspaces (trust-core, verifier,
 # native) and the Deno workspace (ca).
 
-.PHONY: test test-trust-core test-verifier test-ca typecheck verify-trust-anchors verify-attestation-roots verifier-dev deploy-verifier rollback-verifier deploy-ocsp-leaf rollback-ocsp-leaf
+.PHONY: test test-trust-core test-verifier test-ca lint lint-fix typecheck verify-trust-anchors verify-attestation-roots verifier-dev deploy-verifier rollback-verifier deploy-ocsp-leaf rollback-ocsp-leaf
 
 # Run every test suite (trust-core + verifier + ca).
 test:
@@ -18,6 +18,13 @@ test-verifier:
 
 test-ca:
 	npm run test:ca
+
+# Lint + format-check every Deno service (ca, ocsp, ocsp-leaf, pki).
+lint:
+	npm run lint
+
+lint-fix:
+	npm run lint:fix
 
 # Typecheck the verifier (src) and the native TypeScript bridge.
 typecheck:

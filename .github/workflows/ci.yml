@@ -164,6 +164,25 @@ jobs:
         run: deno test --allow-read .
         working-directory: pki
 
+  # deno lint + deno fmt --check across every Deno service (ca, ocsp, ocsp-leaf,
+  # pki). Deno's config is per-directory, so scripts/lint-deno.sh walks the
+  # services rather than linting from the root — a root-level run would miss
+  # each service's rule config. Formatting is scoped to TypeScript; the
+  # markdown here is hand-wrapped and deno fmt reflows it.
+  lint:
+    name: deno lint + fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: v2.x
+
+      - name: deno lint + fmt --check
+        run: scripts/lint-deno.sh
+
   workflows:
     name: workflow lint (actionlint)
     runs-on: ubuntu-latest
