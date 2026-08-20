@@ -13,7 +13,7 @@ import {
   assertEquals,
   assertRejects,
   assertStringIncludes,
-} from "https://deno.land/std@0.221.0/assert/mod.ts";
+} from "std/assert/mod.ts";
 import {
   asn1js,
   AttestationError,

@@ -6,7 +6,7 @@
 // through Postgres), plus the response-shape parity that prevents the
 // endpoint from being a key-existence oracle.
 
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals } from "std/assert/mod.ts";
 import { handleRevoke, type RevokeDeps } from "../index.ts";
 import {
   assertResponseShapesIdentical,

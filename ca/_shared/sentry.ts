@@ -69,12 +69,10 @@ export async function initSentry(): Promise<void> {
   if (!dsn) return; // fallback stays in place
 
   try {
-    // Dynamic import keeps the SDK out of the test bundle. The URL
-    // pins a Sentry SDK build that works under Deno; bump in the same
-    // commit that bumps @sentry/node in verifier/.
-    const Sentry = await import(
-      "https://esm.sh/@sentry/deno@8.55.0?bundle"
-    );
+    // Dynamic import keeps the SDK out of the test bundle. The esm.sh pin in
+    // _shared/import_map.json is a build that works under Deno; bump it in the
+    // same commit that bumps @sentry/node in verifier/.
+    const Sentry = await import("@sentry/deno");
     Sentry.init({
       dsn,
       environment: Deno.env.get("SUPABASE_ENV") ?? "unknown",

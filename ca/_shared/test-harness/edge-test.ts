@@ -16,7 +16,7 @@
 // M1 + verify-and-create-media test suites are pure unit tests against
 // the handler.
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuthUser } from "../auth.ts";
 
 // ---------- Test users ---------------------------------------------

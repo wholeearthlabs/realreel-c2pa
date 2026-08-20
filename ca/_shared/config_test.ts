@@ -7,10 +7,7 @@
 // Run: deno test --allow-env --allow-read <path to this file>, from the
 // directory holding the deno config.
 
-import {
-  assertEquals,
-  assertThrows,
-} from "https://deno.land/std@0.221.0/assert/mod.ts";
+import { assertEquals, assertThrows } from "std/assert/mod.ts";
 import { resolveDevAttestation } from "./config.ts";
 
 // Build an `env` accessor from a fixed map.

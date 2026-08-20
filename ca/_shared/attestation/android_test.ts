@@ -7,11 +7,7 @@
 // or directly:
 //   deno test --allow-read --allow-env ca/_shared/attestation/android_test.ts
 
-import {
-  assertEquals,
-  assertRejects,
-  assertThrows,
-} from "https://deno.land/std@0.221.0/assert/mod.ts";
+import { assertEquals, assertRejects, assertThrows } from "std/assert/mod.ts";
 import {
   enforcePatchGate,
   extractOsPatchLevel,

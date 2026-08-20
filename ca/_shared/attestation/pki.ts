@@ -3,9 +3,9 @@
 // and chain validation. (CBOR decoding for App Attest lives in apple.ts.)
 
 // deno-lint-ignore-file no-explicit-any
-import * as pkijs from "npm:pkijs@3.2.4";
-import * as asn1js from "npm:asn1js@3.0.5";
-import { p256, p384, p521 } from "npm:@noble/curves@1.9.7/nist.js";
+import * as pkijs from "pkijs";
+import * as asn1js from "asn1js";
+import { p256, p384, p521 } from "@noble/curves/nist.js";
 
 // Defensive: this module mutates `globalThis.process` to work around a pkijs +
 // Supabase-Edge-Runtime quirk (see below). That mutation is only safe in Deno;
@@ -1372,5 +1372,5 @@ function bytesToBigIntDecimal(bytes: Uint8Array): string {
 }
 
 // Re-export pkijs types for the consumers (apple.ts / android.ts).
-export type { Certificate, CertificationRequest } from "npm:pkijs@3.2.4";
+export type { Certificate, CertificationRequest } from "pkijs";
 export { asn1js, pkijs };

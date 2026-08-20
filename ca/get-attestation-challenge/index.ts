@@ -15,7 +15,7 @@
 // expires_at > now()), so replays / cross-session reuse / forged-challenge
 // attempts all fail at the SQL layer.
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "std/http/server.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors.ts";
 import {
   getUserFromAuthHeader,

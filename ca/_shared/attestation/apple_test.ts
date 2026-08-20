@@ -9,10 +9,7 @@
 // Fixture format: a JSON file with the exact shape of register-signing-key's
 // request body (publicKey, platform, attestation, keyId, challenge, ...).
 
-import {
-  assertEquals,
-  assertRejects,
-} from "https://deno.land/std@0.221.0/assert/mod.ts";
+import { assertEquals, assertRejects } from "std/assert/mod.ts";
 import { validateAppleAttestation } from "./apple.ts";
 import { AttestationError } from "./pki.ts";
 import { APPLE_APP_ID } from "../config.ts";

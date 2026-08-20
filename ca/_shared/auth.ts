@@ -5,10 +5,7 @@
 // still use the legacy SUPABASE_SERVICE_ROLE_KEY env var. resolveServiceKey
 // supports both so we don't have to care which mode the project is in.
 
-import {
-  createClient,
-  type SupabaseClient,
-} from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { jsonResponse } from "./cors.ts";
 
 export interface AuthUser {

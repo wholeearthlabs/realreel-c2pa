@@ -1,0 +1,4 @@
+{
+  "//": "Read by Supabase deploy/serve bundling; the pins live in the shared map.",
+  "importMap": "../_shared/import_map.json"
+}

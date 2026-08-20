@@ -9,10 +9,7 @@
 // Run: deno test --allow-read --allow-env <path to this file>, from the
 // directory holding the deno config.
 
-import {
-  assertEquals,
-  assertRejects,
-} from "https://deno.land/std@0.221.0/assert/mod.ts";
+import { assertEquals, assertRejects } from "std/assert/mod.ts";
 import {
   asn1js,
   base64ToBytes,

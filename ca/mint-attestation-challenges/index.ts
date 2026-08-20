@@ -23,7 +23,7 @@
 //   * Upload path (online): single-shot count=1 fetch right before Stage-2
 //     sign, so the upload-time attestation binds to a fresh challenge.
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "std/http/server.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors.ts";
 import {
   type AuthUser,

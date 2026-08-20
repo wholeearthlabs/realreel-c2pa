@@ -50,7 +50,7 @@ import {
   parseCertFromPem,
   pkijs,
 } from "../_shared/attestation/pki.ts";
-import { p384 } from "npm:@noble/curves@1.9.7/nist.js";
+import { p384 } from "@noble/curves/nist.js";
 
 // pki.ts's TBS/finalize helpers are certificate-generic despite the "leaf"
 // naming; re-exported under ceremony names so call sites read correctly.

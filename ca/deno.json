@@ -2,25 +2,14 @@
   "//": "Deno project config for edge function code under ca/.",
   "//1": "Lives at ca/ rather than repo root so its node_modules/.deno cache",
   "//2": "doesn't intermix with the React Native project's yarn-managed node_modules.",
-  "//3": "no-import-prefix wants the inline npm:/https: pins moved into the imports",
-  "//4": "map below. Nothing resolves through that map today, and these files ship by",
-  "//5": "being vendored verbatim into the closed app's supabase/functions/ (its",
-  "//6": "scripts/ca-sync.sh), where the map sits above the dir the Supabase CLI",
-  "//7": "reads. Converting would put enrollment on a resolution path that has never",
-  "//8": "run — leave the pins inline.",
-  "//9": "fmt skips markdown: it's hand-wrapped here and deno fmt reflows it.",
+  "//3": "Pins live in _shared/import_map.json rather than inline here (the sibling",
+  "//4": "services' style): each function dir carries a deno.json pointing Supabase's",
+  "//5": "deploy bundling at that map, and it is vendored into the closed app with",
+  "//6": "the rest of ca/ — one pin set for OSS tests, app tests, and deploys.",
+  "//7": "fmt skips markdown: it's hand-wrapped here and deno fmt reflows it.",
   "nodeModulesDir": "auto",
-  "lint": {
-    "rules": {
-      "exclude": ["no-import-prefix"]
-    }
-  },
+  "importMap": "./_shared/import_map.json",
   "fmt": {
     "exclude": ["**/*.md"]
-  },
-  "imports": {
-    "pkijs": "npm:pkijs@3.2.4",
-    "asn1js": "npm:asn1js@3.0.5",
-    "cbor-x": "npm:cbor-x@1.5.9"
   }
 }

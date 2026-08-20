@@ -26,7 +26,7 @@ import {
   assertExists,
   assertObjectMatch,
   assertRejects,
-} from "https://deno.land/std@0.224.0/assert/mod.ts";
+} from "std/assert/mod.ts";
 import {
   buildCachedIntermediateCheck,
   handleRegister,

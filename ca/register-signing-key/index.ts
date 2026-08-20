@@ -33,7 +33,7 @@
 //     pubkey, base64) so the client can cache it locally. The Devices screen
 //     uses this cached value to flag the "This device" row.
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "std/http/server.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors.ts";
 import {
   getUserFromAuthHeader,

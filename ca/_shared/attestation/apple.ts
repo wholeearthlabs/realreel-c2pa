@@ -7,7 +7,7 @@
 // in Apple's spec — keep them aligned for ease of audit.
 
 // deno-lint-ignore-file no-explicit-any
-import * as cbor from "npm:cbor-x@1.5.9";
+import * as cbor from "cbor-x";
 import {
   AttestationError,
   bytesToBase64,

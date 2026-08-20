@@ -6,7 +6,7 @@
 // ownership check), (c) RPC error codes map to the right HTTP statuses,
 // and (d) the response contains only nonces — the DB carries the rest.
 
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals } from "std/assert/mod.ts";
 import {
   defaultDeps,
   handleMintChallenges,
