@@ -2,10 +2,13 @@
   "//": "Deno project config for edge function code under ca/.",
   "//1": "Lives at ca/ rather than repo root so its node_modules/.deno cache",
   "//2": "doesn't intermix with the React Native project's yarn-managed node_modules.",
-  "//3": "no-import-prefix wants the inline std/esm.sh/npm: pins moved into the",
-  "//4": "import map. These deploy from source through a pipeline outside this repo",
-  "//5": "(RELEASING.md), so we can't verify that deploy honors the map — leave them.",
-  "//6": "fmt skips markdown: it's hand-wrapped here and deno fmt reflows it.",
+  "//3": "no-import-prefix wants the inline npm:/https: pins moved into the imports",
+  "//4": "map below. Nothing resolves through that map today, and these files ship by",
+  "//5": "being vendored verbatim into the closed app's supabase/functions/ (its",
+  "//6": "scripts/ca-sync.sh), where the map sits above the dir the Supabase CLI",
+  "//7": "reads. Converting would put enrollment on a resolution path that has never",
+  "//8": "run — leave the pins inline.",
+  "//9": "fmt skips markdown: it's hand-wrapped here and deno fmt reflows it.",
   "nodeModulesDir": "auto",
   "lint": {
     "rules": {
