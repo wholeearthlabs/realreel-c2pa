@@ -38,7 +38,7 @@ const SCENARIOS: Scenario[] = [
   { id: "pixel-uploaded@baseline+no-pixel-no-tsa", asset: "pixel-uploaded.jpg", trustList: "productionWithoutPixel", tsaList: "empty", at: "baseline",
     why: "wrap parent falls back to the clock (Google root reachable through neither list) and is past its leaf validity → expired; active manifest unaffected" },
   { id: "pixel-og@baseline", asset: "pixel-og.jpg", trustList: "production", tsaList: "production", at: "baseline",
-    why: "TSA-anchored validity: leaf expired 2026-05-26, valid at 2026-08-18 through its time-stamp" },
+    why: "TSA-anchored validity: leaf expired 2026-05-06, valid at 2026-08-22 through its time-stamp" },
   { id: "v2-hierarchy@baseline+test-root", asset: "v2-hierarchy-signed.jpg", trustList: "v2TestRoot", tsaList: "production", at: "baseline",
     why: "conformant v2 hierarchy (P-256 leaf under P-384 chain) validates cleanly against its root" },
   { id: "v2-hierarchy@future+test-root", asset: "v2-hierarchy-signed.jpg", trustList: "v2TestRoot", tsaList: "production", at: "future",

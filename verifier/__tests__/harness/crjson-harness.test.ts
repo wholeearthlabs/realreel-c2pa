@@ -152,20 +152,14 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
   it("emits spec-2.4 crJSON for every signed fixture, and the deployed engine agrees with each", () => {
     for (const name of ALL_SIGNED) {
       const run = runCrjsonHarness({ assetPath: fixture(name), ...production, validationTime: AT.baseline });
-      // realreel-drained.jpg predates the v0.2 cutover: its Update Manifest
-      // gathers every assertion, so claim.v2.created_assertions is empty —
-      // schema-invalid. Post-cutover builds create them; drop this special
-      // case when the fixture regeneration makes it fail with [].
-      expect(schemaErrors(run.crjson), name).toEqual(
-        name === DRAINED ? ["/manifests/1/claim.v2/created_assertions must NOT have fewer than 1 items {\"limit\":1}"] : [],
-      );
+      expect(schemaErrors(run.crjson), name).toEqual([]);
       expect(run.crjson.manifests.length, name).toBeGreaterThan(0);
       // The active manifest leads (§3.4) and carries the injected instant.
-      expect(run.crjson.manifests[0].validationResults.validationTime, name).toBe("2026-08-18T00:00:00+00:00");
+      expect(run.crjson.manifests[0].validationResults.validationTime, name).toBe("2026-08-22T00:00:00+00:00");
       expect(run.record.engineAgreement, name).toEqual({ checked: true, agree: true, differences: [] });
       expect(run.record.engine).toEqual(ENGINE_IDENTITY);
       expect(run.record.validator.crjsonOrigin).toBe("c2patool");
-      expect(run.record.inputs.validationTime).toBe("2026-08-18T00:00:00Z");
+      expect(run.record.inputs.validationTime).toBe("2026-08-22T00:00:00Z");
     }
   });
 
@@ -202,7 +196,7 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
   });
 
   it("validation time does NOT expire a time-stamped signature (TSA-anchored validity)", () => {
-    // pixel-og.jpg: leaf notAfter 2026-05-26, Google-TSA countersigned —
+    // pixel-og.jpg: leaf notAfter 2026-05-06, Google-TSA countersigned —
     // valid at both instants because validity is judged at the time-stamp.
     for (const at of [AT.baseline, AT.future]) {
       const run = runCrjsonHarness({ assetPath: fixture(PIXEL_OG), ...production, validationTime: at });
@@ -224,18 +218,20 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     // anchor pool (trust/types.ts "RESIDUAL"). So dropping the Pixel root
     // from the C2PA list changes nothing while the TSA list carries it; only
     // dropping both sends the wrapped parent to the clock — past its leaf's
-    // notAfter (2026-05-26), hence expired. The policy layer, not the engine,
-    // scopes anchor roles; this pins the raw engine.
+    // notAfter (2026-05-06), hence expired + untrusted. The policy layer,
+    // not the engine, scopes anchor roles; this pins the raw engine. The
+    // wrapped parent's trust shows only in its FAILURE codes: c2patool emits
+    // no per-manifest positive signingCredential code for an ingredient, so
+    // "anchored" is the empty failure list the no-anchor variant contrasts.
     const wrap = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), ...production, validationTime: AT.baseline });
     const noPixelRoot = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), trustListPem: TRUST_LISTS.productionWithoutPixel, tsaTrustListPem: TSA_LISTS.production, validationTime: AT.baseline });
     const noPixelNoTsa = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), trustListPem: TRUST_LISTS.productionWithoutPixel, tsaTrustListPem: TSA_LISTS.empty, validationTime: AT.baseline });
     for (const run of [wrap, noPixelRoot]) {
       expect(codes(run.crjson, "failure")).toEqual([]);
       expect(codes(run.crjson, "failure", 1)).toEqual([]);
-      expect(run.crjson.manifests[1].validationResults.success.map((e) => e.code)).toContain("signingCredential.trusted");
     }
     expect(codes(noPixelNoTsa.crjson, "failure")).toEqual([]); // RealReel active: own root, still listed
-    expect(codes(noPixelNoTsa.crjson, "failure", 1)).toEqual(["signingCredential.expired"]);
+    expect(codes(noPixelNoTsa.crjson, "failure", 1)).toEqual(["signingCredential.expired", "signingCredential.untrusted"]);
     expect(noPixelNoTsa.record.engineVerdict?.validationState).toBe("Invalid");
     expect(noPixelNoTsa.record.engineAgreement.agree).toBe(true);
   });

@@ -98,7 +98,7 @@ export function schemaErrors(doc: unknown): string[] {
  *  certificate windows (see the golden scenarios for which is which). */
 export const AT = {
   /** Inside every fixture's leaf validity; the goldens' default. */
-  baseline: new Date("2026-08-18T00:00:00Z"),
+  baseline: new Date("2026-08-22T00:00:00Z"),
   /** Past the untimestamped v2-hierarchy leaf's notAfter (2026-10-25). */
   future: new Date("2031-01-01T00:00:00Z"),
 };

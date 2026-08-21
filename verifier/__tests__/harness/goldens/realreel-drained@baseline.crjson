@@ -3,115 +3,13 @@
     "@vocab": "https://c2pa.org/crjson",
     "extras": "https://c2pa.org/crjson/extras"
   },
+  "jsonGenerator": {
+    "name": "c2pa-rs",
+    "version": "0.90.15"
+  },
   "manifests": [
     {
-      "label": "urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84",
       "assertions": {
-        "c2pa.thumbnail.claim": {
-          "format": "image/jpeg",
-          "identifier": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/c2pa.thumbnail.claim",
-          "hash": "b64'agh2qr14XTuqbCKUnjfjGlGdqbPjdQF9g8d3RdicrIE='"
-        },
-        "c2pa.thumbnail.ingredient": {
-          "format": "image/jpeg",
-          "identifier": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/c2pa.thumbnail.ingredient",
-          "hash": "b64'zOQBMgmBnLDCiel45hvLz8J+5SgmlHu+Ta46ZEwgAsE='"
-        },
-        "c2pa.ingredient.v3": {
-          "relationship": "parentOf",
-          "dc:title": "realreel-20260529-092629.jpg",
-          "dc:format": "image/jpeg",
-          "validationResults": {
-            "activeManifest": {
-              "success": [
-                {
-                  "code": "timeStamp.validated",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
-                  "explanation": "timestamp message digest matched: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
-                },
-                {
-                  "code": "claimSignature.insideValidity",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
-                  "explanation": "claim signature valid"
-                },
-                {
-                  "code": "claimSignature.validated",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
-                  "explanation": "claim signature valid"
-                },
-                {
-                  "code": "assertion.hashedURI.match",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.assertions/c2pa.ingredient.v3",
-                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.ingredient.v3"
-                },
-                {
-                  "code": "assertion.hashedURI.match",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.assertions/c2pa.actions.v2",
-                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.actions.v2"
-                },
-                {
-                  "code": "assertion.hashedURI.match",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.assertions/c2pa.time-stamp",
-                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.time-stamp"
-                }
-              ],
-              "informational": [
-                {
-                  "code": "timeStamp.untrusted",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
-                  "explanation": "timestamp cert untrusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
-                }
-              ],
-              "failure": [
-                {
-                  "code": "signingCredential.untrusted",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
-                  "explanation": "signing certificate untrusted"
-                }
-              ]
-            },
-            "ingredientDeltas": [
-              {
-                "ingredientAssertionURI": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.assertions/c2pa.ingredient.v3",
-                "validationDeltas": {
-                  "success": [
-                    {
-                      "code": "ingredient.manifest.validated",
-                      "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b",
-                      "explanation": "ingredient hash matched"
-                    }
-                  ],
-                  "informational": [],
-                  "failure": [
-                    {
-                      "code": "signingCredential.untrusted",
-                      "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.signature",
-                      "explanation": "signing certificate untrusted"
-                    }
-                  ]
-                }
-              }
-            ]
-          },
-          "instanceID": "xmp:iid:b14aef80-d386-4e2a-8598-8dbad5f66087",
-          "activeManifest": {
-            "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77",
-            "alg": "sha256",
-            "hash": "b64'kToFauue7bW7TSgq2o1KGN2bZ3y3nUdq1dk5QTS1Juw='",
-            "pad": "b64''"
-          },
-          "claimSignature": {
-            "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
-            "alg": "sha256",
-            "hash": "b64'iz/ZG+VbfOHdg8u3pQRGCErLTb8vPPl5hpAx4p+xj48='",
-            "pad": "b64''"
-          },
-          "thumbnail": {
-            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.ingredient",
-            "hash": "b64'zOQBMgmBnLDCiel45hvLz8J+5SgmlHu+Ta46ZEwgAsE='",
-            "pad": "b64''"
-          }
-        },
         "c2pa.actions.v2": {
           "actions": [
             {
@@ -119,342 +17,389 @@
               "parameters": {
                 "ingredients": [
                   {
-                    "url": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3",
-                    "hash": "b64'KgkYPaiHLU5IRRbodKOHUU25kT4eT97wpZpmjhKcOVI='",
-                    "pad": "b64''"
+                    "hash": "b64'6nZ5I0ZAktSS2FLYvPfTozpZ/RZXUN1xtpemvOBQXkE='",
+                    "pad": "b64''",
+                    "url": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3"
                   }
                 ]
               }
             },
             {
-              "action": "c2pa.resized",
+              "action": "c2pa.resized.proportional",
               "parameters": {
-                "width": 1080,
-                "height": 1440
+                "org.realreel.height": 1440,
+                "org.realreel.width": 1080
               }
             },
             {
               "action": "c2pa.transcoded",
               "parameters": {
-                "quality": 0.8,
-                "format": "image/jpeg"
+                "org.realreel.format": "image/jpeg",
+                "org.realreel.quality": 0.8
+              }
+            },
+            {
+              "action": "c2pa.edited.metadata",
+              "parameters": {
+                "org.realreel.removed": [
+                  "exif:GPSAltitude",
+                  "exif:GPSAltitudeRef",
+                  "exif:GPSLatitude",
+                  "exif:GPSLatitudeRef",
+                  "exif:GPSLongitude",
+                  "exif:GPSLongitudeRef"
+                ]
               }
             },
             {
               "action": "c2pa.redacted",
+              "description": "GPS",
               "parameters": {
-                "redacted": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/stds.exif"
-              }
-            }
-          ]
-        },
-        "stds.exif": {
-          "tiff:DateTime": "2026:05:29 09:26:27",
-          "exif:ExposureTime": "0.01970380698465336",
-          "exif:FNumber": "1.7",
-          "tiff:ImageWidth": "1080",
-          "exif:ISOSpeedRatings": "333",
-          "tiff:Make": "Google",
-          "tiff:ImageLength": "1440",
-          "exif:Flash": "0",
-          "exif:WhiteBalance": "0",
-          "exif:DateTimeOriginal": "2026:05:29 09:26:27",
-          "tiff:Model": "Pixel 10",
-          "exif:FocalLength": "45300/10000",
-          "tiff:Orientation": "1"
-        },
-        "org.realreel.upload": {
-          "appVersion": "0.0.1",
-          "deviceManufacturer": "Google",
-          "deviceModel": "Pixel 10",
-          "deviceTrustLevel": "strongbox",
-          "osVersion": "Android 16 (API 36)"
-        },
-        "org.realreel.play_integrity": {
-          "challenge": "l06OSQe8d9KhSR1hkxI7GeUFsNyzmfetNEQ/DhWzn2Q=",
-          "platform": "android",
-          "token": "CpsCARCnMGvDKaImfkHcI5Q1lqBMMI2aSSOeiI5QBdg-f5MvjswXidRXQ23pd9Ds5VlhjO4z09BaQnrdJ8_3WfeJbPuGTlVgTU49_P7NQIuwqolXgG1p10Mko1t3z2_GJCoFMNgh4CMIhWJB4766rgK4mEryZt-qWrnQH2PLtNfmccdLK5pF142uodBHmB4OYtD-5RAIX1JAkB9iw_N2duqXbedwLXIf-3s_cCC3cFhdddMsooVbYpk9vpau_46_Rc4PDUQw8MXPmJBA81udWZgQIJlTzULNPccdaygLywzF1et5o44qF62RKSKf4FFNQoaiJ_nwxFUt4Y7MofdP1UfcE0v30RrOXS7HzDw4Posg3QhjMgWf06lmKRc8axppAcqlf5mkmOHSMoyA4adnzy0O1-qrLVkckWCREVUOiM5D9Kd8bOZQU29J_DppXAaWSDV20JG09UM2XAHroAU9tis3BXf7N5okXHSLVS2GguNQFniobVC6KpnEApbJuUYhUvTBKc6CPMmN"
-        },
-        "c2pa.hash.data": {
-          "exclusions": [
-            {
-              "start": 489,
-              "length": 352222
+                "redacted": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.assertions/c2pa.metadata"
+              },
+              "reason": "c2pa.PII.present"
             }
           ],
-          "name": "jumbf manifest",
+          "allActionsIncluded": true
+        },
+        "c2pa.hash.data": {
           "alg": "sha256",
-          "hash": "b64'9droP5zcYFN5UGUNOF723mWZfvV2YDHwsZx0toxpgEM='",
-          "pad": "b64'AAAAAAAAAA=='"
-        }
-      },
-      "claim.v2": {
-        "instanceID": "xmp:iid:9a9af26b-9ff3-4be9-8a18-9cec27f23227",
-        "signature": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.signature",
-        "claim_generator_info": {
-          "name": "RealReel",
-          "version": "0.0.1",
-          "org.contentauth.c2pa_rs": "0.79.5"
-        },
-        "alg": "sha256",
-        "dc:title": "realreel-20260529-092703.jpg",
-        "redacted_assertions": [
-          "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/stds.exif"
-        ],
-        "created_assertions": [
-          {
-            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.claim",
-            "hash": "b64'agh2qr14XTuqbCKUnjfjGlGdqbPjdQF9g8d3RdicrIE='"
-          },
-          {
-            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.ingredient",
-            "hash": "b64'zOQBMgmBnLDCiel45hvLz8J+5SgmlHu+Ta46ZEwgAsE='"
-          },
-          {
-            "url": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3",
-            "hash": "b64'KgkYPaiHLU5IRRbodKOHUU25kT4eT97wpZpmjhKcOVI='"
-          },
-          {
-            "url": "self#jumbf=c2pa.assertions/c2pa.actions.v2",
-            "hash": "b64'+/bkVraiDge1Pw1b+Zx4tKihoyaRRKyTuQ7hBclSlA4='"
-          },
-          {
-            "url": "self#jumbf=c2pa.assertions/c2pa.hash.data",
-            "hash": "b64'DIboPL5bo0r9Nfa6zzy0RTxUHTY4WJ35URMvE/FRwPU='"
-          }
-        ],
-        "gathered_assertions": [
-          {
-            "url": "self#jumbf=c2pa.assertions/stds.exif",
-            "hash": "b64'tJaBhs1yxV6dUVCzJLftnHnt4uOfo805Gud5ex2Z5qI='"
-          },
-          {
-            "url": "self#jumbf=c2pa.assertions/org.realreel.upload",
-            "hash": "b64'hjA5WYEzEtRPiasdwPBcVh2K6frCbXacOwuSwpIrGD0='"
-          },
-          {
-            "url": "self#jumbf=c2pa.assertions/org.realreel.play_integrity",
-            "hash": "b64'e67kK3tNz9NQFmo5X4UWRVazYK0xl/AjqsxZYNWZHWA='"
-          }
-        ]
-      },
-      "signature": {
-        "algorithm": "es256",
-        "certificateInfo": {
-          "serialNumber": "3fbf2addabc10bda586932159b371fead5fff70b",
-          "issuer": {
-            "CN": "RealReel Issuing CA"
-          },
-          "subject": {
-            "C": "US",
-            "O": "RealReel",
-            "OU": "Production",
-            "CN": "RealReel-Device-Key"
-          },
-          "validity": {
-            "notBefore": "2026-05-27T23:47:27+00:00",
-            "notAfter": "2031-05-26T23:52:27+00:00"
-          }
-        },
-        "timeStampInfo": {
-          "timestamp": "2026-05-29T16:27:02+00:00",
-          "certificateInfo": {
-            "serialNumber": "a80ef184b8df10582d1c476a7957468",
-            "issuer": {
-              "C": "US",
-              "O": "DigiCert, Inc.",
-              "CN": "DigiCert Trusted G4 TimeStamping RSA4096 SHA256 2025 CA1"
-            },
-            "subject": {
-              "C": "US",
-              "O": "DigiCert, Inc.",
-              "CN": "DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
-            },
-            "validity": {
-              "notBefore": "2025-06-04T00:00:00+00:00",
-              "notAfter": "2036-09-03T23:59:59+00:00"
+          "exclusions": [
+            {
+              "length": 480149,
+              "start": 480
             }
-          }
-        }
-      },
-      "validationResults": {
-        "success": [
-          {
-            "code": "timeStamp.validated",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.signature",
-            "explanation": "timestamp message digest matched: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
-          },
-          {
-            "code": "timeStamp.trusted",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.signature",
-            "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
-          },
-          {
-            "code": "signingCredential.trusted",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.signature",
-            "explanation": "signing certificate trusted, found in System trust anchors"
-          },
-          {
-            "code": "claimSignature.insideValidity",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.signature",
-            "explanation": "claim signature valid"
-          },
-          {
-            "code": "claimSignature.validated",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.signature",
-            "explanation": "claim signature valid"
-          },
-          {
-            "code": "assertion.hashedURI.match",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/c2pa.thumbnail.claim",
-            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.thumbnail.claim"
-          },
-          {
-            "code": "assertion.hashedURI.match",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/c2pa.thumbnail.ingredient",
-            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.thumbnail.ingredient"
-          },
-          {
-            "code": "assertion.hashedURI.match",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/c2pa.ingredient.v3",
-            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.ingredient.v3"
-          },
-          {
-            "code": "assertion.hashedURI.match",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/c2pa.actions.v2",
-            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.actions.v2"
-          },
-          {
-            "code": "assertion.hashedURI.match",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/c2pa.hash.data",
-            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.hash.data"
-          },
-          {
-            "code": "assertion.hashedURI.match",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/stds.exif",
-            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/stds.exif"
-          },
-          {
-            "code": "assertion.hashedURI.match",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/org.realreel.upload",
-            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/org.realreel.upload"
-          },
-          {
-            "code": "assertion.hashedURI.match",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/org.realreel.play_integrity",
-            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/org.realreel.play_integrity"
-          },
-          {
-            "code": "assertion.dataHash.match",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/c2pa.hash.data",
-            "explanation": "data hash valid"
-          }
-        ],
-        "informational": [],
-        "failure": [],
-        "specVersion": "2.3.0",
-        "validationTime": "2026-08-18T00:00:00+00:00"
-      },
-      "ingredientDeltas": [
-        {
-          "ingredientAssertionURI": "self#jumbf=/c2pa/urn:c2pa:d6cc0b3a-1d1d-41da-b3d2-4e17e9837b84/c2pa.assertions/c2pa.ingredient.v3",
-          "validationDeltas": {
-            "success": [
-              {
-                "code": "ingredient.manifest.validated",
-                "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77",
-                "explanation": "ingredient hash matched"
-              },
-              {
-                "code": "timeStamp.trusted",
-                "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
-                "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
-              },
-              {
-                "code": "signingCredential.trusted",
-                "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
-                "explanation": "signing certificate trusted, found in System trust anchors"
-              }
-            ],
-            "informational": [],
-            "failure": []
-          }
-        }
-      ]
-    },
-    {
-      "label": "urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77",
-      "assertions": {
+          ],
+          "hash": "b64'pAWNEclEXlRaLKMZi05PTuFnUyvCpQfY2EJ4jWQd7dM='",
+          "name": "jumbf manifest",
+          "pad": "b64'AAAAAAAAAA=='"
+        },
         "c2pa.ingredient.v3": {
-          "relationship": "parentOf",
+          "activeManifest": {
+            "alg": "sha256",
+            "hash": "b64'mYy3q3kupq5SoPcvf0TCmPUNxMr6CbuAkILKrrRETXM='",
+            "pad": "b64''",
+            "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc"
+          },
+          "claimSignature": {
+            "alg": "sha256",
+            "hash": "b64'ZQ5bZWBma64R4w7koucmiH9GCgUa1FcY2EfxS/Hw1Bk='",
+            "pad": "b64''",
+            "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
+          },
           "dc:format": "image/jpeg",
+          "dc:title": "realreel-20260820-145533.jpg",
+          "instanceID": "xmp:iid:c58539a3-80b4-46b8-9a9a-dd6e29a78e46",
+          "relationship": "parentOf",
+          "thumbnail": {
+            "hash": "b64'ozMwjlVeTi+6Un2ZXwps4CC9NFbTWlYkDl1OdzyOQTU='",
+            "pad": "b64''",
+            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.ingredient"
+          },
           "validationResults": {
             "activeManifest": {
+              "failure": [],
+              "informational": [
+                {
+                  "code": "timeStamp.untrusted",
+                  "explanation": "timestamp cert untrusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
+                }
+              ],
               "success": [
                 {
+                  "code": "timeStamp.validated",
+                  "explanation": "timestamp message digest matched: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
+                },
+                {
+                  "code": "signingCredential.trusted",
+                  "explanation": "signing certificate trusted, found in System trust anchors",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
+                },
+                {
                   "code": "claimSignature.insideValidity",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.signature",
-                  "explanation": "claim signature valid"
+                  "explanation": "claim signature valid",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
                 },
                 {
                   "code": "claimSignature.validated",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.signature",
-                  "explanation": "claim signature valid"
+                  "explanation": "claim signature valid",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
                 },
                 {
                   "code": "assertion.hashedURI.match",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/c2pa.thumbnail.claim",
-                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.thumbnail.claim"
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.ingredient.v3",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.assertions/c2pa.ingredient.v3"
                 },
                 {
                   "code": "assertion.hashedURI.match",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/c2pa.actions.v2",
-                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.actions.v2"
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.actions.v2",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.assertions/c2pa.actions.v2"
                 },
                 {
                   "code": "assertion.hashedURI.match",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/c2pa.hash.data",
-                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.hash.data"
-                },
-                {
-                  "code": "assertion.hashedURI.match",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/stds.exif",
-                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/stds.exif"
-                },
-                {
-                  "code": "assertion.hashedURI.match",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/org.realreel.capture",
-                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/org.realreel.capture"
-                },
-                {
-                  "code": "assertion.dataHash.match",
-                  "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/c2pa.hash.data",
-                  "explanation": "data hash valid"
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.time-stamp",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.assertions/c2pa.time-stamp"
                 }
-              ],
-              "informational": [],
-              "failure": []
-            }
-          },
-          "instanceID": "xmp:iid:2329b345-9009-4d1e-ab29-8ebcd58f514c",
-          "activeManifest": {
-            "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b",
-            "alg": "sha256",
-            "hash": "b64'XVkBhVwOFH+MgEV2mFZqkpdSQuvaFiH5vdBJGuwxKqw='",
-            "pad": "b64''"
-          },
-          "claimSignature": {
-            "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.signature",
-            "alg": "sha256",
-            "hash": "b64'r+9wKQYm1yxCBnKa2gD9HaCAWKJe5n2qLzh18Gad8UI='",
-            "pad": "b64''"
-          },
-          "thumbnail": {
-            "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/c2pa.thumbnail.claim",
-            "hash": "b64'UpMqhQPcFyn9XObHlT6xC9ShZhrmqvO/lDLaziFVgNA='",
-            "pad": "b64''"
+              ]
+            },
+            "ingredientDeltas": [
+              {
+                "ingredientAssertionURI": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.assertions/c2pa.ingredient.v3",
+                "validationDeltas": {
+                  "failure": [],
+                  "informational": [],
+                  "success": [
+                    {
+                      "code": "ingredient.manifest.validated",
+                      "explanation": "ingredient hash matched",
+                      "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257"
+                    }
+                  ]
+                }
+              }
+            ]
           }
         },
+        "c2pa.metadata": {
+          "@context": {
+            "Iptc4xmpExt": "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+            "dc": "http://purl.org/dc/elements/1.1/",
+            "exif": "http://ns.adobe.com/exif/1.0/",
+            "exifEX": "http://cipa.jp/exif/1.0/",
+            "tiff": "http://ns.adobe.com/tiff/1.0/",
+            "xmpDM": "http://ns.adobe.com/xmp/1.0/DynamicMedia/"
+          },
+          "exif:DateTimeOriginal": "2026:08:20 14:55:32",
+          "exif:ExposureTime": "4.058970002202293E-4",
+          "exif:FNumber": "1.7",
+          "exif:Flash": "0",
+          "exif:FocalLength": "45300/10000",
+          "exif:ISOSpeedRatings": "30",
+          "exif:WhiteBalance": "0",
+          "tiff:DateTime": "2026:08:20 14:55:32",
+          "tiff:ImageLength": "1440",
+          "tiff:ImageWidth": "1080",
+          "tiff:Make": "Google",
+          "tiff:Model": "Pixel 10",
+          "tiff:Orientation": "1"
+        },
+        "c2pa.thumbnail.claim": {
+          "format": "image/jpeg",
+          "hash": "b64'gaIuuhSF4G5xlad0K1EQeIOWL2ILHR4PKxIJL0ruM1I='",
+          "identifier": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.thumbnail.claim"
+        },
+        "c2pa.thumbnail.ingredient": {
+          "format": "image/jpeg",
+          "hash": "b64'ozMwjlVeTi+6Un2ZXwps4CC9NFbTWlYkDl1OdzyOQTU='",
+          "identifier": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.thumbnail.ingredient"
+        },
+        "org.realreel.play_integrity": {
+          "challenge": "Bx55kuozhq9skznuW563/s+byM8vYsA3T5S9TBnkx/g=",
+          "platform": "android",
+          "token": "CqECARCnMGsOkZkntlog7lFvC62sjDavuMlrq2FHb5ikZtX59UkcK9KvGMGn1r-c1ddWO6uB1ZgwX1kFBa1ym6-Q9McjCB5XhyIRH5V_3eWF_2G2BCx75Ea_GdeDv86fXuuvvl3J9N4Tn5VOJjsSZhRfVnm5vFC5HMpb29w551-Dn_fCAMCwAE3RrKC-HLKppczoRANQU4BevOBpuo7S4kFw92WFJ89IP3588zJH09rKwemyIoFKMOcWXitPWgirIkudj_grTNRn0gfys2B5dLYFF2t7OPZjDAFPsqhFKr50Wb8JFd_ubuZx51UEYIQVID4MOdLEf5YMN0dk3ywoAco1iuGLOAwg4gbDIehzY3z-cDz9NCCHCQgN0O4dgpItClvhthpqAeQ5ErwdHWjtzaySlmktukoAJedCAgLqTsWAsBdLi9qW7hpkvBySq1-eOV3Bh80vgCTSku-kuX5FYlebYUKWPZdBrwEr8WjDecCtI6ah3rLSuyme1agbTAYC4fSupLc8hxd9yBpzoFUNDw"
+        },
+        "org.realreel.upload": {
+          "appVersion": "0.1.6",
+          "deviceManufacturer": "Google",
+          "deviceModel": "Pixel 10",
+          "deviceTrustLevel": "strongbox",
+          "osVersion": "Android 17 (API 37)"
+        }
+      },
+      "claim.v2": {
+        "alg": "sha256",
+        "claim_generator_info": {
+          "name": "RealReel",
+          "org.contentauth.c2pa_rs": "0.79.5",
+          "specVersion": "2.4.0",
+          "version": "0.1.6"
+        },
+        "created_assertions": [
+          {
+            "hash": "b64'gaIuuhSF4G5xlad0K1EQeIOWL2ILHR4PKxIJL0ruM1I='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.claim"
+          },
+          {
+            "hash": "b64'ozMwjlVeTi+6Un2ZXwps4CC9NFbTWlYkDl1OdzyOQTU='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.ingredient"
+          },
+          {
+            "hash": "b64'6nZ5I0ZAktSS2FLYvPfTozpZ/RZXUN1xtpemvOBQXkE='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3"
+          },
+          {
+            "hash": "b64'x8l2GAdvAWhVWrTKxADYLT45Ytw2NtYfZ2tQDJOCZxc='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.actions.v2"
+          },
+          {
+            "hash": "b64'qXfgYCa3aeCg4XjmcctKlK439E+qwbMObhGWq3mUA4g='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.metadata"
+          },
+          {
+            "hash": "b64'eCnc49T9z8/v7CjpVHj4xOX/Fep64pZn6se7KXd7R0M='",
+            "url": "self#jumbf=c2pa.assertions/org.realreel.upload"
+          },
+          {
+            "hash": "b64'II9xTxxquj2pdzNtNZF6xH3Mtidhb0am2Cws8Dlyj8k='",
+            "url": "self#jumbf=c2pa.assertions/org.realreel.play_integrity"
+          },
+          {
+            "hash": "b64'WEjm5WGdxmhe3NNiIqxhUXGbpLf5hoy5yi1Im49FQnI='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.hash.data"
+          }
+        ],
+        "dc:title": "realreel-20260821-103136.jpg",
+        "gathered_assertions": [],
+        "instanceID": "xmp:iid:4116b07f-6295-4ac0-a46e-a3b98a472055",
+        "redacted_assertions": [
+          "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.assertions/c2pa.metadata"
+        ],
+        "signature": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.signature"
+      },
+      "ingredientDeltas": [
+        {
+          "ingredientAssertionURI": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.ingredient.v3",
+          "validationDeltas": {
+            "failure": [],
+            "informational": [],
+            "success": [
+              {
+                "code": "ingredient.manifest.validated",
+                "explanation": "ingredient hash matched",
+                "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc"
+              },
+              {
+                "code": "timeStamp.trusted",
+                "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+                "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
+              }
+            ]
+          }
+        }
+      ],
+      "label": "urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6",
+      "signature": {
+        "algorithm": "es256",
+        "certificateInfo": {
+          "issuer": {
+            "CN": "RealReel Issuing CA"
+          },
+          "serialNumber": "4230a78762c0c5f6a0db63be10e9b30ce46b4c14",
+          "subject": {
+            "C": "US",
+            "CN": "RealReel-Device-Key",
+            "O": "RealReel",
+            "OU": "Production"
+          },
+          "validity": {
+            "notAfter": "2027-02-16T18:57:29+00:00",
+            "notBefore": "2026-08-20T18:57:30+00:00"
+          }
+        },
+        "timeStampInfo": {
+          "certificateInfo": {
+            "issuer": {
+              "C": "US",
+              "CN": "DigiCert Trusted G4 TimeStamping RSA4096 SHA256 2025 CA1",
+              "O": "DigiCert, Inc."
+            },
+            "serialNumber": "a80ef184b8df10582d1c476a7957468",
+            "subject": {
+              "C": "US",
+              "CN": "DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+              "O": "DigiCert, Inc."
+            },
+            "validity": {
+              "notAfter": "2036-09-03T23:59:59+00:00",
+              "notBefore": "2025-06-04T00:00:00+00:00"
+            }
+          },
+          "timestamp": "2026-08-21T17:31:38+00:00"
+        }
+      },
+      "validationResults": {
+        "failure": [],
+        "informational": [],
+        "specVersion": "2.3.0",
+        "success": [
+          {
+            "code": "timeStamp.validated",
+            "explanation": "timestamp message digest matched: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.signature"
+          },
+          {
+            "code": "timeStamp.trusted",
+            "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.signature"
+          },
+          {
+            "code": "signingCredential.trusted",
+            "explanation": "signing certificate trusted, found in System trust anchors",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.signature"
+          },
+          {
+            "code": "claimSignature.insideValidity",
+            "explanation": "claim signature valid",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.signature"
+          },
+          {
+            "code": "claimSignature.validated",
+            "explanation": "claim signature valid",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.signature"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.thumbnail.claim",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.thumbnail.claim"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.thumbnail.ingredient",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.thumbnail.ingredient"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.ingredient.v3",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.ingredient.v3"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.actions.v2",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.actions.v2"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.metadata",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.metadata"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/org.realreel.upload",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/org.realreel.upload"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/org.realreel.play_integrity",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/org.realreel.play_integrity"
+          },
+          {
+            "code": "assertion.hashedURI.match",
+            "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.hash.data",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.hash.data"
+          },
+          {
+            "code": "assertion.dataHash.match",
+            "explanation": "data hash valid",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.hash.data"
+          }
+        ],
+        "validationTime": "2026-08-22T00:00:00+00:00"
+      }
+    },
+    {
+      "assertions": {
         "c2pa.actions.v2": {
           "actions": [
             {
@@ -462,21 +407,97 @@
               "parameters": {
                 "ingredients": [
                   {
-                    "url": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3",
-                    "hash": "b64'Ijcdo6czwxcgobL1sa2FwSw7+hmlaRNCwjBLN92Kqak='",
-                    "pad": "b64''"
+                    "hash": "b64'+N0l+Kwztql+SagOXEVA7DIktJ03xe0Wto7b13fj4ag='",
+                    "pad": "b64''",
+                    "url": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3"
                   }
                 ]
               }
             }
-          ]
+          ],
+          "allActionsIncluded": true
+        },
+        "c2pa.ingredient.v3": {
+          "activeManifest": {
+            "alg": "sha256",
+            "hash": "b64'tMLJjBmWVZBmIYsf98FAgFJasTcJKI0wGxJJ8VFdmV0='",
+            "pad": "b64''",
+            "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257"
+          },
+          "claimSignature": {
+            "alg": "sha256",
+            "hash": "b64'uy8qJLCimXojMA4xHdGxRmrrlPnWCkz5++UQPHUILic='",
+            "pad": "b64''",
+            "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.signature"
+          },
+          "dc:format": "image/jpeg",
+          "instanceID": "xmp:iid:6382883f-9229-4f17-809b-176bbf71d197",
+          "relationship": "parentOf",
+          "thumbnail": {
+            "hash": "b64'J4KlW4rk0IrylomPyr2KbL10GkT4jxzKE62jWIHkoS4='",
+            "pad": "b64''",
+            "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.assertions/c2pa.thumbnail.claim"
+          },
+          "validationResults": {
+            "activeManifest": {
+              "failure": [],
+              "informational": [],
+              "success": [
+                {
+                  "code": "signingCredential.trusted",
+                  "explanation": "signing certificate trusted, found in System trust anchors",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.signature"
+                },
+                {
+                  "code": "claimSignature.insideValidity",
+                  "explanation": "claim signature valid",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.signature"
+                },
+                {
+                  "code": "claimSignature.validated",
+                  "explanation": "claim signature valid",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.signature"
+                },
+                {
+                  "code": "assertion.hashedURI.match",
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.thumbnail.claim",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.assertions/c2pa.thumbnail.claim"
+                },
+                {
+                  "code": "assertion.hashedURI.match",
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.actions.v2",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.assertions/c2pa.actions.v2"
+                },
+                {
+                  "code": "assertion.hashedURI.match",
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.metadata",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.assertions/c2pa.metadata"
+                },
+                {
+                  "code": "assertion.hashedURI.match",
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/org.realreel.capture",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.assertions/org.realreel.capture"
+                },
+                {
+                  "code": "assertion.hashedURI.match",
+                  "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.hash.data",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.assertions/c2pa.hash.data"
+                },
+                {
+                  "code": "assertion.dataHash.match",
+                  "explanation": "data hash valid",
+                  "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.assertions/c2pa.hash.data"
+                }
+              ]
+            }
+          }
         },
         "c2pa.time-stamp": {
-          "urn:c2pa:30b80939-0297-421d-b779-a1928505197b": [
+          "urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257": [
             48,
             130,
             23,
-            106,
+            105,
             6,
             9,
             42,
@@ -491,11 +512,11 @@
             160,
             130,
             23,
-            91,
+            90,
             48,
             130,
             23,
-            87,
+            86,
             2,
             1,
             3,
@@ -518,7 +539,7 @@
             0,
             48,
             129,
-            130,
+            129,
             6,
             11,
             42,
@@ -533,11 +554,11 @@
             1,
             4,
             160,
-            115,
+            114,
             4,
-            113,
+            112,
             48,
-            111,
+            110,
             2,
             1,
             1,
@@ -571,57 +592,56 @@
             0,
             4,
             32,
-            207,
-            150,
-            114,
-            29,
-            161,
-            168,
-            39,
-            54,
-            236,
-            108,
-            117,
-            202,
-            188,
-            150,
-            53,
-            172,
-            156,
-            51,
-            218,
-            114,
-            107,
-            95,
-            218,
-            152,
-            197,
-            39,
-            92,
-            187,
-            23,
-            131,
-            35,
-            63,
-            2,
-            17,
-            0,
-            163,
-            77,
-            158,
-            196,
-            126,
-            43,
+            70,
+            66,
             211,
-            23,
-            122,
-            159,
-            244,
-            124,
+            141,
+            15,
+            92,
+            120,
+            30,
+            132,
+            152,
+            254,
+            115,
+            18,
+            70,
+            144,
+            59,
+            172,
+            141,
+            132,
+            253,
+            48,
+            36,
+            160,
+            253,
+            35,
+            24,
+            11,
+            179,
+            14,
+            60,
+            199,
+            96,
+            2,
+            16,
+            28,
+            188,
+            216,
+            188,
+            201,
+            170,
+            190,
+            236,
+            20,
+            182,
+            47,
+            138,
+            193,
+            92,
+            90,
             246,
-            22,
-            32,
-            93,
             24,
             15,
             50,
@@ -629,26 +649,26 @@
             50,
             54,
             48,
+            56,
+            50,
+            48,
+            50,
+            50,
+            48,
             53,
-            50,
-            57,
-            49,
-            54,
-            50,
-            54,
-            52,
+            51,
             54,
             90,
             2,
             8,
-            73,
-            104,
-            26,
-            41,
+            5,
+            57,
+            50,
+            25,
+            72,
             65,
-            80,
-            120,
-            236,
+            1,
+            87,
             160,
             130,
             19,
@@ -5779,14 +5799,14 @@
             50,
             54,
             48,
+            56,
+            50,
+            48,
+            50,
+            50,
+            48,
             53,
-            50,
-            57,
-            49,
-            54,
-            50,
-            54,
-            52,
+            51,
             54,
             90,
             48,
@@ -5851,38 +5871,38 @@
             34,
             4,
             32,
-            132,
-            81,
-            14,
-            56,
-            119,
-            15,
-            253,
-            246,
-            203,
-            80,
-            78,
-            71,
+            185,
+            38,
             198,
-            76,
-            99,
-            199,
-            213,
-            1,
-            230,
-            13,
-            240,
-            72,
-            144,
             126,
-            218,
-            2,
-            41,
-            239,
-            98,
+            14,
+            250,
+            74,
+            222,
+            91,
+            85,
+            3,
+            127,
+            74,
+            206,
+            11,
+            225,
+            23,
+            123,
+            113,
+            9,
+            185,
             99,
-            100,
+            237,
+            191,
+            16,
+            147,
+            37,
             184,
+            7,
+            195,
+            154,
+            52,
             48,
             55,
             6,
@@ -5959,752 +5979,728 @@
             130,
             2,
             0,
-            20,
-            235,
-            65,
-            229,
-            92,
-            125,
-            78,
-            176,
-            116,
-            35,
-            42,
-            209,
-            53,
-            102,
-            210,
-            43,
-            82,
-            152,
-            168,
-            229,
-            170,
-            113,
-            142,
-            221,
-            163,
-            64,
-            63,
-            112,
-            207,
-            50,
-            236,
-            248,
-            201,
-            206,
-            135,
-            203,
-            161,
-            144,
-            12,
-            151,
-            38,
-            59,
-            95,
-            113,
-            27,
-            12,
-            207,
-            213,
-            75,
-            124,
+            5,
             14,
-            174,
-            247,
-            209,
-            31,
-            223,
-            59,
-            27,
-            187,
-            114,
-            22,
-            100,
-            109,
-            111,
-            29,
-            245,
-            188,
-            247,
-            22,
-            43,
-            202,
-            141,
-            183,
-            84,
-            179,
-            105,
-            46,
-            135,
-            102,
-            246,
-            26,
-            176,
-            41,
-            86,
-            1,
-            149,
-            48,
-            40,
-            111,
-            99,
-            156,
-            17,
-            98,
-            190,
-            44,
-            186,
-            101,
-            136,
-            12,
-            127,
-            148,
-            79,
-            120,
-            207,
-            211,
-            164,
+            249,
             45,
-            174,
-            101,
-            200,
-            26,
-            190,
-            172,
-            9,
-            155,
-            34,
-            230,
-            116,
-            92,
-            164,
-            112,
-            61,
-            60,
+            153,
+            54,
+            10,
+            255,
+            50,
+            74,
+            70,
+            27,
+            19,
+            86,
+            118,
+            48,
+            209,
+            151,
+            130,
+            36,
             47,
-            199,
-            230,
-            116,
-            200,
-            146,
+            26,
+            192,
+            176,
+            212,
+            83,
+            252,
+            179,
+            165,
+            137,
+            36,
+            76,
+            90,
+            72,
+            194,
+            42,
             6,
-            6,
-            37,
-            34,
-            107,
+            95,
+            100,
+            252,
+            114,
+            223,
+            188,
+            92,
+            244,
+            156,
+            16,
+            236,
+            140,
+            106,
+            251,
+            68,
+            47,
+            74,
+            2,
+            120,
             78,
             52,
-            15,
-            233,
-            243,
-            128,
-            84,
-            132,
-            247,
-            96,
-            144,
-            57,
-            37,
-            166,
-            152,
-            36,
-            195,
-            181,
-            172,
-            162,
-            24,
-            18,
-            99,
-            98,
-            193,
-            210,
-            142,
-            230,
-            73,
-            103,
-            122,
-            195,
-            11,
-            234,
-            83,
-            160,
-            79,
-            229,
-            152,
-            79,
-            228,
-            136,
-            138,
-            103,
-            57,
-            111,
-            129,
-            232,
-            97,
-            0,
-            178,
-            244,
-            82,
-            165,
-            10,
-            178,
-            247,
-            6,
-            129,
-            103,
-            157,
-            16,
-            244,
-            193,
-            27,
-            201,
-            84,
-            124,
-            59,
-            51,
-            165,
-            22,
-            238,
-            24,
-            234,
-            25,
-            90,
-            231,
-            132,
-            51,
-            120,
-            42,
-            189,
-            104,
-            104,
-            124,
-            78,
-            230,
             185,
-            114,
             139,
-            190,
-            90,
-            213,
-            0,
+            211,
+            142,
+            214,
+            245,
+            128,
+            127,
+            102,
+            95,
+            73,
+            173,
+            84,
+            94,
+            198,
+            43,
+            101,
+            115,
+            149,
+            131,
+            248,
             192,
-            224,
-            217,
-            1,
-            65,
-            85,
-            255,
-            132,
-            246,
-            66,
+            195,
+            149,
+            247,
+            220,
+            153,
             233,
-            93,
+            143,
+            245,
+            161,
+            224,
+            5,
+            20,
+            169,
+            43,
+            107,
+            175,
+            159,
+            92,
             76,
             27,
-            30,
-            49,
-            140,
-            185,
-            9,
-            187,
-            246,
-            205,
             46,
-            49,
-            52,
-            200,
-            200,
-            221,
-            132,
-            238,
-            232,
-            80,
-            195,
-            235,
-            131,
-            96,
-            173,
-            175,
-            97,
-            7,
-            228,
-            216,
-            32,
-            10,
-            248,
-            26,
-            217,
-            156,
-            89,
-            121,
-            118,
-            109,
+            199,
             119,
-            122,
-            127,
-            16,
-            166,
-            248,
-            252,
-            16,
-            200,
-            47,
-            15,
-            247,
-            188,
+            38,
+            206,
+            70,
+            38,
+            187,
             153,
-            198,
-            132,
-            45,
-            67,
-            231,
-            33,
-            163,
-            170,
             215,
-            59,
-            137,
-            118,
-            113,
-            200,
-            59,
-            158,
-            222,
-            10,
-            224,
-            12,
-            81,
-            197,
-            38,
-            38,
-            117,
-            209,
-            48,
-            146,
-            129,
-            62,
-            238,
-            184,
-            1,
-            41,
-            100,
-            144,
-            88,
-            140,
-            189,
-            71,
-            3,
-            250,
-            102,
-            38,
-            22,
-            185,
-            139,
-            146,
-            144,
-            86,
-            221,
-            147,
-            3,
-            128,
-            161,
-            221,
-            84,
-            252,
-            1,
-            242,
-            164,
-            234,
-            217,
-            19,
-            234,
-            53,
-            103,
-            131,
-            161,
-            137,
-            105,
-            160,
-            80,
-            61,
-            19,
-            232,
-            29,
-            11,
-            84,
-            3,
-            50,
-            15,
-            183,
-            21,
-            224,
-            159,
-            168,
             83,
-            212,
-            170,
-            124,
-            138,
-            53,
-            133,
-            28,
-            115,
-            191,
-            117,
-            229,
-            66,
-            72,
-            29,
-            68,
-            250,
+            238,
+            56,
+            122,
+            171,
+            205,
+            143,
+            254,
+            9,
+            147,
+            64,
+            74,
+            237,
+            255,
+            118,
+            141,
+            37,
+            90,
+            55,
+            4,
+            174,
+            136,
+            15,
             142,
-            18,
-            71,
-            151,
-            211,
-            18,
-            124,
-            161,
-            100,
-            3,
-            246,
+            47,
+            13,
+            243,
+            148,
             179,
+            76,
+            163,
+            184,
+            125,
+            201,
+            9,
+            160,
+            212,
+            181,
+            181,
+            190,
+            86,
+            240,
+            119,
+            112,
+            155,
+            85,
+            152,
+            32,
+            69,
+            106,
             21,
             251,
-            101,
-            18,
-            48,
-            193,
-            176,
-            5,
-            83,
-            106,
-            156,
-            154,
-            22,
-            9,
-            201,
-            194,
-            80,
-            110,
-            57,
-            255,
-            136,
-            159,
-            77,
-            141,
-            227,
-            85,
-            226,
-            90,
-            25,
-            42,
-            205,
-            188,
-            250,
-            82,
-            203,
-            53,
-            232,
-            222,
-            253,
-            244,
-            102,
-            172,
-            223,
-            29,
             45,
-            120,
-            181,
             41,
-            47,
-            186,
-            168,
-            79,
-            237,
-            231,
-            185,
-            56,
-            215,
-            76,
-            84,
-            124,
-            100,
-            43,
-            239,
-            190,
-            196,
-            56,
-            255,
-            167,
+            175,
+            217,
             77,
-            83,
-            20,
-            36,
-            56,
-            252,
-            92,
-            151,
-            103,
-            164,
-            9,
-            89,
-            13,
-            203,
-            23,
-            12,
-            37,
-            122,
-            182,
-            252,
-            108,
-            203,
-            82,
+            28,
+            127,
+            247,
+            109,
+            84,
+            96,
+            193,
             39,
+            138,
+            69,
+            219,
+            229,
+            202,
+            33,
+            78,
+            195,
+            91,
+            249,
+            150,
+            112,
+            219,
+            240,
+            18,
+            240,
+            126,
+            87,
+            188,
             246,
-            234,
+            159,
+            154,
+            150,
+            149,
+            178,
+            28,
+            53,
+            217,
+            43,
+            83,
+            170,
+            59,
+            177,
+            118,
+            210,
+            87,
             80,
-            51,
-            121,
-            80,
+            101,
+            249,
+            87,
+            251,
+            102,
+            154,
+            54,
+            152,
+            201,
+            236,
+            52,
+            167,
+            71,
+            76,
+            127,
+            147,
+            199,
+            70,
+            162,
+            175,
+            189,
+            153,
+            41,
+            173,
+            133,
+            109,
+            248,
+            53,
+            109,
+            170,
+            59,
+            70,
+            246,
+            177,
+            252,
+            150,
+            200,
+            6,
+            126,
+            169,
+            113,
+            237,
+            144,
+            108,
+            175,
+            48,
+            96,
+            170,
+            100,
+            200,
+            29,
+            104,
+            231,
+            41,
+            183,
+            68,
+            251,
+            6,
+            144,
+            174,
+            221,
+            235,
+            171,
+            243,
             184,
+            62,
+            139,
+            170,
+            86,
+            29,
+            64,
+            111,
+            239,
+            169,
+            212,
+            136,
+            133,
+            138,
+            65,
+            100,
+            190,
+            168,
+            150,
+            121,
+            139,
+            215,
+            96,
+            140,
+            191,
+            169,
+            37,
+            124,
+            89,
+            26,
+            215,
+            226,
+            85,
+            229,
+            108,
+            143,
+            178,
+            207,
+            70,
+            29,
+            106,
+            36,
+            224,
+            201,
+            231,
+            135,
+            185,
+            208,
+            187,
+            195,
+            120,
+            168,
+            31,
+            112,
+            238,
+            164,
+            3,
+            141,
+            94,
+            198,
+            128,
+            230,
+            100,
+            78,
+            155,
+            101,
+            127,
+            159,
+            223,
+            202,
+            179,
+            185,
+            32,
+            164,
+            86,
+            127,
+            115,
+            204,
+            104,
+            120,
+            161,
+            138,
+            98,
+            221,
+            3,
+            89,
+            150,
+            126,
+            39,
+            82,
+            229,
+            91,
+            214,
+            204,
+            53,
+            12,
+            158,
+            169,
+            192,
+            128,
+            208,
+            175,
+            204,
+            62,
+            50,
+            210,
+            32,
+            158,
+            165,
+            23,
+            85,
+            220,
+            11,
+            90,
+            225,
+            193,
+            65,
+            90,
+            213,
+            211,
+            228,
+            75,
+            75,
+            103,
+            208,
+            7,
+            179,
+            7,
+            232,
+            119,
+            221,
+            226,
+            213,
+            237,
+            193,
+            175,
+            148,
+            24,
+            73,
+            97,
+            59,
+            228,
+            138,
+            242,
+            229,
+            249,
+            100,
+            87,
+            104,
+            95,
+            220,
+            27,
+            233,
+            46,
+            118,
+            175,
+            23,
+            176,
+            40,
+            84,
+            226,
+            242,
+            86,
+            209,
+            115,
+            55,
+            193,
+            218,
+            219,
+            174,
+            75,
+            165,
+            102,
+            253,
             107,
-            35
+            49,
+            195,
+            77,
+            232,
+            147,
+            224,
+            165,
+            249,
+            76,
+            125,
+            128,
+            21,
+            164,
+            237,
+            210,
+            242,
+            148,
+            28,
+            196,
+            211,
+            31,
+            253,
+            240,
+            80,
+            140,
+            56,
+            166,
+            82,
+            210,
+            162,
+            187,
+            170,
+            36,
+            155,
+            52,
+            94,
+            88,
+            21,
+            76,
+            163,
+            42,
+            94,
+            6,
+            68,
+            12,
+            216,
+            229,
+            137,
+            100,
+            162,
+            15,
+            29,
+            11,
+            191,
+            97,
+            62,
+            139,
+            45,
+            95,
+            102,
+            189
           ]
         }
       },
       "claim.v2": {
-        "instanceID": "xmp:iid:44169575-6541-492a-8ae4-c78a04c06ca2",
-        "signature": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
+        "alg": "sha256",
         "claim_generator_info": {
           "name": "RealReel",
-          "version": "0.0.1",
-          "org.contentauth.c2pa_rs": "0.79.5"
+          "org.contentauth.c2pa_rs": "0.79.5",
+          "specVersion": "2.4.0",
+          "version": "0.1.6"
         },
-        "alg": "sha256",
-        "dc:title": "realreel-20260529-092646.jpg",
-        "created_assertions": [],
-        "gathered_assertions": [
+        "created_assertions": [
           {
-            "url": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3",
-            "hash": "b64'Ijcdo6czwxcgobL1sa2FwSw7+hmlaRNCwjBLN92Kqak='"
+            "hash": "b64'+N0l+Kwztql+SagOXEVA7DIktJ03xe0Wto7b13fj4ag='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3"
           },
           {
-            "url": "self#jumbf=c2pa.assertions/c2pa.actions.v2",
-            "hash": "b64'H5ottsSdGg0pUUfs8n82weKQbo06c4Dtu3DZpWDp6lQ='"
+            "hash": "b64'2tdWLhJjWXl/n53o9rW5NfIdxURjIGg2nigGAUqx5yA='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.actions.v2"
           },
           {
-            "url": "self#jumbf=c2pa.assertions/c2pa.time-stamp",
-            "hash": "b64'8isxzDr3yndBsxWlWrwJu8f91nRKHKbsT21mGetw+S0='"
-          }
-        ]
-      },
-      "signature": {
-        "algorithm": "es256",
-        "certificateInfo": {
-          "serialNumber": "3fbf2addabc10bda586932159b371fead5fff70b",
-          "issuer": {
-            "CN": "RealReel Issuing CA"
-          },
-          "subject": {
-            "C": "US",
-            "O": "RealReel",
-            "OU": "Production",
-            "CN": "RealReel-Device-Key"
-          },
-          "validity": {
-            "notBefore": "2026-05-27T23:47:27+00:00",
-            "notAfter": "2031-05-26T23:52:27+00:00"
-          }
-        },
-        "timeStampInfo": {
-          "timestamp": "2026-05-29T16:26:46+00:00",
-          "certificateInfo": {
-            "serialNumber": "a80ef184b8df10582d1c476a7957468",
-            "issuer": {
-              "C": "US",
-              "O": "DigiCert, Inc.",
-              "CN": "DigiCert Trusted G4 TimeStamping RSA4096 SHA256 2025 CA1"
-            },
-            "subject": {
-              "C": "US",
-              "O": "DigiCert, Inc.",
-              "CN": "DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
-            },
-            "validity": {
-              "notBefore": "2025-06-04T00:00:00+00:00",
-              "notAfter": "2036-09-03T23:59:59+00:00"
-            }
-          }
-        }
-      },
-      "validationResults": {
-        "success": [
-          {
-            "code": "ingredient.manifest.validated",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77",
-            "explanation": "ingredient hash matched"
-          },
-          {
-            "code": "timeStamp.trusted",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
-            "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1"
-          },
-          {
-            "code": "signingCredential.trusted",
-            "url": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.signature",
-            "explanation": "signing certificate trusted, found in System trust anchors"
+            "hash": "b64'3Uv/CkA3KHbaNXFleFjF6CLp2L3BdgchhvbVKqUrjRM='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.time-stamp"
           }
         ],
-        "informational": [],
-        "failure": [],
-        "specVersion": "2.3.0",
-        "validationTime": "2026-08-18T00:00:00+00:00"
+        "dc:title": "realreel-20260820-150536.jpg",
+        "gathered_assertions": [],
+        "instanceID": "xmp:iid:7dbee46f-adae-47b9-9497-efb5bca4275e",
+        "signature": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
       },
       "ingredientDeltas": [
         {
-          "ingredientAssertionURI": "self#jumbf=/c2pa/urn:c2pa:d041e62d-116b-4c14-b3bd-1a41734a2e77/c2pa.assertions/c2pa.ingredient.v3",
+          "ingredientAssertionURI": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.assertions/c2pa.ingredient.v3",
           "validationDeltas": {
-            "success": [
-              {
-                "code": "signingCredential.trusted",
-                "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.signature",
-                "explanation": "signing certificate trusted, found in System trust anchors"
-              }
-            ],
+            "failure": [],
             "informational": [
               {
                 "code": "ingredient.claimSignature.validated",
-                "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b",
-                "explanation": "ingredient claimSignature validated"
+                "explanation": "ingredient claimSignature validated",
+                "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257"
               }
             ],
-            "failure": []
+            "success": []
           }
         }
-      ]
+      ],
+      "label": "urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc",
+      "signature": {
+        "algorithm": "es256",
+        "certificateInfo": {
+          "issuer": {
+            "CN": "RealReel Issuing CA"
+          },
+          "serialNumber": "4230a78762c0c5f6a0db63be10e9b30ce46b4c14",
+          "subject": {
+            "C": "US",
+            "CN": "RealReel-Device-Key",
+            "O": "RealReel",
+            "OU": "Production"
+          },
+          "validity": {
+            "notAfter": "2027-02-16T18:57:29+00:00",
+            "notBefore": "2026-08-20T18:57:30+00:00"
+          }
+        },
+        "timeStampInfo": {
+          "certificateInfo": {
+            "issuer": {
+              "C": "US",
+              "CN": "DigiCert Trusted G4 TimeStamping RSA4096 SHA256 2025 CA1",
+              "O": "DigiCert, Inc."
+            },
+            "serialNumber": "a80ef184b8df10582d1c476a7957468",
+            "subject": {
+              "C": "US",
+              "CN": "DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+              "O": "DigiCert, Inc."
+            },
+            "validity": {
+              "notAfter": "2036-09-03T23:59:59+00:00",
+              "notBefore": "2025-06-04T00:00:00+00:00"
+            }
+          },
+          "timestamp": "2026-08-20T22:05:36+00:00"
+        }
+      },
+      "validationResults": {
+        "failure": [],
+        "informational": [],
+        "specVersion": "2.3.0",
+        "success": [
+          {
+            "code": "ingredient.manifest.validated",
+            "explanation": "ingredient hash matched",
+            "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc"
+          },
+          {
+            "code": "timeStamp.trusted",
+            "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+            "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
+          }
+        ],
+        "validationTime": "2026-08-22T00:00:00+00:00"
+      }
     },
     {
-      "label": "urn:c2pa:30b80939-0297-421d-b779-a1928505197b",
       "assertions": {
-        "c2pa.thumbnail.claim": {
-          "format": "image/jpeg",
-          "identifier": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/c2pa.thumbnail.claim",
-          "hash": "b64'UpMqhQPcFyn9XObHlT6xC9ShZhrmqvO/lDLaziFVgNA='"
-        },
-        "org.realreel.capture": {
-          "appVersion": "0.0.1",
-          "cameraFacing": "back",
-          "captureSource": "in-app-camera",
-          "capturerUuid": "a73f9e58-7323-4fd6-970e-59fb0b4d2ea4",
-          "deviceManufacturer": "Google",
-          "deviceModel": "Pixel 10",
-          "deviceTrustLevel": "strongbox",
-          "osVersion": "Android 16 (API 36)"
-        },
         "c2pa.actions.v2": {
           "actions": [
             {
               "action": "c2pa.created",
               "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
             }
-          ]
+          ],
+          "allActionsIncluded": true
         },
         "c2pa.hash.data": {
+          "alg": "sha256",
           "exclusions": [
             {
-              "start": 734,
-              "length": 113714
+              "length": 154392,
+              "start": 749
             }
           ],
+          "hash": "b64'Qef2yCPAfdaaX+TG26SqOVtoysNtaHJ0Qmm7UNaUrFo='",
           "name": "jumbf manifest",
-          "alg": "sha256",
-          "hash": "b64'dgTv5Wlp0pep2Ch+iktlaJPKZiipvgccuiITAWBAV+c='",
           "pad": "b64'AAAAAAAAAA=='"
         },
-        "stds.exif": {
-          "identifier": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.assertions/stds.exif",
-          "hash": "b64'2sUXF2/mk2Hp7Yz/rUkYlERXR0PZSN6qTsmsopZb20w='"
+        "c2pa.thumbnail.claim": {
+          "format": "image/jpeg",
+          "hash": "b64'J4KlW4rk0IrylomPyr2KbL10GkT4jxzKE62jWIHkoS4='",
+          "identifier": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.assertions/c2pa.thumbnail.claim"
+        },
+        "org.realreel.capture": {
+          "appVersion": "0.1.6",
+          "capturerUuid": "fc7ce1d3-82a8-4119-8e98-fe9b2161df6a",
+          "deviceManufacturer": "Google",
+          "deviceModel": "Pixel 10",
+          "deviceTrustLevel": "strongbox",
+          "osVersion": "Android 17 (API 37)"
         }
       },
       "claim.v2": {
-        "instanceID": "xmp:iid:eec1496f-8459-4f63-b5c3-59bdd6b5cf4b",
-        "signature": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.signature",
+        "alg": "sha256",
         "claim_generator_info": {
           "name": "RealReel",
-          "version": "0.0.1",
-          "org.contentauth.c2pa_rs": "0.79.5"
+          "org.contentauth.c2pa_rs": "0.79.5",
+          "specVersion": "2.4.0",
+          "version": "0.1.6"
         },
-        "alg": "sha256",
-        "dc:title": "realreel-20260529-092629.jpg",
         "created_assertions": [
           {
-            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.claim",
-            "hash": "b64'UpMqhQPcFyn9XObHlT6xC9ShZhrmqvO/lDLaziFVgNA='"
+            "hash": "b64'J4KlW4rk0IrylomPyr2KbL10GkT4jxzKE62jWIHkoS4='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.thumbnail.claim"
           },
           {
-            "url": "self#jumbf=c2pa.assertions/c2pa.actions.v2",
-            "hash": "b64'XTDnuN4gxOouP/FyBUtK2agfbhetNlZe/Glfy6RMHOk='"
+            "hash": "b64'Ivm46xBYdAGak8M7aDJUbSNg58LlagEqHrYFXBMqjRw='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.actions.v2"
           },
           {
-            "url": "self#jumbf=c2pa.assertions/c2pa.hash.data",
-            "hash": "b64'b8EG5oQqYySArT2WugLD16RIix+c1RPzxDXkJlpKhJU='"
+            "hash": "b64'pPMW2r8vdoaXvU0Ao5jqFXZXug9htVAK7+Y+1vBfpYE='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.metadata"
+          },
+          {
+            "hash": "b64'fb6r5w4yUpjdrHnKDmsrb68nr1jfOthzrCMGlEb68hk='",
+            "url": "self#jumbf=c2pa.assertions/org.realreel.capture"
+          },
+          {
+            "hash": "b64'8FbpRbaqfzYnYTcj67OI57V6suIHkLu/TqfqIA4eRd4='",
+            "url": "self#jumbf=c2pa.assertions/c2pa.hash.data"
           }
         ],
-        "gathered_assertions": [
-          {
-            "url": "self#jumbf=c2pa.assertions/stds.exif",
-            "hash": "b64'2sUXF2/mk2Hp7Yz/rUkYlERXR0PZSN6qTsmsopZb20w='"
-          },
-          {
-            "url": "self#jumbf=c2pa.assertions/org.realreel.capture",
-            "hash": "b64'bcZ2HtqBfVFmvNG3h5WksuQbYNyWqxoKHcbGqsytr1o='"
-          }
-        ]
+        "dc:title": "realreel-20260820-145533.jpg",
+        "gathered_assertions": [],
+        "instanceID": "xmp:iid:bebd00db-70c8-4198-9b7e-8743fcbb263f",
+        "signature": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.signature"
       },
+      "label": "urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257",
       "signature": {
         "algorithm": "es256",
         "certificateInfo": {
-          "serialNumber": "3fbf2addabc10bda586932159b371fead5fff70b",
           "issuer": {
             "CN": "RealReel Issuing CA"
           },
+          "serialNumber": "4230a78762c0c5f6a0db63be10e9b30ce46b4c14",
           "subject": {
             "C": "US",
+            "CN": "RealReel-Device-Key",
             "O": "RealReel",
-            "OU": "Production",
-            "CN": "RealReel-Device-Key"
+            "OU": "Production"
           },
           "validity": {
-            "notBefore": "2026-05-27T23:47:27+00:00",
-            "notAfter": "2031-05-26T23:52:27+00:00"
+            "notAfter": "2027-02-16T18:57:29+00:00",
+            "notBefore": "2026-08-20T18:57:30+00:00"
           }
         }
       },
       "validationResults": {
-        "success": [
-          {
-            "code": "signingCredential.trusted",
-            "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b/c2pa.signature",
-            "explanation": "signing certificate trusted, found in System trust anchors"
-          }
-        ],
+        "failure": [],
         "informational": [
           {
             "code": "ingredient.claimSignature.validated",
-            "url": "self#jumbf=/c2pa/urn:c2pa:30b80939-0297-421d-b779-a1928505197b",
-            "explanation": "ingredient claimSignature validated"
+            "explanation": "ingredient claimSignature validated",
+            "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257"
           }
         ],
-        "failure": [],
         "specVersion": "2.3.0",
-        "validationTime": "2026-08-18T00:00:00+00:00"
+        "success": [],
+        "validationTime": "2026-08-22T00:00:00+00:00"
       }
     }
-  ],
-  "jsonGenerator": {
-    "name": "c2pa-rs",
-    "version": "0.90.15"
-  }
+  ]
 }

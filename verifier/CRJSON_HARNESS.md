@@ -40,7 +40,7 @@ c2pa-rs keeps one anchor pool for claim-signing and TSA certificates, so the two
 
 ## Validation time
 
-c2pa-rs reads the system clock with no override, so both children run under libfaketime with the clock *frozen* at the requested instant, which also makes the output byte-deterministic. Install with `brew install libfaketime` or `apt-get install faketime`.
+c2pa-rs reads the system clock with no override, so both children run under libfaketime with the clock *frozen* at the requested instant. Together with canonical (sorted) JSON key order — c2pa-rs serializes flattened maps such as `claim_generator_info`'s vendor fields in per-invocation hash order — this makes the output byte-deterministic. The emitted crJSON is therefore the parsed document re-serialized (sorted keys, 2-space indent), not c2patool's raw stdout; JSON numeric literals normalize in the round-trip (`2.0` → `2` — same JSON value, different spelling). Install with `brew install libfaketime` or `apt-get install faketime`.
 
 On macOS, faketime cannot reach SIP-protected system binaries. The harness invokes c2patool and `node` (`process.execPath`) directly so this doesn't affect it, but don't expect `faketime … date` to work there when checking your install.
 

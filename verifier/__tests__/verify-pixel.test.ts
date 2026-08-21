@@ -9,9 +9,11 @@
 // verify-realreel-wrap.test.ts). What changed is only that a Pixel-active
 // manifest is no longer an accepted ingestion shape.
 //
-// Fixture: __tests__/fixtures/pixel-og.jpg — Pixel 10 capture (2026-05-12,
-// ~5.2 MB), single-stage manifest, trust-rooted at the Google C2PA Root CA
-// G3 in trust-sources/pixel/root.pem.
+// Fixture: __tests__/fixtures/pixel-og.jpg — Pixel stock-camera capture
+// (2026-04-12, ~4 MB, Ultra HDR: c2pa.hash.data.part + c2pa.hash.multi-asset
+// bindings), single-stage manifest, trust-rooted at the Google C2PA Root CA
+// G3 in trust-sources/pixel/root.pem. The same capture uploaded through
+// RealReel is fixtures/pixel-uploaded.jpg (a matched pair).
 //
 // Mocks: lookupSigningKeyRevocation. Force-wrap rejects before the realreel
 // profile runs, so the mock stays in default-not-called state. We assert that.
@@ -19,22 +21,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-
-// The regression guard below verifies the pre-cutover RealReel fixture end to
-// end; see verify-realreel.test.ts for why the retired Stage-2 action names
-// are re-admitted at the test boundary only. Delete with the fixture
-// regeneration pass.
-vi.mock("@realreel/c2pa-trust-core", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("@realreel/c2pa-trust-core")>();
-  return {
-    ...mod,
-    REALREEL_UPLOAD_ALLOWED_ACTIONS: new Set([
-      ...mod.REALREEL_UPLOAD_ALLOWED_ACTIONS,
-      "c2pa.resized",
-      "c2pa.rotated",
-    ]),
-  };
-});
 
 vi.mock("../src/db.js", () => {
   const lookupSigningKeyRevocation = vi.fn();
@@ -141,8 +127,8 @@ describe("Cross-source routing — realreel still accepted", () => {
       resolve(import.meta.dirname, "fixtures/realreel-uploaded.jpg"),
     );
     const FIXTURE_CERT_SERIAL =
-      "363929595041533803483005728970001726554859632395";
-    const FIXTURE_CAPTURER_UUID = "a73f9e58-7323-4fd6-970e-59fb0b4d2ea4";
+      "377878420465038296556426931842186971350666267668";
+    const FIXTURE_CAPTURER_UUID = "fc7ce1d3-82a8-4119-8e98-fe9b2161df6a";
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue({
       key_id: "stub",
       user_id: FIXTURE_CAPTURER_UUID,

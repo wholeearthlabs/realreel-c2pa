@@ -93,8 +93,11 @@ export interface CrjsonRunRecord {
     c2patool: string;
     /** c2pa-rs version c2patool embeds, as it reports in jsonGenerator. */
     c2paRs: string | null;
-    /** Who produced the crJSON text: c2patool, or the harness (the empty
-     *  document, when c2patool reported "No claim found"). */
+    /** Who produced the crJSON DOCUMENT: c2patool, or the harness (the empty
+     *  document, when c2patool reported "No claim found"). Either way the
+     *  emitted text is the parsed document re-serialized — canonical key
+     *  order, 2-space indent — not the tool's raw stdout, and JSON numeric
+     *  literals normalize in the round-trip (`2.0` → `2`). */
     crjsonOrigin: "c2patool" | "harness-empty-document";
     /** c2patool's stderr when it said anything. */
     stderr?: string;
@@ -284,6 +287,22 @@ function sha256(data: Buffer | string): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
+/** Deep-sort object keys. c2pa-rs serializes flattened maps (the vendor
+ *  fields of claim_generator_info) in hash order, which varies per
+ *  invocation; JSON member order carries no meaning, so canonical ordering
+ *  is what makes the emitted crJSON byte-deterministic. Arrays keep their
+ *  order — manifest ordering and validation-code ordering are meaningful. */
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(obj).sort().map((k) => [k, sortKeysDeep(obj[k])]),
+    );
+  }
+  return value;
+}
+
 // ── Cross-check ─────────────────────────────────────────────────────────────
 
 interface EngineProbeResult {
@@ -456,12 +475,12 @@ export function runCrjsonHarness(
     let crjson: CrjsonDocument;
     let crjsonOrigin: CrjsonRunRecord["validator"]["crjsonOrigin"] = "c2patool";
     if (!tool.error && tool.status === 0) {
-      crjsonText = tool.stdout;
       try {
-        crjson = JSON.parse(crjsonText) as CrjsonDocument;
+        crjson = sortKeysDeep(JSON.parse(tool.stdout)) as CrjsonDocument;
       } catch (e) {
         throw new CrjsonHarnessError("validator-failed", "c2patool emitted non-JSON", String(e));
       }
+      crjsonText = JSON.stringify(crjson, null, 2) + "\n";
     } else if (!tool.error && /No claim found/i.test(tool.stderr)) {
       // c2patool 0.27.x says this for "no manifest store" — a bare asset OR
       // one whose store is unreadable — and exits 1 instead of emitting an
@@ -469,7 +488,7 @@ export function runCrjsonHarness(
       // (§3.1), so state it under the harness's own name; the run record
       // says so (crjsonOrigin, stderr) and the engine's own `found` is next
       // to it.
-      crjson = { "@context": EMPTY_DOCUMENT_CONTEXT, manifests: [], jsonGenerator: HARNESS_IDENTITY };
+      crjson = sortKeysDeep({ "@context": EMPTY_DOCUMENT_CONTEXT, manifests: [], jsonGenerator: HARNESS_IDENTITY }) as CrjsonDocument;
       crjsonText = JSON.stringify(crjson, null, 2) + "\n";
       crjsonOrigin = "harness-empty-document";
     } else {

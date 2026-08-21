@@ -2,11 +2,11 @@
 // fixture captured + uploaded by the RealReel mobile app.
 //
 // Fixture: __tests__/fixtures/realreel-uploaded.jpg — Pixel 10, captured
-// 2026-05-28, two-stage signed (capture + upload), trust-rooted at the
-// LEGACY RealReel root (trust-sources/realreel-legacy/root.pem) — the
-// pre-conformance hierarchy every fixture predates. New-hierarchy
-// fixtures land with the fixture regeneration pass after the v2 flip.
-// Stage 2 carries an RFC 3161 sigTst2 token (DigiCert TSA).
+// 2026-08-20 and uploaded 2026-08-21 with a 90° editor rotation (app 0.1.6,
+// spec-2.4 action vocabulary incl. c2pa.orientation), trust-rooted at the
+// LEGACY RealReel root (trust-sources/realreel-legacy/root.pem) — the v2
+// hierarchy activates with the CPL listing; fixtures re-land after that
+// flip. Both stages carry an RFC 3161 sigTst2 token (DigiCert TSA).
 //
 // Pipeline exercised:
 //   1. loadTrustConfig — reads trust-sources.yaml + the root PEMs.
@@ -34,23 +34,6 @@ import { createHash } from "node:crypto";
 //
 // `consumeAndRecordAttestation` is no-op-mocked because a Stage 2 envelope
 // (if the fixture carries one) reaches the consume path.
-// The fixture predates the spec-2.4 action-name cutover (its Stage 2 declares
-// `c2pa.resized`), which the production allowlist hard-rejects. Re-admit the
-// retired names at the test boundary only, so the rest of this end-to-end
-// suite keeps exercising a real device-signed file. Delete at the fixture
-// regeneration pass.
-vi.mock("@realreel/c2pa-trust-core", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("@realreel/c2pa-trust-core")>();
-  return {
-    ...mod,
-    REALREEL_UPLOAD_ALLOWED_ACTIONS: new Set([
-      ...mod.REALREEL_UPLOAD_ALLOWED_ACTIONS,
-      "c2pa.resized",
-      "c2pa.rotated",
-    ]),
-  };
-});
-
 vi.mock("../src/db.js", () => {
   const lookupSigningKeyRevocation = vi.fn();
   const consumeAndRecordAttestation = vi.fn().mockResolvedValue(undefined);
@@ -79,11 +62,11 @@ import { VerifyErrorCode } from "../src/errors.js";
 
 // Fixture metadata — derived from manifest inspection of the file:
 //   subject=RealReel-Device-Key, issuer=RealReel Issuing CA
-//   cert serial (decimal) = 363929595041533803483005728970001726554859632395
-//   Stage 1's capturerUuid assertion: a73f9e58-7323-4fd6-970e-59fb0b4d2ea4
+//   cert serial (decimal) = 377878420465038296556426931842186971350666267668
+//   Stage 1's capturerUuid assertion: fc7ce1d3-82a8-4119-8e98-fe9b2161df6a
 const FIXTURE_CERT_SERIAL =
-  "363929595041533803483005728970001726554859632395";
-const FIXTURE_CAPTURER_UUID = "a73f9e58-7323-4fd6-970e-59fb0b4d2ea4";
+  "377878420465038296556426931842186971350666267668";
+const FIXTURE_CAPTURER_UUID = "fc7ce1d3-82a8-4119-8e98-fe9b2161df6a";
 
 // The mocked lookupSigningKeyRevocation always returns the SAME row
 // regardless of input — single-device fixture, Stage 2 keys the lookup.
@@ -206,10 +189,12 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     );
     expect(byKey.get("make")).toBe("Google");
     expect(byKey.get("model")).toBe("Pixel 10");
-    // This fixture is a none/general capture — no signed GPS, no locationLabel.
+    // A "general" upload: no signed GPS, but the Stage-2 assertion carries
+    // the signed city-level locationLabel, which derive surfaces as the
+    // display location.
     expect(derived.latitude).toBeNull();
     expect(derived.longitude).toBeNull();
-    expect(derived.location).toBeNull();
+    expect(derived.location).toBe("Ventura, California");
     // GPS never leaks out of the byte probe into entries.
     expect(derived.entries.some((e) => /location|gps|coordinate/i.test(e.label))).toBe(false);
   });
@@ -249,7 +234,8 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     });
 
     // Both stages of this fixture carry a DigiCert sigTst2 (capture at
-    // 19:46:30, upload at 19:46:41). The provider name survives only in
+    // 2026-08-20T21:54:53Z, upload at 2026-08-21T18:48:19Z). The provider
+    // name survives only in
     // c2pa-rs's validation_results explanation strings — sanitize lifts it out
     // (extractTsaByLabel) per manifest so a viewer can show "Timestamped by …".
     const TSA = "DigiCert SHA256 RSA4096 Timestamp Responder 2025 1";
@@ -277,15 +263,13 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     // Consumed-at-ingest / re-verification material is stripped...
     expect(labels.some((l) => l.startsWith("c2pa.hash."))).toBe(false);
     expect(labels).not.toContain("org.realreel.play_integrity");
-    // ...while the provenance a viewer renders is kept: signed EXIF, the
-    // actions log, the capture UUID. (This fixture is pre-cutover and carries
-    // the legacy stds.exif; a fixture re-captured with photo-attest ≥ 0.4.0
-    // carries c2pa.metadata instead.)
-    expect(labels.some((l) => l === "stds.exif" || l === "c2pa.metadata")).toBe(true);
+    // ...while the provenance a viewer renders is kept: the signed
+    // c2pa.metadata, the actions log, the capture UUID.
+    expect(labels).toContain("c2pa.metadata");
     expect(labels).toContain("org.realreel.capture");
-    // Real-row size pin: the kept shape is a few KB, and this ceiling also
-    // trips if the drop ever regresses (unfiltered this fixture is ~5.5 KB).
-    expect(JSON.stringify(result.sanitizedManifest).length).toBeLessThan(5000);
+    // Real-row size pin: the kept shape is a few KB (~5.4 KB for this
+    // fixture), and this ceiling also trips if the drop ever regresses.
+    expect(JSON.stringify(result.sanitizedManifest).length).toBeLessThan(6000);
   });
 
   it("looks up BOTH stages' cert serials (Stage 1 for the revocation denylist, Stage 2 for the full gate)", async () => {
@@ -539,8 +523,9 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
   // it, the clock arg threads through, and the cert-lifetime arg
   // threads through. The fixture is the Android
   // realreel-uploaded.jpg used above; the active (Stage-2)
-  // signature_info.time = 2026-05-28T19:46:41+00:00 and BOTH stages
-  // carry a trusted DigiCert sigTst2 stamp (Stage-1 parent at 19:46:30).
+  // signature_info.time = 2026-08-21T18:48:19+00:00 and BOTH stages carry
+  // a trusted DigiCert sigTst2 stamp (Stage-1 parent at 2026-08-20
+  // 21:54:53Z).
 
   beforeEach(() => {
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
@@ -572,15 +557,15 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
 
   it("Gate 2 fires when clock is set before the fixture's signature time (future-dated)", async () => {
     // Inject a clock dated well before the fixture's
-    // 2026-05-28T19:46:41 signature time. The clock-skew tolerance is
-    // 5 minutes; nearly two hours earlier easily trips it.
+    // 2026-08-21T18:48:19Z signature time. The clock-skew tolerance is
+    // 5 minutes; several hours earlier easily trips it.
     await expect(
       verify({
         assetBytes: fixtureBytes,
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
-        clock: { now: () => new Date("2026-05-28T18:00:00Z") },
+        clock: { now: () => new Date("2026-08-21T12:00:00Z") },
         declaredLocation: "precise",
       }),
     ).rejects.toMatchObject({
@@ -597,12 +582,12 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
   // fail here, not just leave unit tests green.
 
   it("Gate 3 wiring: a ledger window excluding the signature time rejects (time-warp)", async () => {
-    // issued_at AFTER the fixture's 2026-05-28T19:46:41Z signature time —
+    // issued_at AFTER the fixture's 2026-08-21T18:48:19Z signature time —
     // the time-warp branch fires regardless of the fixture's trusted TSA
     // (a genuine pre-issuance timestamp is damning, not exculpatory).
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue({
       ...defaultRevocationRow(),
-      issued_at: "2026-06-15T00:00:00.000Z",
+      issued_at: "2026-09-15T00:00:00.000Z",
       expires_at: "2026-12-01T00:00:00.000Z",
     });
     await expect(

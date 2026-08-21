@@ -20,32 +20,15 @@
 //   (c) the interposed Update Manifest is the timestamped one — its RFC 3161
 //       token is dropped from the persisted shape (re-verification-only) but
 //       its stamp time survives as signature_info.time, and
-//   (d) GPS privacy holds end-to-end — Stage-1's stds.exif was redacted at
-//       upload (the capture has NO stds.exif assertion), and Stage-2 records
-//       the redaction against the Stage-1 (grandparent) URN.
+//   (d) GPS privacy holds end-to-end — Stage-1's c2pa.metadata was redacted
+//       at upload (the capture carries NO metadata assertion), and Stage-2
+//       records the redaction against the Stage-1 (grandparent) URN.
 //
 // Database is mocked at the module boundary (no Postgres).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-
-// The fixture predates the spec-2.4 action-name cutover (its Stage 2 declares
-// `c2pa.resized`), which the production allowlist hard-rejects. Re-admit the
-// retired names at the test boundary only, so the rest of this end-to-end
-// suite keeps exercising a real device-signed file. Delete at the fixture
-// regeneration pass.
-vi.mock("@realreel/c2pa-trust-core", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("@realreel/c2pa-trust-core")>();
-  return {
-    ...mod,
-    REALREEL_UPLOAD_ALLOWED_ACTIONS: new Set([
-      ...mod.REALREEL_UPLOAD_ALLOWED_ACTIONS,
-      "c2pa.resized",
-      "c2pa.rotated",
-    ]),
-  };
-});
 
 vi.mock("../src/db.js", () => {
   const lookupSigningKeyRevocation = vi.fn();
@@ -74,8 +57,8 @@ import { lookupSigningKeyRevocation } from "../src/db.js";
 
 // Same enrolled device as realreel-uploaded.jpg → same key.
 const FIXTURE_CERT_SERIAL =
-  "363929595041533803483005728970001726554859632395";
-const FIXTURE_CAPTURER_UUID = "a73f9e58-7323-4fd6-970e-59fb0b4d2ea4";
+  "377878420465038296556426931842186971350666267668";
+const FIXTURE_CAPTURER_UUID = "fc7ce1d3-82a8-4119-8e98-fe9b2161df6a";
 
 // Single-device fixture: every stage (capture, update, upload) is signed by
 // the same hardware key, so the mock returns the same row for every lookup.
@@ -140,9 +123,9 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
     expect(update.assertions.some((a) => a.label === "c2pa.time-stamp")).toBe(false);
     expect(update.signature_info.time).toBeTruthy();
     expect(update.signature_info.timestamp_authority).toBeTruthy();
-    // Dropping the token keeps even a drained row a few KB (unfiltered ~13 KB);
+    // Dropping the token keeps even a drained row a few KB (~5.8 KB kept);
     // the per-manifest timestamp_authority adds only a few tens of bytes each.
-    expect(JSON.stringify(store).length).toBeLessThan(5500);
+    expect(JSON.stringify(store).length).toBeLessThan(6500);
 
     // Update Manifest → Stage-1 capture
     const captureLabel = update.parent_label!;
@@ -177,7 +160,7 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
     expect(vi.mocked(lookupSigningKeyRevocation)).toHaveBeenCalledWith(FIXTURE_CERT_SERIAL);
   });
 
-  it("GPS privacy: the capture's stds.exif was redacted at upload (location scrubbed from provenance)", async () => {
+  it("GPS privacy: the capture's c2pa.metadata was redacted at upload (location scrubbed from provenance)", async () => {
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(deviceRow());
     const result = await verify({
       assetBytes: fixtureBytes,
@@ -194,14 +177,13 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
     const captureLabel = store.manifests[updateLabel]!.parent_label!;
     const capture = store.manifests[captureLabel]!;
 
-    // "Remove location" at upload redacts the capture's GPS-bearing metadata
-    // assertion (a grandparent of Stage-2) — so the capture manifest no longer
-    // carries it. This is the manifest-level half of the privacy guarantee (the
-    // file's EXIF GPS bytes are stripped separately at upload). Checked under
-    // both labels so this stays meaningful when the fixture is re-captured
-    // with photo-attest ≥ 0.4.0 (which redacts c2pa.metadata instead).
+    // "Remove location" at upload redacts the capture's GPS-bearing
+    // c2pa.metadata assertion (a grandparent of Stage-2) — so the capture
+    // manifest no longer carries it. This is the manifest-level half of the
+    // privacy guarantee (the file's EXIF GPS bytes are stripped separately
+    // at upload).
     expect(
-      capture.assertions.some((a) => a.label === "stds.exif" || a.label === "c2pa.metadata"),
+      capture.assertions.some((a) => a.label === "c2pa.metadata"),
     ).toBe(false);
     // The capture itself is still a fresh capture (it kept its capture context).
     expect(capture.assertions.some((a) => a.label === "org.realreel.capture")).toBe(true);
