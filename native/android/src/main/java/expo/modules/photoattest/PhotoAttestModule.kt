@@ -1683,8 +1683,10 @@ class PhotoAttestModule : Module() {
   // dc:date fallback chain — camera-supplied values are preserved as
   // faithfully as the platform API allows; this fallback never substitutes
   // a different value when the camera wrote one:
-  //   1. METADATA_KEY_DATE — Android's API returns a String, passed through
-  //      verbatim (typically MMR's compact ISO 8601 like `20260509T203821.000Z`).
+  //   1. METADATA_KEY_DATE — Android's API returns a String, typically MMR's
+  //      compact ISO 8601 (`20260509T203821.000Z`), re-serialized to the
+  //      extended form iOS emits so the assertion shape matches across
+  //      platforms; an unrecognized camera string passes through verbatim.
   //   2. (Android has no analogue to iOS AVAsset.creationDate — skipped.)
   //   3. JS-supplied `captureTimestampMs` formatted as ISO 8601 UTC.
   private fun extractIptcAssertionForVideo(
@@ -1698,7 +1700,7 @@ class PhotoAttestModule : Module() {
     try {
       mmr.setDataSource(file.absolutePath)
       mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)?.let {
-        out.put("dc:date", it)
+        out.put("dc:date", normalizeMmrDate(it))
         hasDate = true
       }
       // METADATA_KEY_DURATION returns milliseconds as a string. xmpDM:duration
@@ -1724,10 +1726,28 @@ class PhotoAttestModule : Module() {
     return if (out.length() > 0) out else null
   }
 
-  // ISO 8601 UTC ("2026-05-09T13:12:41Z"). Used for the JS-supplied dc:date
-  // fallback when neither the file's metadata atom nor a platform creation-
-  // date API produced a value. Camera-written timestamps from layer 1 retain
-  // their native format (MediaMetadataRetriever's compact `20260509T131241.000Z`).
+  // MediaMetadataRetriever returns the container date in ISO 8601 BASIC form
+  // ("20260509T203821.000Z"); iOS serializes the same field extended.
+  // Re-serialize through the shared formatter when the value parses — same
+  // instant, one cross-platform shape. A camera string in any other format
+  // passes through verbatim rather than guessed at.
+  private fun normalizeMmrDate(raw: String): String {
+    for (pattern in arrayOf("yyyyMMdd'T'HHmmss.SSS'Z'", "yyyyMMdd'T'HHmmss'Z'")) {
+      try {
+        val sdf = java.text.SimpleDateFormat(pattern, java.util.Locale.US)
+        sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        sdf.isLenient = false
+        return formatIsoUtc(sdf.parse(raw)!!.time)
+      } catch (_: Exception) {
+        // try the next pattern
+      }
+    }
+    return raw
+  }
+
+  // ISO 8601 UTC ("2026-05-09T13:12:41Z"). Serializes the JS-supplied dc:date
+  // fallback and re-serializes a parsed METADATA_KEY_DATE (normalizeMmrDate),
+  // so every dc:date this module emits shares one shape.
   private fun formatIsoUtc(epochMs: Long): String {
     val sdf = java.text.SimpleDateFormat(
       "yyyy-MM-dd'T'HH:mm:ss'Z'",
