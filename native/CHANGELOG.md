@@ -1,5 +1,11 @@
 # @realreel/photo-attest
 
+## 0.7.1
+
+### Patch Changes
+
+- [`146ff60`](https://github.com/wholeearthlabs/realreel-c2pa/commit/146ff60f640b6a46ae16747bf9024b65e851a7da) Thanks [@boojamya](https://github.com/boojamya)! - Normalize Android's video `dc:date` to extended ISO 8601 UTC. MediaMetadataRetriever returns the container date in basic form (`20260509T203821.000Z`), so the Android Stage-2 `c2pa.metadata` assertion disagreed in shape with iOS. Parsed values re-serialize through the shared formatter; an unrecognized camera string still passes through verbatim.
+
 ## 0.7.0
 
 ### Minor Changes
