@@ -106,6 +106,15 @@ export const VerifyErrorCode = {
    *  reach the server). User meaning: media modified after capture. See
    *  trust-core policies/binding.ts. */
   PARENT_BINDING_FAILED: "PARENT_BINDING_FAILED",
+
+  /** The active manifest, or a manifest it references through an ingredient,
+   *  declares generative-AI provenance: an action whose IPTC
+   *  digitalSourceType is trainedAlgorithmicMedia or
+   *  compositeWithTrainedAlgorithmicMedia. Checked ahead of issuer
+   *  resolution — a trusted camera signing model output is refused the same
+   *  as a foreign generator. Not retryable; there is no original to fall
+   *  back on. See trust-core policies/generative-ai.ts. */
+  AI_GENERATED: "AI_GENERATED",
 } as const;
 
 export type VerifyErrorCode = typeof VerifyErrorCode[keyof typeof VerifyErrorCode];

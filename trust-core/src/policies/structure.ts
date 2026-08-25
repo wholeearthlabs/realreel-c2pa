@@ -182,8 +182,11 @@ export const LEGACY_IPTC_ASSERTION_LABEL = "stds.iptc";
  * `c2pa.time-stamp` assertion, so it is doubly safe from misfire.)
  */
 export function isTimestampUpdateManifest(manifest: ManifestShape): boolean {
+  // `a?.` — a null assertion entry (unvalidated reader JSON) is not a
+  // timestamp, and must not throw out of a policy the client gate runs
+  // under a no-throw contract.
   const hasTimestamp = (manifest.assertions ?? []).some(
-    (a) => a.label === TIMESTAMP_ASSERTION_LABEL,
+    (a) => a?.label === TIMESTAMP_ASSERTION_LABEL,
   );
   if (!hasTimestamp) return false;
   return (manifest.ingredients ?? []).length > 0;

@@ -42,3 +42,9 @@ export {
 } from "./binding.js";
 
 export { ALLOWED_UPLOAD_MIME_TYPES } from "./media-types.js";
+
+export {
+  GENERATIVE_AI_SOURCE_TYPES,
+  findGenerativeAiSource,
+  type GenerativeAiSource,
+} from "./generative-ai.js";

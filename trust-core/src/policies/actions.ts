@@ -84,71 +84,87 @@ export const REALREEL_UPLOAD_ALLOWED_ACTIONS: ReadonlySet<string> = new Set([
   ...TRANSITIONAL_RETIRED_UPLOAD_ACTIONS,
 ]);
 
-/** A single well-formed action entry: the action name plus its raw, opaque
+/** A single well-formed action entry: the action name, its raw, opaque
  *  parameters (shape varies per action — e.g. c2pa.trimmed carries the
  *  entity-namespaced {"org.realreel.start","org.realreel.end"}; spec §18.15.4.7
- *  requires the namespace on any non-pre-defined parameter key).
+ *  requires the namespace on any non-pre-defined parameter key), and the IPTC
+ *  digitalSourceType it declares, if any.
  */
 export interface ActionEntry {
   action: string;
   parameters?: unknown;
+  /** The action's declared IPTC digital source type, verbatim. Absent when the
+   *  entry carries none or a non-string value. */
+  digitalSourceType?: string;
 }
+
+/** Bound on `related` nesting. The spec lets an action list related actions,
+ *  each of which may list its own; real manifests nest at most once. Deeper
+ *  structures are read to this depth and no further. */
+const RELATED_MAX_DEPTH = 4;
 
 /**
  * Walk EVERY c2pa.actions / .v2 assertion on the manifest and return each
- * well-formed action entry (name + raw parameters), in document order across
- * all such assertions (multiple are spec-discouraged but possible; collecting
- * all avoids silently dropping one). Array.isArray-guarded against a malformed
- * `actions: "string"` shape; entries without a non-empty string `action` are
- * skipped. The single source of the actions-iteration logic — extractManifestActions
- * (names only) and content-hash's extractContentExtent (names + params) both build on it.
+ * well-formed action entry (name, raw parameters, digitalSourceType), in
+ * document order across all such assertions (multiple are spec-discouraged
+ * but possible; collecting all avoids silently dropping one). Nested
+ * `related` sub-actions are flattened into the list right after their parent
+ * (depth-bounded), so an action declared one level down counts the same as a
+ * top-level one for every consumer — allowlist, content extent, provenance.
+ * Null or non-object assertions and entries are skipped, as is a malformed
+ * `actions: "string"` shape and any entry without a non-empty string
+ * `action`. The single source of the actions-iteration logic:
+ * extractManifestActions (names only), extractCreatedDigitalSourceType,
+ * content-hash's extractContentExtent (names + params), and generative-ai's
+ * findGenerativeAiSource all build on it.
  */
 export function extractActionEntries(manifest: ManifestShape): ActionEntry[] {
   const out: ActionEntry[] = [];
+  const visit = (list: unknown, depth: number): void => {
+    if (!Array.isArray(list)) return;
+    for (const a of list) {
+      if (!a || typeof a !== "object") continue;
+      const entry = a as {
+        action?: unknown;
+        parameters?: unknown;
+        digitalSourceType?: unknown;
+        related?: unknown;
+      };
+      if (typeof entry.action === "string" && entry.action.length > 0) {
+        const e: ActionEntry = { action: entry.action, parameters: entry.parameters };
+        if (typeof entry.digitalSourceType === "string" && entry.digitalSourceType.length > 0) {
+          e.digitalSourceType = entry.digitalSourceType;
+        }
+        out.push(e);
+      }
+      if (depth < RELATED_MAX_DEPTH) visit(entry.related, depth + 1);
+    }
+  };
   for (const assertion of manifest.assertions ?? []) {
     if (
-      assertion.label !== "c2pa.actions.v2" &&
-      assertion.label !== "c2pa.actions"
+      !assertion ||
+      (assertion.label !== "c2pa.actions.v2" && assertion.label !== "c2pa.actions")
     ) {
       continue;
     }
     const data = assertion.data as { actions?: unknown } | null;
-    if (!data || !Array.isArray(data.actions)) continue;
-    for (const a of data.actions) {
-      const action = (a as { action?: unknown })?.action;
-      if (typeof action === "string" && action.length > 0) {
-        out.push({ action, parameters: (a as { parameters?: unknown })?.parameters });
-      }
-    }
+    if (!data || typeof data !== "object") continue;
+    visit(data.actions, 0);
   }
   return out;
 }
 
 /**
- * The `digitalSourceType` the manifest's `c2pa.created` action declares, or
- * null when there is no created action or it carries none. The app's Stage-2
- * emitter propagates the PARENT capture's value onto the upload actions the
- * Conformance Program requires one on (`c2pa.orientation`, `c2pa.trimmed`).
- * Passthrough, not a validator: any non-empty string is returned as-is.
+ * The `digitalSourceType` the manifest's first `c2pa.created` action declares,
+ * or null when there is no created action or it carries none. The app's
+ * Stage-2 emitter propagates the PARENT capture's value onto the upload
+ * actions the Conformance Program requires one on (`c2pa.orientation`,
+ * `c2pa.trimmed`). Passthrough, not a validator: any non-empty string is
+ * returned as-is.
  */
 export function extractCreatedDigitalSourceType(manifest: ManifestShape): string | null {
-  for (const assertion of manifest.assertions ?? []) {
-    if (
-      assertion.label !== "c2pa.actions.v2" &&
-      assertion.label !== "c2pa.actions"
-    ) {
-      continue;
-    }
-    const data = assertion.data as { actions?: unknown } | null;
-    if (!data || !Array.isArray(data.actions)) continue;
-    for (const a of data.actions) {
-      const entry = a as { action?: unknown; digitalSourceType?: unknown } | null;
-      if (entry?.action !== "c2pa.created") continue;
-      const dst = entry.digitalSourceType;
-      return typeof dst === "string" && dst.length > 0 ? dst : null;
-    }
-  }
-  return null;
+  const created = extractActionEntries(manifest).find((e) => e.action === "c2pa.created");
+  return created?.digitalSourceType ?? null;
 }
 
 /**

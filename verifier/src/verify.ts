@@ -5,6 +5,10 @@
 //      curated trust_anchors bundle (verify_trust_list: false).
 //   2. Reader returns null if no C2PA provenance is embedded → reject
 //      as MANIFEST_MALFORMED.
+//   2b. Refuse generative-AI provenance declared on the active manifest or
+//      any manifest it references → AI_GENERATED. Ahead of trust on
+//      purpose: a trusted camera's AI output and a foreign generator's read
+//      the same code.
 //   3. Identify the trust source from the active manifest's
 //      signature_info.issuer.
 //   4. Force-wrap: the active manifest MUST be RealReel-signed. A
@@ -24,6 +28,7 @@ import type { PlayIntegrityConfig } from "./config.js";
 import type { TrustConfig } from "./trust/types.js";
 import { makeTrustSourceResolver } from "./trust/dispatcher.js";
 import { sniffContainer } from "./container-sniff.js";
+import { enforceNoGenerativeAi } from "./generative-ai.js";
 import { verifyRealReel } from "./profiles/realreel.js";
 import { postgresAdapter } from "./db.js";
 import type { VerifierDatastore } from "./ports.js";
@@ -188,6 +193,14 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   // the narrow ManifestStoreShape from c2pa-shape.ts which captures
   // exactly what the verifier reads.
   const store = reader.json() as unknown as ManifestStoreShape;
+
+  // Generative-AI provenance is disqualifying on its own, whoever signed it:
+  // the active manifest or any manifest it references declaring that a model
+  // produced or changed the content is refused before issuer resolution, so
+  // a trusted camera's AI output and a foreign generator's both read
+  // AI_GENERATED rather than a trust or structure code. The client preflight
+  // gate runs the same policy at the same position.
+  enforceNoGenerativeAi(store);
 
   const issuer = readActiveIssuer(store);
   if (!issuer) {

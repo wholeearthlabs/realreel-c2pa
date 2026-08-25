@@ -119,6 +119,16 @@ Only RealReel-signed active manifests are accepted (**force-wrap**): a raw
 foreign-issuer upload is rejected. Trusted third-party captures are validated as
 wrapped Stage 1 *parents* against their own trust anchor.
 
+Before any of that, generative-AI provenance is refused outright: if the active
+manifest, or any manifest it references through an ingredient, declares an action
+whose IPTC `digitalSourceType` is `trainedAlgorithmicMedia` (a model produced
+the content) or `compositeWithTrainedAlgorithmicMedia` (a model changed it), the
+upload is rejected as `AI_GENERATED`, whoever signed it. The check is
+issuer-blind on purpose: a trusted camera's model output is chain-valid,
+structurally a fresh capture, and still not a photograph. The client preflight
+gate runs the same policy (`findGenerativeAiSource` in
+`@realreel/c2pa-trust-core`).
+
 ### Trusted timestamps
 
 A signature says *who* signed, not *when*. RealReel anchors the "when" with
