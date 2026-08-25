@@ -1,5 +1,11 @@
 # @realreel/c2pa-trust-core
 
+## 0.8.0
+
+### Minor Changes
+
+- [`c188cc5`](https://github.com/wholeearthlabs/realreel-c2pa/commit/c188cc540aa7f6f83492522799ee1f10b3981083) Thanks [@boojamya](https://github.com/boojamya)! - Refuse generative-AI provenance, whoever signed it. trust-core adds `findGenerativeAiSource` / `GENERATIVE_AI_SOURCE_TYPES` (`policies/generative-ai`) and the `AI_GENERATED` verify-error code; the verifier runs the scan over the active manifest and every manifest it references (nested `related` sub-actions included) ahead of issuer resolution, so a trusted camera's AI output and a foreign generator's both reject as `AI_GENERATED` rather than a trust or structure code. The IPTC terms that count are `trainedAlgorithmicMedia` and `compositeWithTrainedAlgorithmicMedia`; camera pipelines (`computationalCapture`, `algorithmicallyEnhanced`) do not.
+
 ## 0.7.1
 
 ### Patch Changes
@@ -21,6 +27,7 @@
 - [#44](https://github.com/wholeearthlabs/realreel-c2pa/pull/44) [`1dbadcb`](https://github.com/wholeearthlabs/realreel-c2pa/commit/1dbadcb0ee74747521309ae68bb8740e29f12985) Thanks [@boojamya](https://github.com/boojamya)! - C2PA Conformance Program v0.2 / Content Credentials 2.4 signer cutover. Every manifest photo-attest emits changes shape; the trust-core Stage-2 action allowlist changes with it, so the two land together and the app's upload path (which emits the actions) must move in the same release.
 
   photo-attest (both platforms, lockstep):
+
   - `claim_generator_info.specVersion = "2.4.0"` on every manifest (capture, upload, timestamp Update Manifest). SemVer form per spec 2.4 §10.2.2; the Conformance Program requires the key and requires it to match the CPL record.
   - Every assertion this module authors — `c2pa.actions.v2`, `c2pa.metadata`, `org.realreel.capture` / `.upload` / `.app_attest` / `.play_integrity` — is now a **created** assertion (`created_assertions`), attributed to the signer. Previously all of them landed in `gathered_assertions` (c2pa-rs's default), which spec 2.4 §10.2.2 defines as "not sourced from the claim generator", and §18.15.2 now requires the actions assertion in `created_assertions` outright. Builder-generated assertions (parent ingredient, claim + ingredient thumbnails, drain `c2pa.time-stamp`) are routed the same way through `builder.created_assertion_labels`. Android Stage 1 threads the sign settings into the builder context like the other paths, so both platforms and all three manifest kinds agree.
   - `allActionsIncluded: true` on every actions assertion (Program v0.2 makes the field mandatory). Stage 1 now authors an explicit `c2pa.actions.v2` entry that c2pa-rs prepends `c2pa.created` into. This is a signed claim of completeness — see the `Stage2Action` docs for what it commits the upload path to.
