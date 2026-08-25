@@ -112,6 +112,10 @@ export interface VerifyResult {
 // reason. Both are lossless — RealReel ingests embedded manifests only and does
 // revocation via the datastore, not OCSP.
 //
+// Serialize with settingsToJson, never resolveSettings: resolveSettings GETs
+// any trustAnchors / userAnchors / trustConfig / allowedList handed to it as a
+// URL — the same outbound request the two flags above exist to prevent.
+//
 // Takes only the anchor bundle so the conformance harness (src/harness/) can
 // hand c2pa-rs a Program-supplied trust list through this exact function —
 // same settings, different anchors — instead of mirroring it.

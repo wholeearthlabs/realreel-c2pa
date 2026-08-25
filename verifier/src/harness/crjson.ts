@@ -170,7 +170,7 @@ const ENGINE_VERSION: string = (
 // c2pa-node does not expose the c2pa-rs it embeds; this table is read off
 // c2pa-js's Cargo.lock at each tag. Unknown → null, and the pin test in
 // __tests__/harness/crjson-harness.test.ts fails until the entry is added.
-const ENGINE_C2PA_RS: Record<string, string> = { "0.8.3": "0.90.5" };
+const ENGINE_C2PA_RS: Record<string, string> = { "0.8.3": "0.90.5", "0.9.1": "0.90.15" };
 
 export const HARNESS_IDENTITY = { name: HARNESS_NAME, version: HARNESS_VERSION };
 export const ENGINE_IDENTITY = {

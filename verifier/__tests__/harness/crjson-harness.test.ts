@@ -169,7 +169,7 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     const run = runCrjsonHarness({ assetPath: fixture(V2), ...production, validationTime: AT.baseline });
     expect(run.record.validator.c2patool).toBe("c2patool 0.27.15");
     expect(run.record.validator.c2paRs).toBe("0.90.15");
-    expect(ENGINE_IDENTITY).toEqual({ package: "@contentauth/c2pa-node", version: "0.8.3", c2paRs: "0.90.5" });
+    expect(ENGINE_IDENTITY).toEqual({ package: "@contentauth/c2pa-node", version: "0.9.1", c2paRs: "0.90.15" });
     expect(run.record.validator.c2paRs!.split(".").slice(0, 2)).toEqual(ENGINE_IDENTITY.c2paRs!.split(".").slice(0, 2));
     // c2pa-rs's own statement of the spec it validated against (a constant in
     // its crJSON serializer) — not ours to rewrite; noticed here if it moves.
