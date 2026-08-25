@@ -32,6 +32,11 @@ updates:
     groups:
       minor-and-patch:
         patterns: ['*']
+        # The validation engine rides alone. A c2pa-node bump moves the c2pa-rs
+        # it embeds, which needs the harness pin re-read off c2pa-js's
+        # Cargo.lock — grouped, that review holds the rest behind a red check.
+        # Excluded from the group, not ignored: it still gets its own PR.
+        exclude-patterns: ['@contentauth/c2pa-node']
         update-types: ['minor', 'patch']
 
   # Service base images — the SBOM lists no OS packages, so image CVE
