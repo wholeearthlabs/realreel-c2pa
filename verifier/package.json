@@ -16,7 +16,7 @@
     "crjson": "tsx src/harness/cli.ts"
   },
   "dependencies": {
-    "@contentauth/c2pa-node": "0.9.1",
+    "@contentauth/c2pa-node": "0.9.3",
     "@contentauth/c2pa-types": "0.7.3",
     "@realreel/c2pa-trust-core": "*",
     "@sentry/node": "^10.70.0",
