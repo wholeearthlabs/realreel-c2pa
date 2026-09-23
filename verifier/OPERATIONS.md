@@ -98,8 +98,8 @@ watch for sustained spikes in these structured `error_code`s:
   API outage. The Diagnostics
   table above maps the underlying Google HTTP status to the cause.
 - **`ATTESTATION_INVALID`** (Android) — a client-side problem (tampered/stale token,
-  mismatched cloud project). A low baseline is normal; a spike usually means a client
-  regression.
+  mismatched cloud project, a `requestHash` that doesn't bind the manifest's challenge
+  and signing key). A low baseline is normal; a spike usually means a client regression.
 - **`SIGNATURE_INVALID`** with an `untrusted chain` `detail` — a TSA trust-list drift
   (an operator rotated/revoked a root not in your vendored pool). See
   [Trust-anchor rotation](#trust-anchor-rotation).

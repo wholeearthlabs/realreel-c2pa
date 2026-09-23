@@ -50,9 +50,9 @@ export interface RevocationRow {
    * branch, doesn't assume the union is closed. */
   platform: string;
   /** SPKI DER bytes of the device's signing key (the SE/StrongBox public
-   * key registered at enrollment). Used by the Stage-2 App Attest
-   * validator to reconstruct clientData = SHA256(challenge || SE_SPKI)
-   * and verify Apple's signature over the assertion.
+   * key registered at enrollment). The Stage-2 validators rebuild the
+   * challenge binding from it: App Attest's clientDataHash and Play
+   * Integrity's requestHash are both SHA256(challenge || SE_SPKI).
    * postgres.js returns bytea columns as Node Buffer. */
   public_key: Buffer | null;
   /** X9.63 uncompressed P-256 public key (0x04 || X || Y, 65 bytes) of

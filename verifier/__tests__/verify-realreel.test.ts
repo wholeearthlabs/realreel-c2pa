@@ -74,6 +74,7 @@ function defaultRevocationRow(opts: {
   revoked?: boolean;
   userId?: string;
   platform?: string;
+  publicKey?: Buffer | null;
 } = {}) {
   return {
     key_id: "stub-key-id-from-mock",
@@ -84,7 +85,7 @@ function defaultRevocationRow(opts: {
     // Pixel 10; its signing-key platform is 'android'. Tests that want
     // to assert cross-platform behavior override via opts.platform.
     platform: opts.platform ?? "android",
-    public_key: Buffer.alloc(0),
+    public_key: opts.publicKey === undefined ? Buffer.alloc(0) : opts.publicKey,
     app_attest_public_key: null,
     // Ledger validity window bracketing every fixture's signature time
     // (time-stable: the ledger gate compares signature_time to these,
@@ -367,6 +368,25 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
       declaredLocation: "precise",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
+  });
+
+  it("rejects ATTESTATION_INVALID when the Android Stage 2 row has no enrollment-stored public key", async () => {
+    // The Play Integrity requestHash binding is rebuilt from the row's SPKI;
+    // a row without it cannot be verified and there is no nonce-only
+    // fallback, even on the lenient (no Play Integrity config) path.
+    vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(
+      defaultRevocationRow({ publicKey: null }),
+    );
+
+    await expect(
+      verify({
+        assetBytes: fixtureBytes,
+        mimeType: "image/jpeg",
+        expectedUserId: FIXTURE_CAPTURER_UUID,
+        trustConfig,
+        declaredLocation: "precise",
+      }),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.ATTESTATION_INVALID });
   });
 
   it("accepts even when Stage 2's key belongs to a different user_id than the JWT (verifier is user-anonymous)", async () => {

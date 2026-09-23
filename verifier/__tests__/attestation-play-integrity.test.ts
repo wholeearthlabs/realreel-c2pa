@@ -6,8 +6,9 @@
 //   * hasPlayIntegrityAssertion correctly detects presence.
 //   * decodeIntegrityToken — happy path (decoded payload), 4xx → INVALID,
 //     5xx → VERIFIER_UNAVAILABLE, network error → VERIFIER_UNAVAILABLE.
-//   * enforceVerdicts — package-name mismatch, app-recognition-not-recognized,
-//     device-integrity-missing, stale timestamp all → ATTESTATION_INVALID.
+//   * enforceVerdicts — package-name mismatch, requestHash missing/mismatched,
+//     app-recognition-not-recognized, device-integrity-missing, stale
+//     timestamp all → ATTESTATION_INVALID.
 //   * consumePlayIntegrityForStage:
 //       - happy path validates verdicts + burns nonce.
 //       - lenient-degraded (no config) burns nonce only, skips decode.
@@ -25,6 +26,7 @@ import {
   beforeEach,
   afterEach,
 } from "vitest";
+import { createHash } from "node:crypto";
 
 // Mock the db module BEFORE importing the validator.
 vi.mock("../src/db.js", () => {
@@ -79,6 +81,11 @@ type DeviceIntegrity = NonNullable<
     PlayIntegrityDecodedPayload["tokenPayloadExternal"]
   >["deviceIntegrity"]
 >;
+type RequestDetails = NonNullable<
+  NonNullable<
+    PlayIntegrityDecodedPayload["tokenPayloadExternal"]
+  >["requestDetails"]
+>;
 import { VerifyError, VerifyErrorCode } from "../src/errors.js";
 import type { PlayIntegrityConfig } from "../src/config.js";
 import type { ManifestShape } from "../src/c2pa-shape.js";
@@ -97,10 +104,26 @@ const KEY_ID = "signing-key-id-base64==";
 const VALID_TOKEN =
   "A".repeat(400);
 const VALID_ENVELOPE = {
-  challenge: "challenge-base64==",
+  challenge: "N5ctYBIzwaPZS+wy131lN8SC+v+8Hm2ZfCubH4eil3M=",
   token: VALID_TOKEN,
   platform: "android",
 };
+
+// Enrollment-stored SPKI DER of the Stage-2 signing key (the row's
+// public_key). Any distinct bytes do; the binding is over the exact bytes.
+const SIGNING_KEY_SPKI = new Uint8Array(91).map((_, i) => (i * 37 + 11) & 0xff);
+const OTHER_SPKI = new Uint8Array(91).map((_, i) => (i * 53 + 7) & 0xff);
+
+// The device-side formula (PhotoAttestModule.kt): base64url-no-pad of
+// SHA256(base64-decoded challenge || SPKI DER). Computed here independently
+// of the validator so the test pins the formula, not the implementation.
+function requestHashFor(challengeB64: string, spki: Uint8Array): string {
+  return createHash("sha256")
+    .update(Buffer.from(challengeB64, "base64"))
+    .update(spki)
+    .digest("base64url");
+}
+const VALID_REQUEST_HASH = requestHashFor(VALID_ENVELOPE.challenge, SIGNING_KEY_SPKI);
 
 const CONFIG: PlayIntegrityConfig = {
   packageName: "com.realreel.app",
@@ -115,11 +138,20 @@ const CONFIG: PlayIntegrityConfig = {
 //   deviceIntegrity: { deviceRecognitionVerdict: [...],
 //                      deviceAttributes: { sdkVersion: 33 } }
 // (https://developer.android.com/google/play/integrity/verdicts). The
-// `deviceIntegrity` override below merges so a test can tweak either
-// `deviceRecognitionVerdict` or `deviceAttributes` without clobbering the
-// other; pass `deviceIntegrity` directly to replace the whole subtree.
+// `deviceIntegrity` and `requestDetails` overrides below merge so a test can
+// tweak one field without clobbering the others.
 function freshDecodedPayload(overrides: Record<string, unknown> = {}) {
-  const { deviceIntegrity: deviceIntegrityOverride, ...rest } = overrides;
+  const {
+    deviceIntegrity: deviceIntegrityOverride,
+    requestDetails: requestDetailsOverride,
+    ...rest
+  } = overrides;
+  const requestDetails: RequestDetails = {
+    requestPackageName: "com.realreel.app",
+    timestampMillis: String(Date.now()),
+    requestHash: VALID_REQUEST_HASH,
+    ...(requestDetailsOverride as Record<string, unknown> | undefined),
+  };
   const deviceIntegrity: DeviceIntegrity = {
     // A STRONG device reports the full ladder of met levels; the gate
     // requires MEETS_STRONG_INTEGRITY.
@@ -138,11 +170,7 @@ function freshDecodedPayload(overrides: Record<string, unknown> = {}) {
   };
   return {
     tokenPayloadExternal: {
-      requestDetails: {
-        requestPackageName: "com.realreel.app",
-        timestampMillis: String(Date.now()),
-        requestHash: "abc",
-      },
+      requestDetails,
       appIntegrity: {
         appRecognitionVerdict: "PLAY_RECOGNIZED",
         packageName: "com.realreel.app",
@@ -336,6 +364,7 @@ describe("consumePlayIntegrityForStage — happy path", () => {
       VALID_ENVELOPE,
       KEY_ID,
       "Stage 1",
+      SIGNING_KEY_SPKI,
       CONFIG,
     );
     expect(consumeMock).toHaveBeenCalledWith(KEY_ID, VALID_ENVELOPE.challenge);
@@ -349,6 +378,7 @@ describe("consumePlayIntegrityForStage — happy path", () => {
       VALID_ENVELOPE,
       KEY_ID,
       "Stage 1",
+      SIGNING_KEY_SPKI,
       CONFIG,
     );
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
@@ -371,6 +401,7 @@ describe("consumePlayIntegrityForStage — lenient (no config)", () => {
       VALID_ENVELOPE,
       KEY_ID,
       "Stage 1",
+      SIGNING_KEY_SPKI,
       undefined,
     );
     expect(consumeMock).toHaveBeenCalledTimes(1);
@@ -392,6 +423,7 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 1",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -413,6 +445,7 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 1",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -433,6 +466,7 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 1",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -461,6 +495,7 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 2",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -482,6 +517,7 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 2",
+        SIGNING_KEY_SPKI,
         CONFIG,
       ),
     ).resolves.toBeUndefined();
@@ -498,6 +534,7 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 2",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -520,6 +557,7 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 2",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -543,6 +581,7 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 2",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -568,6 +607,7 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 2",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -578,6 +618,82 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
   });
 });
 
+describe("consumePlayIntegrityForStage — requestHash binding", () => {
+  async function expectInvalid(payload: unknown, needle: string) {
+    mockFetchOk(payload);
+    try {
+      await consumePlayIntegrityForStage(
+        VALID_ENVELOPE,
+        KEY_ID,
+        "Stage 2",
+        SIGNING_KEY_SPKI,
+        CONFIG,
+      );
+      throw new Error("expected throw");
+    } catch (e) {
+      expect((e as VerifyError).code).toBe(VerifyErrorCode.ATTESTATION_INVALID);
+      expect((e as VerifyError).message).toContain(needle);
+    }
+    expect(consumeMock).not.toHaveBeenCalled();
+  }
+
+  it("accepts a token whose requestHash is base64url(SHA256(challenge || SPKI))", async () => {
+    mockFetchOk(freshDecodedPayload());
+    consumeMock.mockResolvedValueOnce(undefined);
+    await consumePlayIntegrityForStage(
+      VALID_ENVELOPE,
+      KEY_ID,
+      "Stage 2",
+      SIGNING_KEY_SPKI,
+      CONFIG,
+    );
+    expect(consumeMock).toHaveBeenCalledWith(KEY_ID, VALID_ENVELOPE.challenge);
+  });
+
+  it("rejects a mismatched requestHash", () =>
+    expectInvalid(
+      freshDecodedPayload({ requestDetails: { requestHash: "abc" } }),
+      "requestHash mismatch",
+    ));
+
+  it("rejects a missing requestHash", async () => {
+    const payload = freshDecodedPayload();
+    delete payload.tokenPayloadExternal.requestDetails.requestHash;
+    await expectInvalid(payload, "requestHash missing");
+  });
+
+  it("rejects a hash computed over a different challenge", () =>
+    expectInvalid(
+      freshDecodedPayload({
+        requestDetails: {
+          requestHash: requestHashFor(
+            "Bx55kuozhq9skznuW563/s+byM8vYsA3T5S9TBnkx/g=",
+            SIGNING_KEY_SPKI,
+          ),
+        },
+      }),
+      "requestHash mismatch",
+    ));
+
+  it("rejects a hash computed over a different signing key's SPKI", () =>
+    expectInvalid(
+      freshDecodedPayload({
+        requestDetails: {
+          requestHash: requestHashFor(VALID_ENVELOPE.challenge, OTHER_SPKI),
+        },
+      }),
+      "requestHash mismatch",
+    ));
+
+  it("rejects a requestHash of a different length (no timingSafeEqual throw)", () =>
+    expectInvalid(
+      freshDecodedPayload({
+        requestDetails: { requestHash: VALID_REQUEST_HASH + "x" },
+      }),
+      "requestHash mismatch",
+    ));
+});
+
 describe("consumePlayIntegrityForStage — decode HTTP errors", () => {
   it("maps Google 400 (bad token) to ATTESTATION_INVALID", async () => {
     mockFetchError(400, "Invalid integrity_token");
@@ -586,6 +702,7 @@ describe("consumePlayIntegrityForStage — decode HTTP errors", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 1",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -602,6 +719,7 @@ describe("consumePlayIntegrityForStage — decode HTTP errors", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 1",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -617,6 +735,7 @@ describe("consumePlayIntegrityForStage — decode HTTP errors", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 1",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -632,6 +751,7 @@ describe("consumePlayIntegrityForStage — decode HTTP errors", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 1",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -654,6 +774,7 @@ describe("consumePlayIntegrityForStage — decode HTTP errors", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 1",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -681,6 +802,7 @@ describe("consumePlayIntegrityForStage — DB integration", () => {
         VALID_ENVELOPE,
         KEY_ID,
         "Stage 1",
+        SIGNING_KEY_SPKI,
         CONFIG,
       );
       throw new Error("expected throw");
@@ -694,7 +816,7 @@ describe("consumePlayIntegrityForStage — DB integration", () => {
     const dbErr = new Error("connection refused");
     consumeMock.mockRejectedValueOnce(dbErr);
     await expect(
-      consumePlayIntegrityForStage(VALID_ENVELOPE, KEY_ID, "Stage 1", CONFIG),
+      consumePlayIntegrityForStage(VALID_ENVELOPE, KEY_ID, "Stage 1", SIGNING_KEY_SPKI, CONFIG),
     ).rejects.toBe(dbErr);
   });
 });

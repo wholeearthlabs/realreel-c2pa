@@ -199,7 +199,7 @@ Stage 2 records the resize / compress / rotate applied at upload.
 | Sign uploads from a repackaged build | Stage 2 attestation rejects repackaged / non-Apple-signed builds — App Attest verifies the on-disk app package against genuine Apple hardware, and Google returns an unrecognized-version verdict. |
 | Extract the device signing key | The key never leaves secure hardware, even with root access. **Bootloader unlock wipes it**; re-enrollment then fails attestation. |
 | Replay a previously-uploaded manifest | Each upload binds a fresh server nonce, burned atomically on accept; a replay fails as `ATTESTATION_REPLAY`. |
-| Cross-device token replay | The challenge is minted bound to a registry-owned key, so a token for device A can't be redeemed by device B. |
+| Cross-device token replay | The challenge is minted bound to a registry-owned key, and on Android the verifier rebuilds the token's `requestHash` from that challenge and the enrolled public key, so a token for device A can't be redeemed by device B. |
 | Stale Android firmware | Enrollment requires OS, vendor and boot patch levels inside the C2PA AL2 windows, plus a hardware-backed `MEETS_STRONG_INTEGRITY` verdict (Android 13+) at upload. |
 | Compromised or lost device | A revocation denylist — the verifier rejects any upload signed by, or whose capture references, a revoked key. Immediate, independent of token TTL. |
 | Backdated signatures | Trusted RFC 3161 timestamps anchor each signature to an independent clock; the verifier validates each certificate as of its timestamp (an upper-bound proof of when the signature was made). |

@@ -12,8 +12,11 @@
 //   2. JWS decode + Google signature verification — done by Google's
 //      decodeIntegrityToken server API. The returned plaintext verdict
 //      payload is trustworthy iff the API call succeeded.
-//   3. Verdict enforcement — appRecognitionVerdict == PLAY_RECOGNIZED
-//      AND deviceRecognitionVerdict contains MEETS_STRONG_INTEGRITY.
+//   3. Verdict enforcement — appRecognitionVerdict == PLAY_RECOGNIZED,
+//      deviceRecognitionVerdict contains MEETS_STRONG_INTEGRITY, and
+//      requestHash == base64url(SHA256(challenge || signing-key SPKI)), the
+//      binding the Android module sets when it requests the token. A token
+//      minted for another key or another nonce fails here.
 //   4. Single-use challenge consumption — atomic UPDATE in the verifier's
 //      DB burns the server-issued nonce, so a captured-and-republished
 //      manifest fails the second redemption.
@@ -23,17 +26,8 @@
 // claims if Google's signature is unchecked. So this validator does FULL JWS
 // verification via Google's decodeIntegrityToken API — there is no
 // structural-only fallback path.
-//
-// Deferred (defense-in-depth only): a requestHash binding check —
-// confirming the JWS payload's
-// `tokenPayloadExternal.requestDetails.requestHash` equals
-// base64url(SHA256(challenge || signing_leaf_SPKI)). The Android module
-// already produces this binding device-side; the verifier can't reconstruct
-// it because c2pa-node (0.5.5 through 0.8.0) doesn't expose the leaf cert's SPKI bytes.
-// Defended by the nonce burn alone for now — a token issued for device A's
-// SPKI can't be replayed against device B's manifest because the (key_id,
-// nonce) consume RPC binds the nonce to device A's signing key.
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import { GoogleAuth } from "google-auth-library";
 
 import { postgresAdapter } from "../db.js";
@@ -124,12 +118,9 @@ const MIN_SDK_VERSION_FOR_STRONG = 33;
 // bounded by upload latency, not round-trip — a large video on bad cellular
 // can take tens of minutes to upload after Stage 2 signs.
 //
-// The window can be loose because it isn't the primary replay defense: a
-// replay needs the hardware-backed signing key the token is bound to (via
-// requestHash = SHA256(challenge||SPKI), non-extractable in StrongBox/TEE),
-// c2pa-rs content-hash binding blocks swapping content into someone else's
-// manifest, and the nonce is keyed to (signing_key_id, nonce) so an attacker
-// can't mint one against another user's key.
+// The window can be loose because it isn't the primary replay defense: the
+// nonce burn is, and requestHash ties the token to that nonce and to the
+// enrolled signing key.
 const TOKEN_FRESHNESS_WINDOW_MS = 30 * 60 * 1000;
 
 // Hard timeout on the Google decode call so a hanging API call doesn't pin a
@@ -253,21 +244,25 @@ function isBase64(value: string): boolean {
  *
  *   1. Google decodeIntegrityToken API call (verifies the JWS signature
  *      server-side, returns plaintext verdicts).
- *   2. Package-name / verdict / freshness checks on the decoded payload.
+ *   2. Package-name / requestHash / verdict / freshness checks on the
+ *      decoded payload.
  *   3. consumeAndRecordAttestation RPC to burn the nonce single-use.
  *
- * Stage label is threaded through for legible error messages — a single
- * verifier pass validates Stage 1 then Stage 2 and the messages need to
- * tell them apart.
+ * `signingKeySpki` is the enrollment-stored SPKI DER of the Stage-2 signing
+ * key (user_signing_keys.public_key), the second half of the requestHash
+ * preimage. Stage label is threaded through for legible error messages — a
+ * single verifier pass validates Stage 1 then Stage 2 and the messages need
+ * to tell them apart.
  */
 export async function consumePlayIntegrityForStage(
   envelope: PlayIntegrityAssertionData,
   signingKeyId: string,
   stageLabel: string,
+  signingKeySpki: Uint8Array,
   config: PlayIntegrityConfig | undefined,
   nonceBurner: NonceBurner = postgresAdapter,
 ): Promise<void> {
-  await verifyPlayIntegrityToken(envelope, stageLabel, config);
+  await verifyPlayIntegrityToken(envelope, stageLabel, signingKeySpki, config);
   await consumeNonce(envelope.challenge, signingKeyId, stageLabel, nonceBurner);
 }
 
@@ -278,6 +273,7 @@ export async function consumePlayIntegrityForStage(
 export async function verifyPlayIntegrityToken(
   envelope: PlayIntegrityAssertionData,
   stageLabel: string,
+  signingKeySpki: Uint8Array,
   config: PlayIntegrityConfig | undefined,
 ): Promise<void> {
   if (!config) {
@@ -288,7 +284,27 @@ export async function verifyPlayIntegrityToken(
     return;
   }
   const payload = await decodeIntegrityToken(envelope.token, config);
-  enforceVerdicts(payload, config, stageLabel);
+  enforceVerdicts(
+    payload,
+    config,
+    stageLabel,
+    expectedRequestHash(envelope.challenge, signingKeySpki),
+  );
+}
+
+/**
+ * base64url-no-pad(SHA256(challenge_bytes || SPKI DER)) — what
+ * PhotoAttestModule.kt sets as the StandardIntegrityTokenRequest requestHash,
+ * which Google echoes back in requestDetails.requestHash.
+ */
+export function expectedRequestHash(
+  challenge: string,
+  signingKeySpki: Uint8Array,
+): string {
+  return createHash("sha256")
+    .update(Buffer.from(challenge, "base64"))
+    .update(signingKeySpki)
+    .digest("base64url");
 }
 
 /**
@@ -426,6 +442,9 @@ function truncate(s: string, max: number): string {
  *     settings — see DEPLOY.md).
  *   * requestPackageName matches our configured package name — defends
  *     against a token forwarded from a different app's project.
+ *   * requestDetails.requestHash equals the hash rebuilt from the manifest's
+ *     challenge and the enrollment-stored signing key — a fresh token for our
+ *     package can't be paired with another key's nonce.
  *   * timestampMillis within the freshness window — defense-in-depth
  *     against very-old tokens (the nonce burn is the primary defense).
  */
@@ -433,6 +452,7 @@ function enforceVerdicts(
   payload: PlayIntegrityDecodedPayload,
   config: PlayIntegrityConfig,
   stageLabel: string,
+  requestHash: string,
 ): void {
   const ext = payload.tokenPayloadExternal;
   if (!ext) {
@@ -447,6 +467,22 @@ function enforceVerdicts(
     throw piVerifyError(
       VerifyErrorCode.ATTESTATION_INVALID,
       `${stageLabel} Play Integrity requestPackageName mismatch (got '${reqPkg ?? "(missing)"}', want '${config.packageName}')`,
+    );
+  }
+
+  const gotHash = ext.requestDetails?.requestHash;
+  if (typeof gotHash !== "string") {
+    throw piVerifyError(
+      VerifyErrorCode.ATTESTATION_INVALID,
+      `${stageLabel} Play Integrity requestHash missing`,
+    );
+  }
+  const got = Buffer.from(gotHash);
+  const want = Buffer.from(requestHash);
+  if (got.length !== want.length || !timingSafeEqual(got, want)) {
+    throw piVerifyError(
+      VerifyErrorCode.ATTESTATION_INVALID,
+      `${stageLabel} Play Integrity requestHash mismatch — token is not bound to this challenge and signing key`,
     );
   }
 

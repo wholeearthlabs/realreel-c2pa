@@ -242,8 +242,9 @@ export async function verifyRealReel(
   // is burned. Stage 2 attestation is the upload-time proof:
   //   * iOS: org.realreel.app_attest — Apple cryptographic chain check.
   //   * Android: org.realreel.play_integrity — full JWS decode (verdicts
-  //     PLAY_RECOGNIZED + MEETS_STRONG_INTEGRITY). Play Integrity is
-  //     online-only and catches post-boot runtime tampering.
+  //     PLAY_RECOGNIZED + MEETS_STRONG_INTEGRITY, requestHash bound to this
+  //     key). Play Integrity is online-only and catches post-boot runtime
+  //     tampering.
   const stage2Envelope = resolveStageEnvelope(
     active,
     stage2Row.platform,
@@ -275,10 +276,20 @@ export async function verifyRealReel(
       datastore,
     );
   } else if (stage2Envelope?.kind === "play_integrity") {
+    // The token's requestHash is rebuilt from the enrollment-stored SPKI. A
+    // row lacking it cannot be verified — reject, with no nonce-only
+    // fallback, the same rule as the iOS branch above.
+    if (!stage2Row.public_key) {
+      throw new VerifyError(
+        VerifyErrorCode.ATTESTATION_INVALID,
+        "Stage 2 Android signing key has no enrollment-stored public key — cannot verify the Play Integrity requestHash binding",
+      );
+    }
     await consumePlayIntegrityForStage(
       stage2Envelope.data,
       stage2Row.key_id,
       "Stage 2",
+      new Uint8Array(stage2Row.public_key),
       playIntegrityConfig,
       datastore,
     );

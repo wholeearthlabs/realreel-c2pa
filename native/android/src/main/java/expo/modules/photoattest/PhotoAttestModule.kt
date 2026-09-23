@@ -1326,10 +1326,8 @@ class PhotoAttestModule : Module() {
   // Per-capture Play Integrity Standard token. Bound to
   // `SHA256(challenge_bytes || spki_der_bytes)` via the request's `requestHash`
   // field (URL-safe base64 no-pad). The SPKI binding is the same convention iOS
-  // uses for App Attest clientDataHash. Today the verifier validates
-  // structurally + nonce burn + JWS signature + verdicts; reconstructing the
-  // requestHash from the signing leaf SPKI is deferred (the SDK doesn't expose
-  // the leaf SPKI yet).
+  // uses for App Attest clientDataHash; the verifier rebuilds the hash from the
+  // enrollment-stored SPKI and rejects a token whose requestHash differs.
   //
   // The actual content the device is signing (the C2PA claim) is not folded
   // into requestHash — c2pa-rs's COSE_Sign1 already hash-binds every
