@@ -9,7 +9,9 @@
 //   3. Validate platform.
 //   4. Parse the CSR, verify its self-signature (possession proof), and
 //      constant-time-compare its SPKI against the attested SE/StrongBox pubkey.
-//   5. Branch on platform → call validateAppleAttestation or validateAndroidAttestation.
+//   5. Branch on platform → call validateAppleAttestation or
+//      validateAndroidAttestation (Android also needs Google's attestation
+//      revocation list; 503 when no usable copy can be fetched).
 //   6. Build the leaf TBSCertificate, hash it, ask Cloud KMS to sign it with
 //      the RealReel intermediate key, assemble `leaf + intermediate` PEM.
 //   7. Call register_user_signing_key RPC (plain INSERT — see Notes below).
@@ -44,6 +46,10 @@ import { enforceRateLimit } from "../_shared/rate_limit.ts";
 import { validateAppleAttestation } from "../_shared/attestation/apple.ts";
 import { validateAndroidAttestation } from "../_shared/attestation/android.ts";
 import {
+  type AndroidRevocationList,
+  buildAndroidRevocationLoader,
+} from "../_shared/attestation/android_revocation.ts";
+import {
   AttestationError,
   base64ToBytes,
   bytesToBase64,
@@ -71,7 +77,6 @@ import {
   loadKmsCredentials,
 } from "../_shared/kms.ts";
 import {
-  ANDROID_MIN_PATCH_LOOKBACK_MONTHS,
   ANDROID_PACKAGE_NAME,
   APPLE_APP_ID,
   MAX_SIGNING_KEY_ID_CHARS,
@@ -85,8 +90,8 @@ import {
 // before expiry via a non-destructive key rotation (the app's enrollment
 // client).
 //
-// v1 issues a flat 180 days. v2 validity is per-platform/per-AL — CP §7.1.2
-// caps AL2 leaves at 90 days and AL1 at 366.
+// v1 issues a flat 180 days. v2 validity is per platform: Android is issued
+// at AL2, which CP §7.1.2 caps at 90 days; iOS at AL1 (cap 366).
 //
 // No verifier-side sync needed: the verifier's time gate reads each leaf's
 // actual issued_at/expires_at from the issued_certificates ledger
@@ -95,10 +100,9 @@ import {
 export function leafValidityDays(
   hierarchy: CaHierarchy,
   platform: LeafPlatform,
-  assuranceLevel: AssuranceLevel,
 ): number {
   if (hierarchy === "v1") return 180;
-  return platform === "android" && assuranceLevel === "AL2" ? 90 : 180;
+  return platform === "android" ? 90 : 180;
 }
 
 /**
@@ -114,6 +118,9 @@ export interface RegisterDeps {
   makeServiceRoleClient: typeof makeServiceRoleClient;
   validateAppleAttestation: typeof validateAppleAttestation;
   validateAndroidAttestation: typeof validateAndroidAttestation;
+  /** Google's attestation revocation list, cached per isolate (see
+   *  android_revocation.ts). Throws when no usable copy exists. */
+  loadAndroidRevocationList: () => Promise<AndroidRevocationList>;
   parseCSRFromPem: typeof parseCSRFromPem;
   verifyCSRSignature: typeof verifyCSRSignature;
   extractCSRSpkiDer: typeof extractCSRSpkiDer;
@@ -226,6 +233,7 @@ export const defaultDeps: RegisterDeps = {
   makeServiceRoleClient,
   validateAppleAttestation,
   validateAndroidAttestation,
+  loadAndroidRevocationList: buildAndroidRevocationLoader(),
   parseCSRFromPem,
   verifyCSRSignature,
   extractCSRSpkiDer,
@@ -529,17 +537,15 @@ export async function handleRegister(
     );
   }
 
-  // Platform group + granted assurance level for leaf issuance (v2 semantics;
-  // v1 ignores both). iOS is AL1 by policy (CP Apple-side CA validation
-  // guidance is still "under development"). Android starts at AL1 and is
-  // promoted to AL2 below iff the full CP Appendix A.3.1 evidence table
-  // passes (validateAndroidAttestation's al2 evaluation); AL2-only failures
-  // degrade, never reject. Promotion happens before issuance, so both
-  // consumers — leafValidityDays and resolveV2LeafOptions — see the same
-  // granted level (they must agree, or the leaf's c2pa-al OID and its
-  // notAfter disagree).
+  // Platform group + assurance level for leaf issuance (v2 semantics; v1
+  // ignores both). iOS is AL1 by policy (CP Apple-side CA validation
+  // guidance is still "under development"). Android is AL2:
+  // validateAndroidAttestation enforces the full CP Appendix A.3.1 evidence
+  // table and rejects anything short of it.
   const leafPlatform: LeafPlatform = platform === "ios" ? "ios" : "android";
-  let grantedAssurance: AssuranceLevel = "AL1";
+  const assuranceLevel: AssuranceLevel = leafPlatform === "android"
+    ? "AL2"
+    : "AL1";
 
   let appAttestPublicKey: Uint8Array | null = null;
   try {
@@ -566,14 +572,23 @@ export async function handleRegister(
       if (!Array.isArray(certChainBase64)) {
         return jsonResponse({ error: "Invalid attestation" }, { status: 400 });
       }
-      // Patch-gate: reject enrollments whose leaf-cert osPatchLevel is older
-      // than the rolling lookback window. Computing the threshold here (not in
-      // the validator) keeps the validator a pure function of its inputs.
-      const minOsPatchLevel = computeMinOsPatchLevel(
-        new Date(),
-        ANDROID_MIN_PATCH_LOOKBACK_MONTHS,
-      );
-      const androidResult = await deps.validateAndroidAttestation({
+      const signingCertSha256Digests = androidSigningCertDigestsFromEnv();
+      const minAppVersionCode = androidMinAppVersionCodeFromEnv();
+      let revokedSerials: AndroidRevocationList;
+      try {
+        revokedSerials = await deps.loadAndroidRevocationList();
+      } catch (e) {
+        console.error(
+          `[register-signing-key] ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+        return jsonResponse(
+          { error: "Service temporarily unavailable" },
+          { status: 503, extraHeaders: { "Retry-After": "60" } },
+        );
+      }
+      await deps.validateAndroidAttestation({
         certChainBase64,
         challenge: challengeBytes,
         sePublicKey,
@@ -581,36 +596,28 @@ export async function handleRegister(
         expectedSecurityLevel: platform === "android-strongbox"
           ? "strongbox"
           : "tee",
-        minOsPatchLevel,
-        // Always evaluate the AL2 evidence table (even under v1) so fleet
-        // AL2-eligibility is observable in logs before the v2 flip; the
-        // granted level only shapes issuance under v2.
-        al2: {
-          signingCertSha256Digests: androidSigningCertDigestsFromEnv(),
-          minAppVersionCode: androidMinAppVersionCodeFromEnv(),
-          now: new Date(),
-        },
+        signingCertSha256Digests,
+        minAppVersionCode,
+        revokedSerials,
       });
-      if (androidResult.al2?.eligible) {
-        grantedAssurance = "AL2";
-      } else {
-        console.log(
-          `[register-signing-key] AL2 degraded to AL1 user=${user.id} ` +
-            `failures=${
-              androidResult.al2?.failures.join(",") ?? "not-evaluated"
-            }`,
-        );
-      }
     }
   } catch (e) {
     if (e instanceof AttestationError) {
+      if (e.code === "CA_CONFIG_INVALID") {
+        console.error(
+          `[register-signing-key] config error code=${e.code}: ${e.message}`,
+        );
+        return jsonResponse({ error: "Server misconfiguration" }, {
+          status: 500,
+        });
+      }
       console.warn(
         `[register-signing-key] attestation rejected user=${user.id} platform=${platform} code=${e.code} message=${e.message}`,
       );
-      // Surface the patch-gate as a distinct error code so the client can
-      // render an actionable "update your device" message. All other
-      // AttestationError codes stay generic — leaking which check failed gives
-      // an attacker a playbook for tweaking inputs until they get through.
+      // The one code surfaced to the client: the app renders an actionable
+      // "update your device" message for it. Every other AttestationError
+      // stays generic — leaking which check failed gives an attacker a
+      // playbook for tweaking inputs until they get through.
       if (e.code === "ATTESTATION_STALE_PATCH") {
         return jsonResponse(
           { error: "Device security patch level out of date", code: e.code },
@@ -645,7 +652,7 @@ export async function handleRegister(
     await deps.ensureIntermediateMatchesKms(kmsCreds, intermediatePem);
     const issued = await deps.issueLeafChainFromCSR(csr, {
       intermediatePem,
-      validityDays: leafValidityDays(hierarchy, leafPlatform, grantedAssurance),
+      validityDays: leafValidityDays(hierarchy, leafPlatform),
       signer: (digest) =>
         deps.kmsSignDigest(
           digest,
@@ -657,7 +664,7 @@ export async function handleRegister(
       // UUID, so a half-configured flip can't mint a leaf missing its CPL
       // binding.
       v2: hierarchy === "v2"
-        ? resolveV2LeafOptions(leafPlatform, grantedAssurance)
+        ? resolveV2LeafOptions(leafPlatform, assuranceLevel)
         : undefined,
     });
     leafChainPEM = issued.pem;
@@ -763,18 +770,9 @@ export async function handleRegister(
   }
 
   console.log(
-    `[register-signing-key] enrolled user=${user.id} platform=${platform} key_version=${keyVersion}` +
-      (hierarchy === "v2" ? ` assurance=${grantedAssurance}` : ""),
+    `[register-signing-key] enrolled user=${user.id} platform=${platform} key_version=${keyVersion}`,
   );
-  // v2 surfaces the granted assurance level so the client can show which
-  // level this device actually enrolled at (AL2 evidence failures degrade to
-  // AL1 rather than rejecting; the user should be able to see that).
-  return jsonResponse({
-    ok: true,
-    leafChainPEM,
-    keyId: dbKeyId,
-    ...(hierarchy === "v2" ? { assuranceLevel: grantedAssurance } : {}),
-  });
+  return jsonResponse({ ok: true, leafChainPEM, keyId: dbKeyId });
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -787,26 +785,31 @@ function bytesToHex(bytes: Uint8Array): string {
 
 // ANDROID_APP_SIGNING_CERT_SHA256: comma-separated hex SHA-256 digests of the
 // registered APK signing certificate(s) — Play App Signing cert in prod, the
-// debug keystore cert on a local stack. Malformed entries are dropped with a
-// warning; an empty result just means the AL2 signing-cert row can't pass
-// (degrade to AL1), never a rejection.
+// debug keystore cert on a local stack. Required for Android enrollment:
+// unset or malformed is a server misconfiguration (CA_CONFIG_INVALID → 500),
+// never a device rejection.
 export function androidSigningCertDigestsFromEnv(): Uint8Array[] {
   const raw = Deno.env.get("ANDROID_APP_SIGNING_CERT_SHA256") ?? "";
-  const out: Uint8Array[] = [];
-  for (const entry of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
+  const entries = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  if (entries.length === 0) {
+    throw new AttestationError(
+      "CA_CONFIG_INVALID",
+      "ANDROID_APP_SIGNING_CERT_SHA256 is unset; Android enrollment needs the registered APK signing-cert digest(s)",
+    );
+  }
+  return entries.map((entry) => {
     if (!/^[0-9a-fA-F]{64}$/.test(entry)) {
-      console.warn(
-        "[register-signing-key] ANDROID_APP_SIGNING_CERT_SHA256 entry is not 64 hex chars; ignoring",
+      throw new AttestationError(
+        "CA_CONFIG_INVALID",
+        "ANDROID_APP_SIGNING_CERT_SHA256 entry is not 64 hex chars",
       );
-      continue;
     }
     const bytes = new Uint8Array(32);
     for (let i = 0; i < 32; i++) {
       bytes[i] = parseInt(entry.slice(i * 2, i * 2 + 2), 16);
     }
-    out.push(bytes);
-  }
-  return out;
+    return bytes;
+  });
 }
 
 // ANDROID_MIN_APP_VERSION_CODE: optional versionCode floor for the AL2
@@ -817,33 +820,12 @@ export function androidMinAppVersionCodeFromEnv(): number | undefined {
   if (!raw) return undefined;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 0) {
-    console.warn(
-      "[register-signing-key] ANDROID_MIN_APP_VERSION_CODE is not a non-negative integer; ignoring",
+    throw new AttestationError(
+      "CA_CONFIG_INVALID",
+      "ANDROID_MIN_APP_VERSION_CODE is not a non-negative integer",
     );
-    return undefined;
   }
   return n;
-}
-
-/**
- * Compute the minimum-acceptable Keymaster osPatchLevel in YYYYMM form, given
- * the current date and a lookback window in months.
- *
- * `Date.setUTCMonth(m)` accepts out-of-range month indices (e.g. -3 rolls the
- * year back), which gives the "12 months ago" lookback without wrap logic.
- *
- * Boundary semantics: the validator uses strict `<` (not `<=`), so a device
- * patched exactly `lookbackMonths` ago (osPatchLevel == the value this
- * returns) is ACCEPTED — flipping to `<=` here without flipping the comparison
- * would shift the gate by one month.
- */
-export function computeMinOsPatchLevel(
-  now: Date,
-  lookbackMonths: number,
-): number {
-  const cutoff = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  cutoff.setUTCMonth(cutoff.getUTCMonth() - lookbackMonths);
-  return cutoff.getUTCFullYear() * 100 + (cutoff.getUTCMonth() + 1);
 }
 
 // Only start the HTTP server when this module is run directly; tests import

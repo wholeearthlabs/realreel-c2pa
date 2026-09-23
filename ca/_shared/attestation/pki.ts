@@ -666,7 +666,7 @@ export type LeafPlatform = "ios" | "android";
 
 /** C2PA conformance-program assurance level (CP §3.2.3): AL2 requires the
  * full dynamic-evidence table and caps validity at 90 days; AL1 caps at
- * 366 days. RealReel issues iOS at AL1 and Android at AL2-with-AL1-fallback. */
+ * 366 days. RealReel issues iOS at AL1 and Android at AL2. */
 export type AssuranceLevel = "AL1" | "AL2";
 
 // v2 issuance parameters. Resolved from env once per request by

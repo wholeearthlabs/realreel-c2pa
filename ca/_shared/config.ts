@@ -132,23 +132,3 @@ export const REQUIRE_PRODUCTION_APPATTEST = _pins.requireProductionAppAttest;
 // into _shared so a future change to the canonical form propagates to both
 // edge functions without drift.
 export const MAX_SIGNING_KEY_ID_CHARS = 128;
-
-// Android enrollment patch-gate.
-//
-// At register-signing-key, reject Android attestations whose leaf-cert
-// osPatchLevel is older than (now - ANDROID_MIN_PATCH_LOOKBACK_MONTHS). A
-// rolling window self-adjusts and matches Google's "12-month security
-// bulletin coverage" SLA for OEMs.
-//
-// osPatchLevel is a Keymaster `INTEGER` encoded as YYYYMM (e.g. 202501 =
-// January 2025), stored in the AuthorizationList of the leaf's Android Key
-// Attestation extension. Some legacy / non-conformant builds emit YYYYMMDD —
-// the validator normalizes to YYYYMM before comparison.
-//
-// iOS has no equivalent patch signal (the App Attest assertion carries no OS
-// version), so iOS enrollment has no patch-gate.
-//
-// A config CONSTANT, not env — rotation is a code edit + redeploy (same as
-// APPLE_TEAM_ID), which is intentional friction so a misclick can't unblock
-// stale firmware.
-export const ANDROID_MIN_PATCH_LOOKBACK_MONTHS = 12;

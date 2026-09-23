@@ -7,13 +7,26 @@
 // or directly:
 //   deno test --allow-read --allow-env ca/_shared/attestation/android_test.ts
 
-import { assertEquals, assertRejects, assertThrows } from "std/assert/mod.ts";
 import {
-  enforcePatchGate,
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+  assertThrows,
+} from "std/assert/mod.ts";
+import {
+  type Al2EvidenceOpts,
+  enforceAl2Evidence,
+  extractAttestationApplicationId,
+  extractDayPatchLevel,
   extractOsPatchLevel,
-  selectOsPatchLevel,
+  extractRootOfTrust,
+  type KeyDescription,
+  readTaggedInt,
+  readTaggedIntSet,
   validateAndroidAttestation,
+  type ValidateAndroidAttestationOpts,
 } from "./android.ts";
+import type { AndroidRevocationList } from "./android_revocation.ts";
 import { asn1js, AttestationError } from "./pki.ts";
 import { ANDROID_PACKAGE_NAME } from "../config.ts";
 
@@ -29,6 +42,14 @@ function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
   return out;
 }
 
@@ -49,10 +70,37 @@ function expectedSecurityLevel(p: Fixture["platform"]) {
 // RKP-provisioned chains carry ~2-week batch certs (the committed strongbox
 // fixture's batch cert is valid 2026-04-30..2026-05-13), so the fixture ages
 // out of its own validity window almost immediately. Pin validation to a
-// moment inside the capture window — this is the test-only escape hatch
-// validateAndroidAttestation exposes; production callers validate at "now"
+// moment inside the capture window; production callers validate at "now"
 // against the freshly provisioned chain the device presents at enrollment.
 const FIXTURE_VALIDATION_TIME = new Date("2026-05-05T12:00:00Z");
+
+// The committed strongbox fixture's attestationApplicationId signing digest.
+const FIXTURE_SIGNING_CERT_SHA256 = hexToBytes(
+  "fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c",
+);
+// Serials from the same chain in the revocation list's form (lowercase hex,
+// no leading zeros). The intermediate's DER content octets start with 0x00.
+const FIXTURE_LEAF_SERIAL = "1";
+const FIXTURE_INTERMEDIATE_SERIAL = "924250191903e3ba65320efd6a2085fb";
+
+const NO_REVOCATIONS: AndroidRevocationList = new Map();
+
+function fixtureOpts(
+  fix: Fixture,
+  over: Partial<ValidateAndroidAttestationOpts> = {},
+): ValidateAndroidAttestationOpts {
+  return {
+    certChainBase64: JSON.parse(fix.attestation),
+    validationTime: FIXTURE_VALIDATION_TIME,
+    challenge: base64ToBytes(fix.challenge),
+    sePublicKey: base64ToBytes(fix.publicKey),
+    packageName: ANDROID_PACKAGE_NAME,
+    expectedSecurityLevel: expectedSecurityLevel(fix.platform),
+    signingCertSha256Digests: [FIXTURE_SIGNING_CERT_SHA256],
+    revokedSerials: NO_REVOCATIONS,
+    ...over,
+  };
+}
 
 for (const name of ["android_strongbox", "android_tee"] as const) {
   Deno.test(`Android attestation (${name}) — happy path`, async () => {
@@ -61,14 +109,7 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
       console.warn(`skipping: ${name}.json fixture not present.`);
       return;
     }
-    await validateAndroidAttestation({
-      certChainBase64: JSON.parse(fix.attestation),
-      validationTime: FIXTURE_VALIDATION_TIME,
-      challenge: base64ToBytes(fix.challenge),
-      sePublicKey: base64ToBytes(fix.publicKey),
-      packageName: ANDROID_PACKAGE_NAME,
-      expectedSecurityLevel: expectedSecurityLevel(fix.platform),
-    });
+    await validateAndroidAttestation(fixtureOpts(fix));
   });
 
   Deno.test(`Android attestation (${name}) — rejects wrong challenge`, async () => {
@@ -78,14 +119,9 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
     crypto.getRandomValues(wrongChallenge);
     await assertRejects(
       () =>
-        validateAndroidAttestation({
-          certChainBase64: JSON.parse(fix.attestation),
-          validationTime: FIXTURE_VALIDATION_TIME,
-          challenge: wrongChallenge,
-          sePublicKey: base64ToBytes(fix.publicKey),
-          packageName: ANDROID_PACKAGE_NAME,
-          expectedSecurityLevel: expectedSecurityLevel(fix.platform),
-        }),
+        validateAndroidAttestation(
+          fixtureOpts(fix, { challenge: wrongChallenge }),
+        ),
       AttestationError,
     );
   });
@@ -97,14 +133,7 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
     wrongKey[wrongKey.length - 1] ^= 0x01;
     await assertRejects(
       () =>
-        validateAndroidAttestation({
-          certChainBase64: JSON.parse(fix.attestation),
-          validationTime: FIXTURE_VALIDATION_TIME,
-          challenge: base64ToBytes(fix.challenge),
-          sePublicKey: wrongKey,
-          packageName: ANDROID_PACKAGE_NAME,
-          expectedSecurityLevel: expectedSecurityLevel(fix.platform),
-        }),
+        validateAndroidAttestation(fixtureOpts(fix, { sePublicKey: wrongKey })),
       AttestationError,
     );
   });
@@ -114,14 +143,9 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
     if (!fix) return;
     await assertRejects(
       () =>
-        validateAndroidAttestation({
-          certChainBase64: JSON.parse(fix.attestation),
-          validationTime: FIXTURE_VALIDATION_TIME,
-          challenge: base64ToBytes(fix.challenge),
-          sePublicKey: base64ToBytes(fix.publicKey),
-          packageName: "com.attacker.app",
-          expectedSecurityLevel: expectedSecurityLevel(fix.platform),
-        }),
+        validateAndroidAttestation(
+          fixtureOpts(fix, { packageName: "com.attacker.app" }),
+        ),
       AttestationError,
     );
   });
@@ -141,14 +165,9 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
     }
     await assertRejects(
       () =>
-        validateAndroidAttestation({
-          certChainBase64: JSON.parse(fix.attestation),
-          validationTime: FIXTURE_VALIDATION_TIME,
-          challenge: base64ToBytes(fix.challenge),
-          sePublicKey: base64ToBytes(fix.publicKey),
-          packageName: ANDROID_PACKAGE_NAME,
-          expectedSecurityLevel: lying,
-        }),
+        validateAndroidAttestation(
+          fixtureOpts(fix, { expectedSecurityLevel: lying }),
+        ),
       AttestationError,
     );
   });
@@ -163,14 +182,9 @@ for (const name of ["android_strongbox", "android_tee"] as const) {
     chain[0] = btoa(String.fromCharCode(...leafBytes));
     await assertRejects(
       () =>
-        validateAndroidAttestation({
-          certChainBase64: chain,
-          validationTime: FIXTURE_VALIDATION_TIME,
-          challenge: base64ToBytes(fix.challenge),
-          sePublicKey: base64ToBytes(fix.publicKey),
-          packageName: ANDROID_PACKAGE_NAME,
-          expectedSecurityLevel: expectedSecurityLevel(fix.platform),
-        }),
+        validateAndroidAttestation(
+          fixtureOpts(fix, { certChainBase64: chain }),
+        ),
       AttestationError,
     );
   });
@@ -198,14 +212,9 @@ Deno.test(
     chain[0] = btoa(String.fromCharCode(...leaf));
     const err = await assertRejects(
       () =>
-        validateAndroidAttestation({
-          certChainBase64: chain,
-          validationTime: FIXTURE_VALIDATION_TIME,
-          challenge: base64ToBytes(fix.challenge),
-          sePublicKey: base64ToBytes(fix.publicKey),
-          packageName: ANDROID_PACKAGE_NAME,
-          expectedSecurityLevel: "strongbox",
-        }),
+        validateAndroidAttestation(
+          fixtureOpts(fix, { certChainBase64: chain }),
+        ),
       AttestationError,
     );
     assertEquals((err as AttestationError).code, "CHAIN_INVALID");
@@ -217,11 +226,114 @@ Deno.test("Android attestation — constants", () => {
 });
 
 // =====================================================================
-// extractOsPatchLevel — enrollment patch-gate parse + normalize
-//
-// Directly test the AuthorizationList field walker so the gate's
-// comparison branch isn't only exercised through the register-signing-key
-// stub.
+// validateAndroidAttestation — A.3.1 rows and the revocation list against
+// the real strongbox chain. Patch-currency rows can't be aged out here
+// (the chain's own validity window is two weeks); enforceAl2Evidence covers
+// them below with synthetic KeyDescriptions.
+// =====================================================================
+
+Deno.test("validateAndroidAttestation — rejects a signing-cert digest that isn't registered", async () => {
+  const fix = await loadFixture("android_strongbox");
+  if (!fix) return;
+  const err = await assertRejects(
+    () =>
+      validateAndroidAttestation(
+        fixtureOpts(fix, {
+          signingCertSha256Digests: [new Uint8Array(32).fill(0xbb)],
+        }),
+      ),
+    AttestationError,
+  );
+  assertEquals(err.code, "AL2_EVIDENCE_FAILED");
+  assertStringIncludes(err.message, "AL2_APP_SIGNING_CERT_MISMATCH");
+});
+
+Deno.test("validateAndroidAttestation — rejects with no registered signing-cert digests", async () => {
+  const fix = await loadFixture("android_strongbox");
+  if (!fix) return;
+  const err = await assertRejects(
+    () =>
+      validateAndroidAttestation(
+        fixtureOpts(fix, { signingCertSha256Digests: [] }),
+      ),
+    AttestationError,
+  );
+  assertEquals(err.code, "AL2_EVIDENCE_FAILED");
+});
+
+Deno.test("validateAndroidAttestation — app version floor: at the floor passes, above it rejects", async () => {
+  const fix = await loadFixture("android_strongbox");
+  if (!fix) return;
+  // The fixture attests versionCode 1.
+  await validateAndroidAttestation(fixtureOpts(fix, { minAppVersionCode: 1 }));
+  const err = await assertRejects(
+    () =>
+      validateAndroidAttestation(fixtureOpts(fix, { minAppVersionCode: 2 })),
+    AttestationError,
+  );
+  assertEquals(err.code, "AL2_EVIDENCE_FAILED");
+  assertStringIncludes(err.message, "AL2_APP_VERSION_BELOW_FLOOR");
+});
+
+Deno.test("validateAndroidAttestation — rejects a leaf serial on Google's revocation list", async () => {
+  const fix = await loadFixture("android_strongbox");
+  if (!fix) return;
+  const err = await assertRejects(
+    () =>
+      validateAndroidAttestation(
+        fixtureOpts(fix, {
+          revokedSerials: new Map([
+            [FIXTURE_LEAF_SERIAL, {
+              status: "REVOKED",
+              reason: "KEY_COMPROMISE",
+            }],
+          ]),
+        }),
+      ),
+    AttestationError,
+  );
+  assertEquals(err.code, "ATTESTATION_CERT_REVOKED");
+  assertStringIncludes(err.message, `serial ${FIXTURE_LEAF_SERIAL} `);
+  assertStringIncludes(err.message, "REVOKED/KEY_COMPROMISE");
+});
+
+Deno.test("validateAndroidAttestation — rejects an intermediate serial on the list, whatever its status", async () => {
+  const fix = await loadFixture("android_strongbox");
+  if (!fix) return;
+  const err = await assertRejects(
+    () =>
+      validateAndroidAttestation(
+        fixtureOpts(fix, {
+          revokedSerials: new Map([
+            [FIXTURE_INTERMEDIATE_SERIAL, {
+              status: "SUSPENDED",
+              reason: null,
+            }],
+          ]),
+        }),
+      ),
+    AttestationError,
+  );
+  assertEquals(err.code, "ATTESTATION_CERT_REVOKED");
+  assertStringIncludes(err.message, FIXTURE_INTERMEDIATE_SERIAL);
+});
+
+Deno.test("validateAndroidAttestation — a chain absent from a populated list passes", async () => {
+  const fix = await loadFixture("android_strongbox");
+  if (!fix) return;
+  await validateAndroidAttestation(
+    fixtureOpts(fix, {
+      revokedSerials: new Map([
+        ["deadbeef", { status: "REVOKED", reason: "KEY_COMPROMISE" }],
+        // The leaf's serial with a leading zero would be a different key.
+        ["01", { status: "REVOKED", reason: "KEY_COMPROMISE" }],
+      ]),
+    }),
+  );
+});
+
+// =====================================================================
+// extractOsPatchLevel — parse + normalize of the [706] field.
 //
 // Two wire encodings tested — see extractOsPatchLevel doc-comment:
 //   - EXPLICIT (constructed): real KeyMint shape. [706] wraps a Universal
@@ -231,9 +343,8 @@ Deno.test("Android attestation — constants", () => {
 //   - IMPLICIT (primitive): fallback for any future KeyMint that adopts
 //     it. Bytes sit directly in the [706] primitive's value block.
 //
-// The fixture-based validateAndroidAttestation tests above can't reach
-// this — fixtures pre-date the patch-gate so we backfilled by adding the
-// "real-fixture leaf carries a parseable osPatchLevel" test below.
+// The fixture happy path above covers the real DER: a parser regression
+// that returned null would fail the os patch row and reject it.
 // =====================================================================
 
 /** Build a minimal pkijs-shaped AuthorizationList containing exactly one
@@ -291,7 +402,7 @@ Deno.test(
   "extractOsPatchLevel — out-of-range value (pre-2000) returns null",
   () => {
     // 100001 (Oct 100 AD) — below the [200001, 210012] sanity bound. Returns
-    // null so the caller fail-closes treating the field as missing.
+    // null so the os patch row fails treating the field as missing.
     // 100001 = 0x186A1 = [0x01, 0x86, 0xA1]
     const authList = makeAuthListWithPatchLevel([0x01, 0x86, 0xa1]);
     assertEquals(extractOsPatchLevel(authList), null);
@@ -302,8 +413,7 @@ Deno.test(
   "extractOsPatchLevel — out-of-range value (post-2100) returns null",
   () => {
     // 210101 (Jan 2101) — above the [200001, 210012] sanity bound. Same
-    // null-fail behavior as the pre-2000 case. A far-future value also
-    // surfaces as "missing" so the caller's fail-closed branch rejects.
+    // null-fail behavior as the pre-2000 case.
     // 210101 = 0x33515 = [0x03, 0x35, 0x15]
     const authList = makeAuthListWithPatchLevel([0x03, 0x35, 0x15]);
     assertEquals(extractOsPatchLevel(authList), null);
@@ -349,191 +459,18 @@ Deno.test(
   },
 );
 
-Deno.test(
-  "validateAndroidAttestation — real fixture leaf carries parseable osPatchLevel (patch-gate regression)",
-  async () => {
-    // Regression guard for the patch-gate-rejected-every-real-Android-
-    // enrollment bug. The synthetic extractOsPatchLevel tests above
-    // can't catch a shape mismatch between our parser and what pkijs
-    // returns from a real DER — they construct nodes that may not
-    // reproduce the EXPLICIT-constructed wire form.
-    //
-    // Routes through the public validator entry point (not a private
-    // walker re-implemented in the test) so the next KeyMint variant
-    // exercises the exact production path. minOsPatchLevel = 200001
-    // is a floor below any conceivable real patch level: if
-    // extractOsPatchLevel returns the real value the gate passes
-    // trivially; if a future regression returns null again the
-    // null-fail-closed branch throws ATTESTATION_STALE_PATCH and the
-    // test fails — same behavior as the bug we just shipped a fix for.
-    const fix = await loadFixture("android_strongbox");
-    if (!fix) return; // fixture absent → not a regression
-    await validateAndroidAttestation({
-      certChainBase64: JSON.parse(fix.attestation),
-      validationTime: FIXTURE_VALIDATION_TIME,
-      challenge: base64ToBytes(fix.challenge),
-      sePublicKey: base64ToBytes(fix.publicKey),
-      packageName: ANDROID_PACKAGE_NAME,
-      expectedSecurityLevel: "strongbox",
-      minOsPatchLevel: 200001,
-    });
-  },
-);
-
 // =====================================================================
-// validateAndroidAttestation — patch-gate branch
-//
-// One end-to-end check that the threshold comparison + fail-closed null
-// branch actually fire from the public validator entry point. Fixtures
-// don't carry osPatchLevel, so we exercise the gate by checking the
-// helper directly above; here we just pin that minOsPatchLevel survives
-// the option-passing without crashing the validator on missing fixtures.
-// (Real chain rejection is unreachable without a fixture; this test
-// guards against a TypeScript-only regression that dropped the option.)
+// enforceAl2Evidence (CP Appendix A.3.1) — every row, the exact window
+// boundaries, and the failure-code mapping, on synthetic KeyDescriptions.
 // =====================================================================
-
-// =====================================================================
-// selectOsPatchLevel — hardware-vs-software preference convention
-// =====================================================================
-
-Deno.test(
-  "selectOsPatchLevel — prefers hardwareEnforced when both lists carry the tag",
-  () => {
-    // hardware=202501, software=202301. KeyMint v3+ mandates the tag in
-    // hardwareEnforced; the preference order pins that we use that value
-    // even when softwareEnforced also has one (e.g. a transition-era
-    // device emitting both).
-    const hardware = makeAuthListWithPatchLevel([0x03, 0x17, 0x05]); // 202501
-    const software = makeAuthListWithPatchLevel([0x03, 0x16, 0x6d]); // 202301
-    assertEquals(selectOsPatchLevel(hardware, software), 202501);
-  },
-);
-
-Deno.test(
-  "selectOsPatchLevel — falls back to softwareEnforced when hardware is absent",
-  () => {
-    // Older Keymaster v2 attestations carry the tag only in
-    // softwareEnforced. We MUST still find it there, otherwise
-    // legacy-fleet devices would all hit the null-fail-closed branch.
-    const emptyHardware = new asn1js.Sequence({ value: [] });
-    const software = makeAuthListWithPatchLevel([0x03, 0x17, 0x05]);
-    assertEquals(selectOsPatchLevel(emptyHardware, software), 202501);
-  },
-);
-
-Deno.test(
-  "selectOsPatchLevel — returns null when neither list carries the tag",
-  () => {
-    const emptyHardware = new asn1js.Sequence({ value: [] });
-    const emptySoftware = new asn1js.Sequence({ value: [] });
-    assertEquals(selectOsPatchLevel(emptyHardware, emptySoftware), null);
-  },
-);
-
-Deno.test(
-  "selectOsPatchLevel — out-of-range hardware value falls through to valid software value",
-  () => {
-    // A malformed leaf could carry an out-of-range value in
-    // hardwareEnforced (extractOsPatchLevel returns null on values
-    // outside [200001, 210012]) while softwareEnforced has a
-    // well-formed legacy entry. The ?? fallback must walk past the
-    // null and pick up the software value. Without this, a
-    // transition-era device with a corrupt hardware tag would
-    // false-reject even though its legacy entry meets the threshold.
-    // 999999 = 0xF423F = [0x0F, 0x42, 0x3F] — above the 210012 ceiling.
-    const corruptHardware = makeAuthListWithPatchLevel([0x0f, 0x42, 0x3f]);
-    const validSoftware = makeAuthListWithPatchLevel([0x03, 0x17, 0x05]); // 202501
-    assertEquals(selectOsPatchLevel(corruptHardware, validSoftware), 202501);
-  },
-);
-
-// =====================================================================
-// enforcePatchGate — threshold comparison + null-fail-closed
-//
-// Pins the comparison rule that validateAndroidAttestation delegates to.
-// Round-1 review caught that the threshold logic was only stub-tested
-// at the handler level; this exercises it directly.
-// =====================================================================
-
-Deno.test("enforcePatchGate — undefined threshold passes through (iOS path)", () => {
-  // iOS validators omit minOsPatchLevel entirely — the gate must no-op.
-  // This is the only path that doesn't reject when osPatchLevel is null.
-  enforcePatchGate(null, undefined);
-  enforcePatchGate(202501, undefined);
-});
-
-Deno.test("enforcePatchGate — strict < accepts the boundary case", () => {
-  // osPatchLevel === minOsPatchLevel must NOT throw. A future tightening
-  // to `<=` would shift the gate by one month and break this test —
-  // intentional canary. A device patched exactly minOsPatchLevel months
-  // ago (boundary case) is ACCEPTED.
-  enforcePatchGate(202505, 202505);
-});
-
-Deno.test("enforcePatchGate — one month below threshold rejects", () => {
-  assertThrows(
-    () => enforcePatchGate(202504, 202505),
-    AttestationError,
-    "osPatchLevel 202504 < required 202505",
-  );
-});
-
-Deno.test("enforcePatchGate — null osPatchLevel with threshold set fails closed", () => {
-  // Missing TAG_OS_PATCH_LEVEL on a leaf where the operator asked for
-  // a gate → reject. The validator can't prove the device meets the
-  // threshold, so refusing to enroll is the only safe answer.
-  assertThrows(
-    () => enforcePatchGate(null, 202505),
-    AttestationError,
-    "leaf cert has no osPatchLevel",
-  );
-});
-
-Deno.test(
-  "validateAndroidAttestation — accepts minOsPatchLevel opt without fixture",
-  async () => {
-    // Validator throws ATTESTATION_DECODE_FAILED on the empty/short chain
-    // BEFORE reaching the patch-gate; assert that. The point of this test
-    // is that adding the option doesn't shift behavior on the pre-gate
-    // failure modes — a regression that broke the option's plumbing
-    // would surface as a TypeScript error or a different code here.
-    await assertRejects(
-      () =>
-        validateAndroidAttestation({
-          certChainBase64: [],
-          challenge: new Uint8Array(32),
-          sePublicKey: new Uint8Array(65),
-          packageName: ANDROID_PACKAGE_NAME,
-          expectedSecurityLevel: "strongbox",
-          minOsPatchLevel: 202505,
-        }),
-      AttestationError,
-      "expected cert chain",
-    );
-  },
-);
-
-// =====================================================================
-// AL2 evidence (CP Appendix A.3.1) — evaluateAl2Evidence + the new
-// AuthorizationList readers behind it.
-// =====================================================================
-
-import {
-  evaluateAl2Evidence,
-  extractAttestationApplicationId,
-  extractDayPatchLevel,
-  extractRootOfTrust,
-  readTaggedInt,
-  readTaggedIntSet,
-} from "./android.ts";
-import type { KeyDescription } from "./android.ts";
 
 const AL2_NOW = new Date("2026-07-27T00:00:00Z");
 const DIGEST_A = new Uint8Array(32).fill(0xaa);
 const DIGEST_B = new Uint8Array(32).fill(0xbb);
+const ROWS_PREFIX = "A.3.1 rows failed: ";
 
 /** A KeyDescription that passes every AL2 row at AL2_NOW. Tests mutate one
- * field at a time and assert the exact failure code. */
+ * field at a time and assert the exact failure. */
 function passingDesc(over: Partial<KeyDescription> = {}): KeyDescription {
   return {
     attestationVersion: 300,
@@ -541,8 +478,6 @@ function passingDesc(over: Partial<KeyDescription> = {}): KeyDescription {
     keymasterVersion: 300,
     keymasterSecurityLevel: 2,
     attestationChallenge: new Uint8Array(),
-    packageNames: [ANDROID_PACKAGE_NAME],
-    osPatchLevel: 202607,
     appPackages: [{ name: ANDROID_PACKAGE_NAME, version: 42 }],
     appSigningCertDigests: [DIGEST_A],
     purposes: [2], // SIGN
@@ -552,87 +487,73 @@ function passingDesc(over: Partial<KeyDescription> = {}): KeyDescription {
     ecCurve: 1, // P_256
     origin: 0, // GENERATED
     rootOfTrust: { deviceLocked: true, verifiedBootState: 0 },
-    osPatchLevelHw: 202607,
+    osPatchLevel: 202607,
     vendorPatchLevel: 20260701,
     bootPatchLevel: 20260701,
     ...over,
   };
 }
 
-const AL2_OPTS = {
+const AL2_OPTS: Al2EvidenceOpts = {
   signingCertSha256Digests: [DIGEST_A],
   minAppVersionCode: 40,
   now: AL2_NOW,
   packageName: ANDROID_PACKAGE_NAME,
 };
 
-Deno.test("evaluateAl2Evidence — full table passes → eligible, no failures", () => {
-  const r = evaluateAl2Evidence(passingDesc(), AL2_OPTS);
-  assertEquals(r.failures, []);
-  assertEquals(r.eligible, true);
+function al2Error(
+  over: Partial<KeyDescription>,
+  opts: Al2EvidenceOpts = AL2_OPTS,
+): AttestationError {
+  return assertThrows(
+    () => enforceAl2Evidence(passingDesc(over), opts),
+    AttestationError,
+  );
+}
+
+Deno.test("enforceAl2Evidence — full table passes", () => {
+  enforceAl2Evidence(passingDesc(), AL2_OPTS);
 });
 
-Deno.test("evaluateAl2Evidence — signing-cert rows", () => {
-  // No registered digests configured → config-missing (not mismatch).
+Deno.test("enforceAl2Evidence — signing-cert row", () => {
+  // No registered digests → the row can't pass.
   assertEquals(
-    evaluateAl2Evidence(passingDesc(), {
-      ...AL2_OPTS,
-      signingCertSha256Digests: [],
-    }).failures,
-    ["AL2_APP_SIGNING_CONFIG_MISSING"],
+    al2Error({}, { ...AL2_OPTS, signingCertSha256Digests: [] }).message,
+    ROWS_PREFIX + "AL2_APP_SIGNING_CERT_MISMATCH",
   );
   // Attested digest doesn't match any registered one.
-  assertEquals(
-    evaluateAl2Evidence(
-      passingDesc({ appSigningCertDigests: [DIGEST_B] }),
-      AL2_OPTS,
-    )
-      .failures,
-    ["AL2_APP_SIGNING_CERT_MISMATCH"],
-  );
+  const err = al2Error({ appSigningCertDigests: [DIGEST_B] });
+  assertEquals(err.code, "AL2_EVIDENCE_FAILED");
+  assertEquals(err.message, ROWS_PREFIX + "AL2_APP_SIGNING_CERT_MISMATCH");
   // Any-of-several registered digests matching is enough.
-  assertEquals(
-    evaluateAl2Evidence(passingDesc(), {
-      ...AL2_OPTS,
-      signingCertSha256Digests: [DIGEST_B, DIGEST_A],
-    }).eligible,
-    true,
-  );
+  enforceAl2Evidence(passingDesc(), {
+    ...AL2_OPTS,
+    signingCertSha256Digests: [DIGEST_B, DIGEST_A],
+  });
 });
 
-Deno.test("evaluateAl2Evidence — app version floor", () => {
+Deno.test("enforceAl2Evidence — app version floor", () => {
   assertEquals(
-    evaluateAl2Evidence(
-      passingDesc({
-        appPackages: [{ name: ANDROID_PACKAGE_NAME, version: 39 }],
-      }),
-      AL2_OPTS,
-    ).failures,
-    ["AL2_APP_VERSION_BELOW_FLOOR"],
+    al2Error({ appPackages: [{ name: ANDROID_PACKAGE_NAME, version: 39 }] })
+      .message,
+    ROWS_PREFIX + "AL2_APP_VERSION_BELOW_FLOOR",
   );
   // Version missing from the attestation → same failure (can't prove floor).
   assertEquals(
-    evaluateAl2Evidence(
-      passingDesc({
-        appPackages: [{ name: ANDROID_PACKAGE_NAME, version: null }],
-      }),
-      AL2_OPTS,
-    ).failures,
-    ["AL2_APP_VERSION_BELOW_FLOOR"],
+    al2Error({ appPackages: [{ name: ANDROID_PACKAGE_NAME, version: null }] })
+      .message,
+    ROWS_PREFIX + "AL2_APP_VERSION_BELOW_FLOOR",
   );
   // No floor configured → version not checked.
-  assertEquals(
-    evaluateAl2Evidence(
-      passingDesc({
-        appPackages: [{ name: ANDROID_PACKAGE_NAME, version: null }],
-      }),
-      { ...AL2_OPTS, minAppVersionCode: undefined },
-    ).eligible,
-    true,
+  enforceAl2Evidence(
+    passingDesc({
+      appPackages: [{ name: ANDROID_PACKAGE_NAME, version: null }],
+    }),
+    { ...AL2_OPTS, minAppVersionCode: undefined },
   );
 });
 
-Deno.test("evaluateAl2Evidence — key-parameter rows fail individually (null = fail)", () => {
+Deno.test("enforceAl2Evidence — key-parameter rows reject individually (null = fail)", () => {
   const cases: Array<[Partial<KeyDescription>, string]> = [
     [{ purposes: [0] }, "AL2_KEY_PURPOSE"],
     [{ purposes: null }, "AL2_KEY_PURPOSE"],
@@ -645,102 +566,122 @@ Deno.test("evaluateAl2Evidence — key-parameter rows fail individually (null = 
     [{ origin: 2 }, "AL2_KEY_ORIGIN"],
     [{ origin: null }, "AL2_KEY_ORIGIN"],
   ];
-  for (const [over, code] of cases) {
-    const r = evaluateAl2Evidence(passingDesc(over), AL2_OPTS);
-    assertEquals(r.failures, [code], JSON.stringify(over));
+  for (const [over, row] of cases) {
+    const err = al2Error(over);
+    assertEquals(err.code, "AL2_EVIDENCE_FAILED", JSON.stringify(over));
+    assertEquals(err.message, ROWS_PREFIX + row, JSON.stringify(over));
   }
 });
 
-Deno.test("evaluateAl2Evidence — rootOfTrust rows", () => {
+Deno.test("enforceAl2Evidence — rootOfTrust rows", () => {
   assertEquals(
-    evaluateAl2Evidence(passingDesc({ rootOfTrust: null }), AL2_OPTS).failures,
-    ["AL2_ROOT_OF_TRUST_MISSING"],
+    al2Error({ rootOfTrust: null }).message,
+    ROWS_PREFIX + "AL2_ROOT_OF_TRUST_MISSING",
   );
   assertEquals(
-    evaluateAl2Evidence(
-      passingDesc({
-        rootOfTrust: { deviceLocked: false, verifiedBootState: 0 },
-      }),
-      AL2_OPTS,
-    ).failures,
-    ["AL2_DEVICE_NOT_LOCKED"],
+    al2Error({ rootOfTrust: { deviceLocked: false, verifiedBootState: 0 } })
+      .message,
+    ROWS_PREFIX + "AL2_DEVICE_NOT_LOCKED",
   );
   assertEquals(
-    evaluateAl2Evidence(
-      passingDesc({
-        rootOfTrust: { deviceLocked: true, verifiedBootState: 2 },
-      }),
-      AL2_OPTS,
-    ).failures,
-    ["AL2_VERIFIED_BOOT_NOT_VERIFIED"],
+    al2Error({ rootOfTrust: { deviceLocked: true, verifiedBootState: 2 } })
+      .message,
+    ROWS_PREFIX + "AL2_VERIFIED_BOOT_NOT_VERIFIED",
   );
 });
 
-Deno.test("evaluateAl2Evidence — patch-currency rows and their exact boundaries", () => {
+Deno.test("enforceAl2Evidence — patch-currency rows and their exact boundaries", () => {
   // os window per the A.3.1 worked example: CSR month + 3 back. At
   // 2026-07-27 that's 202604..202607 inclusive.
+  enforceAl2Evidence(passingDesc({ osPatchLevel: 202604 }), AL2_OPTS);
   assertEquals(
-    evaluateAl2Evidence(passingDesc({ osPatchLevelHw: 202604 }), AL2_OPTS)
-      .eligible,
-    true,
+    al2Error({ osPatchLevel: 202603 }).message,
+    ROWS_PREFIX + "AL2_OS_PATCH_STALE",
   );
   assertEquals(
-    evaluateAl2Evidence(passingDesc({ osPatchLevelHw: 202603 }), AL2_OPTS)
-      .failures,
-    ["AL2_OS_PATCH_STALE"],
+    al2Error({ osPatchLevel: null }).message,
+    ROWS_PREFIX + "AL2_OS_PATCH_STALE",
   );
   assertEquals(
-    evaluateAl2Evidence(passingDesc({ osPatchLevelHw: 202608 }), AL2_OPTS)
-      .failures,
-    ["AL2_OS_PATCH_FUTURE"],
+    al2Error({ osPatchLevel: 202608 }).message,
+    ROWS_PREFIX + "AL2_OS_PATCH_FUTURE",
   );
   // vendor/boot ≤ 90 days and not future: window at 2026-07-27 is
   // 20260428..20260727.
+  enforceAl2Evidence(passingDesc({ vendorPatchLevel: 20260428 }), AL2_OPTS);
   assertEquals(
-    evaluateAl2Evidence(passingDesc({ vendorPatchLevel: 20260428 }), AL2_OPTS)
-      .eligible,
-    true,
+    al2Error({ vendorPatchLevel: 20260427 }).message,
+    ROWS_PREFIX + "AL2_VENDOR_PATCH_STALE",
   );
   assertEquals(
-    evaluateAl2Evidence(passingDesc({ vendorPatchLevel: 20260427 }), AL2_OPTS)
-      .failures,
-    ["AL2_VENDOR_PATCH_STALE"],
+    al2Error({ vendorPatchLevel: 20260728 }).message,
+    ROWS_PREFIX + "AL2_VENDOR_PATCH_FUTURE",
   );
   assertEquals(
-    evaluateAl2Evidence(passingDesc({ vendorPatchLevel: 20260728 }), AL2_OPTS)
-      .failures,
-    ["AL2_VENDOR_PATCH_FUTURE"],
+    al2Error({ bootPatchLevel: null }).message,
+    ROWS_PREFIX + "AL2_BOOT_PATCH_STALE",
   );
   assertEquals(
-    evaluateAl2Evidence(passingDesc({ bootPatchLevel: null }), AL2_OPTS)
-      .failures,
-    ["AL2_BOOT_PATCH_STALE"],
-  );
-  assertEquals(
-    evaluateAl2Evidence(passingDesc({ bootPatchLevel: 20260728 }), AL2_OPTS)
-      .failures,
-    ["AL2_BOOT_PATCH_FUTURE"],
+    al2Error({ bootPatchLevel: 20260728 }).message,
+    ROWS_PREFIX + "AL2_BOOT_PATCH_FUTURE",
   );
 });
 
-Deno.test("evaluateAl2Evidence — failures accumulate across rows", () => {
-  const r = evaluateAl2Evidence(
-    passingDesc({
+Deno.test("enforceAl2Evidence — only stale patch rows → ATTESTATION_STALE_PATCH", () => {
+  for (
+    const over of [
+      { osPatchLevel: 202603 },
+      { vendorPatchLevel: 20260427 },
+      { bootPatchLevel: null },
+      {
+        osPatchLevel: null,
+        vendorPatchLevel: 20260101,
+        bootPatchLevel: 20260101,
+      },
+    ]
+  ) {
+    assertEquals(
+      al2Error(over).code,
+      "ATTESTATION_STALE_PATCH",
+      JSON.stringify(over),
+    );
+  }
+});
+
+Deno.test("enforceAl2Evidence — future-dated or mixed failures stay generic", () => {
+  assertEquals(al2Error({ osPatchLevel: 202608 }).code, "AL2_EVIDENCE_FAILED");
+  assertEquals(
+    al2Error({ osPatchLevel: 202603, vendorPatchLevel: 20260728 }).code,
+    "AL2_EVIDENCE_FAILED",
+  );
+  const mixed = al2Error({
+    rootOfTrust: { deviceLocked: false, verifiedBootState: 0 },
+    osPatchLevel: 202603,
+  });
+  assertEquals(mixed.code, "AL2_EVIDENCE_FAILED");
+  assertEquals(
+    mixed.message,
+    ROWS_PREFIX + "AL2_DEVICE_NOT_LOCKED,AL2_OS_PATCH_STALE",
+  );
+});
+
+Deno.test("enforceAl2Evidence — every failed row is named, in table order", () => {
+  const err = al2Error(
+    {
       rootOfTrust: { deviceLocked: false, verifiedBootState: 2 },
       vendorPatchLevel: null,
-    }),
+    },
     { ...AL2_OPTS, signingCertSha256Digests: [] },
   );
-  assertEquals(r.eligible, false);
-  assertEquals(r.failures, [
-    "AL2_APP_SIGNING_CONFIG_MISSING",
-    "AL2_DEVICE_NOT_LOCKED",
-    "AL2_VERIFIED_BOOT_NOT_VERIFIED",
-    "AL2_VENDOR_PATCH_STALE",
-  ]);
+  assertEquals(err.code, "AL2_EVIDENCE_FAILED");
+  assertEquals(
+    err.message,
+    ROWS_PREFIX +
+      "AL2_APP_SIGNING_CERT_MISMATCH,AL2_DEVICE_NOT_LOCKED,AL2_VERIFIED_BOOT_NOT_VERIFIED,AL2_VENDOR_PATCH_STALE",
+  );
 });
 
-// --- The new AuthorizationList readers (synthetic wire shapes) ----------
+// --- The AuthorizationList readers (synthetic wire shapes) --------------
 
 Deno.test("readTaggedInt / readTaggedIntSet — EXPLICIT and IMPLICIT shapes", () => {
   const list = new asn1js.Sequence({
@@ -869,53 +810,3 @@ Deno.test("extractAttestationApplicationId — packages with versions + signatur
   assertEquals(aid?.signatureDigests.length, 1);
   assertEquals(aid?.signatureDigests[0], DIGEST_A);
 });
-
-Deno.test(
-  "validateAndroidAttestation — real fixture: AL2 evaluation runs, degrades (never throws), codes are known",
-  async () => {
-    const fix = await loadFixture("android_strongbox");
-    if (!fix) return; // fixture absent → covered environments still test above
-    const result = await validateAndroidAttestation({
-      certChainBase64: JSON.parse(fix.attestation),
-      validationTime: FIXTURE_VALIDATION_TIME,
-      challenge: base64ToBytes(fix.challenge),
-      sePublicKey: base64ToBytes(fix.publicKey),
-      packageName: ANDROID_PACKAGE_NAME,
-      expectedSecurityLevel: "strongbox",
-      al2: {
-        signingCertSha256Digests: [], // unset config → at minimum config-missing
-        now: FIXTURE_VALIDATION_TIME,
-      },
-    });
-    const al2 = result.al2!;
-    assertEquals(al2.eligible, false);
-    assertEquals(al2.failures.includes("AL2_APP_SIGNING_CONFIG_MISSING"), true);
-    const KNOWN = new Set([
-      "AL2_APP_SIGNING_CONFIG_MISSING",
-      "AL2_APP_SIGNING_CERT_MISMATCH",
-      "AL2_APP_VERSION_BELOW_FLOOR",
-      "AL2_KEY_PURPOSE",
-      "AL2_KEY_ALGORITHM",
-      "AL2_KEY_SIZE",
-      "AL2_KEY_DIGEST",
-      "AL2_KEY_CURVE",
-      "AL2_KEY_ORIGIN",
-      "AL2_ROOT_OF_TRUST_MISSING",
-      "AL2_DEVICE_NOT_LOCKED",
-      "AL2_VERIFIED_BOOT_NOT_VERIFIED",
-      "AL2_OS_PATCH_STALE",
-      "AL2_OS_PATCH_FUTURE",
-      "AL2_VENDOR_PATCH_STALE",
-      "AL2_VENDOR_PATCH_FUTURE",
-      "AL2_BOOT_PATCH_STALE",
-      "AL2_BOOT_PATCH_FUTURE",
-    ]);
-    for (const f of al2.failures) {
-      assertEquals(KNOWN.has(f), true, `unknown failure code: ${f}`);
-    }
-    // Observability breadcrumb: what the committed real device evaluates to.
-    console.log(
-      `[test] strongbox fixture AL2 failures: ${al2.failures.join(",")}`,
-    );
-  },
-);

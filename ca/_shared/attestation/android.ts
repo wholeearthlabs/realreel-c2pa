@@ -2,11 +2,12 @@
 //
 // Implements the steps from "Verifying Hardware-backed Key Pairs":
 //   https://source.android.com/docs/security/features/keystore/attestation
+// plus the C2PA Certificate Policy Appendix A.3.1 evidence table, which every
+// Android enrollment must pass in full: RealReel issues Android at AL2 only.
 //
 // The leaf certificate of an attested key chain carries a custom extension
-// (OID 1.3.6.1.4.1.11129.2.1.17) whose value is a `KeyDescription` ASN.1
-// SEQUENCE. We parse just the fields we need to enforce: attestation
-// challenge, security level, and attestationApplicationId.packageName.
+// whose value is a `KeyDescription` ASN.1 SEQUENCE; parseKeyDescription pulls
+// the fields the checks below read.
 
 // deno-lint-ignore-file no-explicit-any
 import {
@@ -23,6 +24,10 @@ import {
 } from "./pki.ts";
 import type { Certificate } from "./pki.ts";
 import { GOOGLE_HW_ATTESTATION_ROOT_PEMS } from "./roots.ts";
+import {
+  type AndroidRevocationList,
+  certSerialHex,
+} from "./android_revocation.ts";
 
 // Two OIDs in active use across the Android device population:
 //   * 1.3.6.1.4.1.11129.2.1.17 — Keymaster v1+ through KeyMint v2 (the vast
@@ -77,60 +82,23 @@ export interface ValidateAndroidAttestationOpts {
   // Our app package name (com.realreel.app; or com.realreel.app.dev on a gated
   // local-dev stack — see _shared/config.ts). Passed in, not hardcoded here.
   packageName: string;
+  // SHA-256 digests of the app's registered signing certificate(s) — the
+  // Play App Signing cert in prod, the debug keystore cert on a local stack.
+  // The leaf must carry one of them; an empty list rejects every chain.
+  signingCertSha256Digests: Uint8Array[];
+  // Optional versionCode floor for the registered package (the Gen Agmt §4.2
+  // mandated-change lever). Unset ⇒ version not checked.
+  minAppVersionCode?: number;
+  // Google's attestation revocation list (android_revocation.ts). Any listed
+  // serial anywhere in the chain rejects.
+  revokedSerials: AndroidRevocationList;
   // What the client claimed about hardware backing. Cross-checks against the
   // attestationSecurityLevel in the cert: 'strongbox' requires SECURITY_LEVEL_STRONG_BOX,
   // 'tee' requires SECURITY_LEVEL_TEE or higher.
   expectedSecurityLevel: ExpectedSecurityLevel;
-  // Minimum acceptable osPatchLevel encoded as YYYYMM (e.g. 202501 for
-  // January 2025). Reject if the chain's osPatchLevel < this value.
-  // Optional so existing callers (verifier suite) keep building unchanged;
-  // register-signing-key passes a computed rolling-window value.
-  minOsPatchLevel?: number;
-  // TEST-ONLY override for the chain validity-window checks (fixtures carry
-  // short-lived RKP certs). See verifyChainToTrustedRoots. Production omits.
+  // Evaluation time for the chain validity window and the patch-currency
+  // rows. Tests pin it inside a fixture's window; production omits it.
   validationTime?: Date;
-  // When present, evaluate the CP Appendix A.3.1 AL2 evidence table and
-  // report the outcome on the result. AL2-only failures NEVER reject the
-  // enrollment — the caller degrades the granted assurance level to AL1
-  // instead (keeps the long-tail of locked-down-but-slow-patching devices
-  // enrollable while Pixels carry AL2).
-  al2?: Al2EvidenceOpts;
-}
-
-export interface Al2EvidenceOpts {
-  // SHA-256 digests of the app's registered signing certificate(s) — the
-  // Play App Signing cert in prod, the debug keystore cert on a local
-  // stack. Empty ⇒ the signing-cert check cannot pass (config-missing
-  // failure); AL2 requires it (CP A.3.1 attestationApplicationID row).
-  signingCertSha256Digests: Uint8Array[];
-  // Optional versionCode floor for the registered package. Doubles as the
-  // Gen Agmt §4.2 mandated-change lever: raising it retires non-conformant
-  // builds as their leaves expire. Unset ⇒ version not checked.
-  minAppVersionCode?: number;
-  // Evaluation time for the patch-currency rows (os ≤ 4 months,
-  // vendor/boot ≤ 90 days). Injected so the evaluation stays a pure
-  // function of its inputs.
-  now: Date;
-}
-
-export interface Al2Evaluation {
-  eligible: boolean;
-  // Machine-readable reason codes for every failed AL2-only row; empty when
-  // eligible. Logged (never returned to the client verbatim) so a fleet's
-  // AL2 eligibility is observable before and after the v2 flip.
-  failures: string[];
-}
-
-export interface ValidateAndroidAttestationResult {
-  // OS patch level extracted from the leaf cert's AuthorizationList, YYYYMM
-  // canonical form. May be null when the leaf carries no patch-level field
-  // (older KeyMint versions, or fields encoded in an unsupported shape).
-  // When minOsPatchLevel is supplied, a null osPatchLevel is treated as
-  // "older than any threshold" and rejected — fail closed.
-  osPatchLevel: number | null;
-  // Present iff opts.al2 was supplied. eligible=true ⇒ the full A.3.1 table
-  // passed and the caller may issue an AL2 leaf.
-  al2?: Al2Evaluation;
 }
 
 export interface KeyDescription {
@@ -139,15 +107,9 @@ export interface KeyDescription {
   keymasterVersion: number;
   keymasterSecurityLevel: number;
   attestationChallenge: Uint8Array;
-  packageNames: string[];
-  // Keymaster TAG_OS_PATCH_LEVEL (tag [706]) — typically YYYYMM, sometimes
-  // YYYYMMDD on older builds. Normalized to YYYYMM in extractOsPatchLevel.
-  // null when the AuthorizationList doesn't carry the tag.
-  osPatchLevel: number | null;
 
-  // --- AL2 evidence fields (CP Appendix A.3.1). All null when the leaf
-  // doesn't carry the tag or encodes it in an unsupported shape — the AL2
-  // evaluation treats null as a failed row (degrade to AL1, never reject).
+  // --- A.3.1 evidence fields. null when the leaf doesn't carry the tag or
+  // encodes it in an unsupported shape; enforceAl2Evidence fails that row.
 
   // attestationApplicationId [709]: package entries + the SET of SHA-256
   // signing-cert digests.
@@ -163,28 +125,26 @@ export interface KeyDescription {
   origin: number | null; // [702]
   // rootOfTrust [704], hardwareEnforced ONLY.
   rootOfTrust: { deviceLocked: boolean; verifiedBootState: number } | null;
-  // TAG_OS_PATCH_LEVEL [706] again, hardwareEnforced ONLY — the A.3.1 row
-  // reads `hardwareEnforced.osPatchLevel`. `osPatchLevel` above keeps the
-  // hw→sw fallback because the legacy baseline patch gate depends on it.
-  osPatchLevelHw: number | null;
+  // TAG_OS_PATCH_LEVEL [706], hardwareEnforced ONLY, YYYYMM (a YYYYMMDD wire
+  // value is normalized to YYYYMM).
+  osPatchLevel: number | null;
   // TAG_VENDOR_PATCH_LEVEL [718] / TAG_BOOT_PATCH_LEVEL [719], hardwareEnforced
   // ONLY, YYYYMMDD (a YYYYMM wire value is normalized to YYYYMM01).
   vendorPatchLevel: number | null;
   bootPatchLevel: number | null;
 }
 
-// Throws AttestationError on any spec violation. Resolves with parsed
-// extras on success (today: osPatchLevel; future: any AuthorizationList
-// field the caller needs without re-parsing the chain).
+// Throws AttestationError on any failure. Every check is a hard reject.
 export async function validateAndroidAttestation(
   opts: ValidateAndroidAttestationOpts,
-): Promise<ValidateAndroidAttestationResult> {
+): Promise<void> {
   if (!Array.isArray(opts.certChainBase64) || opts.certChainBase64.length < 2) {
     throw new AttestationError(
       "ATTESTATION_DECODE_FAILED",
       "expected cert chain of length >= 2",
     );
   }
+  const now = opts.validationTime ?? new Date();
 
   // === Step 1: parse cert chain (DER bytes) ===
   let chain: Certificate[];
@@ -204,7 +164,7 @@ export async function validateAndroidAttestation(
   // that's the only way to identify an unpinned hierarchy (new Google root,
   // OEM quirk, truncated chain) from the edge-function log, since a rejected
   // chain is never persisted.
-  await verifyChainToTrustedRoots(chain, googleRoots(), opts.validationTime)
+  await verifyChainToTrustedRoots(chain, googleRoots(), now)
     .catch((e) => {
       throw new AttestationError(
         "CHAIN_INVALID",
@@ -214,9 +174,22 @@ export async function validateAndroidAttestation(
       );
     });
 
+  // === Step 3: no cert in the chain is on Google's revocation list ===
+  for (const cert of chain) {
+    const serial = certSerialHex(cert);
+    const entry = opts.revokedSerials.get(serial);
+    if (entry) {
+      throw new AttestationError(
+        "ATTESTATION_CERT_REVOKED",
+        `chain cert serial ${serial} is on Google's attestation revocation list: ${entry.status}` +
+          (entry.reason ? `/${entry.reason}` : ""),
+      );
+    }
+  }
+
   const leaf = chain[0];
 
-  // === Step 3: find KeyDescription extension on leaf, parse it ===
+  // === Step 4: find KeyDescription extension on leaf, parse it ===
   const ext = findExtensionByOid(leaf, OID_ANDROID_KEY_DESCRIPTION_V300) ??
     findExtensionByOid(leaf, OID_ANDROID_KEY_DESCRIPTION_LEGACY);
   if (!ext) {
@@ -227,7 +200,7 @@ export async function validateAndroidAttestation(
   }
   const desc = parseKeyDescription(ext);
 
-  // === Step 4: attestationChallenge must match server-issued challenge ===
+  // === Step 5: attestationChallenge must match server-issued challenge ===
   if (!ctEqual(desc.attestationChallenge, opts.challenge)) {
     throw new AttestationError(
       "CHALLENGE_MISMATCH",
@@ -235,7 +208,7 @@ export async function validateAndroidAttestation(
     );
   }
 
-  // === Step 5: security levels must be hardware-backed ===
+  // === Step 6: security levels must be hardware-backed ===
   if (desc.attestationSecurityLevel === SECURITY_LEVEL_SOFTWARE) {
     throw new AttestationError(
       "SOFTWARE_ATTESTATION",
@@ -249,7 +222,7 @@ export async function validateAndroidAttestation(
     );
   }
 
-  // === Step 6: cross-check claimed platform vs actual security level ===
+  // === Step 7: cross-check claimed platform vs actual security level ===
   // Two distinct fields matter here:
   //   - attestationSecurityLevel:  WHERE the attestation record was signed
   //   - keymasterSecurityLevel:    WHERE the attested key actually lives
@@ -283,7 +256,7 @@ export async function validateAndroidAttestation(
     }
   }
 
-  // === Step 7: leaf public key (SPKI DER) must match what client claims ===
+  // === Step 8: leaf public key (SPKI DER) must match what client claims ===
   const leafSpki = extractSpkiDer(leaf);
   if (!ctEqual(leafSpki, opts.sePublicKey)) {
     throw new AttestationError(
@@ -292,34 +265,21 @@ export async function validateAndroidAttestation(
     );
   }
 
-  // === Step 8: packageName in attestationApplicationId must match ours ===
-  if (!desc.packageNames.includes(opts.packageName)) {
+  // === Step 9: packageName in attestationApplicationId must match ours ===
+  if (!desc.appPackages.some((p) => p.name === opts.packageName)) {
     throw new AttestationError(
       "PACKAGE_NAME_MISMATCH",
       `package name "${opts.packageName}" not in attestation`,
     );
   }
 
-  // === Step 9: enrollment patch-gate ===
-  // Reject Android attestations whose leaf-cert osPatchLevel is older than the
-  // supplied threshold. iOS has no equivalent signal; the caller skips this
-  // by omitting minOsPatchLevel.
-  enforcePatchGate(desc.osPatchLevel, opts.minOsPatchLevel);
-
-  // === Step 10: AL2 evidence table (CP Appendix A.3.1), when requested ===
-  // Never rejects — AL2-only failures degrade the granted assurance level to
-  // AL1 in the caller. Runs after every hard-reject step so it only ever
-  // evaluates an otherwise-valid enrollment.
-  const al2 = opts.al2
-    ? evaluateAl2Evidence(desc, { ...opts.al2, packageName: opts.packageName })
-    : undefined;
-
-  // === Step 11 (deferred): check Google's revocation list ===
-  // Fetch https://android.googleapis.com/attestation/status (with a cache) and
-  // reject any revoked cert serial in the chain. Rare in practice for
-  // unrevoked devices.
-
-  return { osPatchLevel: desc.osPatchLevel, al2 };
+  // === Step 10: the AL2 evidence table (CP Appendix A.3.1) ===
+  enforceAl2Evidence(desc, {
+    packageName: opts.packageName,
+    signingCertSha256Digests: opts.signingCertSha256Digests,
+    minAppVersionCode: opts.minAppVersionCode,
+    now,
+  });
 }
 
 // Parses the leaf cert's KeyDescription extension. The extension value is
@@ -384,13 +344,10 @@ function parseKeyDescription(extValue: Uint8Array): KeyDescription {
   const softwareEnforced = fields[6];
   const hardwareEnforced = fields[7];
 
-  // packageNames live inside attestationApplicationId at tag [709] in either
-  // softwareEnforced or hardwareEnforced (typically softwareEnforced).
+  // attestationApplicationId [709] lives in either softwareEnforced or
+  // hardwareEnforced (typically softwareEnforced).
   const appId = extractAttestationApplicationId(softwareEnforced) ??
     extractAttestationApplicationId(hardwareEnforced);
-  const packageNames = appId?.packages.map((p) => p.name) ?? [];
-
-  const osPatchLevel = selectOsPatchLevel(hardwareEnforced, softwareEnforced);
 
   return {
     attestationVersion,
@@ -398,15 +355,12 @@ function parseKeyDescription(extValue: Uint8Array): KeyDescription {
     keymasterVersion,
     keymasterSecurityLevel,
     attestationChallenge,
-    packageNames,
-    osPatchLevel,
     appPackages: appId?.packages ?? [],
     appSigningCertDigests: appId?.signatureDigests ?? [],
     // Every AL2 evidence field is read from hardwareEnforced ONLY (see the
     // KeyDescription field docs) — a softwareEnforced value is OS-asserted,
     // not secure-environment-asserted, and A.3.1 sources each row from
-    // hardwareEnforced. Only `osPatchLevel` above keeps a sw fallback, for
-    // the legacy baseline gate.
+    // hardwareEnforced.
     purposes: readTaggedIntSet(hardwareEnforced, 1),
     algorithm: readTaggedInt(hardwareEnforced, 2),
     keySize: readTaggedInt(hardwareEnforced, 3),
@@ -414,7 +368,7 @@ function parseKeyDescription(extValue: Uint8Array): KeyDescription {
     ecCurve: readTaggedInt(hardwareEnforced, 10),
     origin: readTaggedInt(hardwareEnforced, 702),
     rootOfTrust: extractRootOfTrust(hardwareEnforced),
-    osPatchLevelHw: extractOsPatchLevel(hardwareEnforced),
+    osPatchLevel: extractOsPatchLevel(hardwareEnforced),
     vendorPatchLevel: extractDayPatchLevel(hardwareEnforced, 718),
     bootPatchLevel: extractDayPatchLevel(hardwareEnforced, 719),
   };
@@ -517,8 +471,8 @@ export function extractAttestationApplicationId(
   }
 
   // Second field: SET OF OCTET STRING — SHA-256 digests of the APK signing
-  // certificate(s). Absent on some legacy encodings → empty list (the AL2
-  // signing-cert row then fails, degrading to AL1).
+  // certificate(s). Absent on some legacy encodings → empty list (the
+  // signing-cert row then fails).
   const signatureDigests: Uint8Array[] = [];
   const digestEntries = aidFields[1]?.valueBlock?.value as any[] | undefined;
   if (digestEntries) {
@@ -537,7 +491,7 @@ export function extractAttestationApplicationId(
 // shapes documented on extractOsPatchLevel (EXPLICIT constructed wrapper —
 // what real KeyMint emits — or an IMPLICIT primitive). These helpers accept
 // both, and return null for anything absent or malformed: AL2 rows treat
-// null as a failed check (degrade, never crash).
+// null as a failed check (reject, never crash).
 
 function findTaggedField(authList: any, tagNumber: number): any | null {
   if (!authList?.valueBlock?.value) return null;
@@ -636,7 +590,20 @@ export function extractDayPatchLevel(
   return value;
 }
 
-// --- AL2 evidence evaluation (CP Appendix A.3.1) ------------------------
+// --- AL2 evidence table (CP Appendix A.3.1) ------------------------------
+
+export interface Al2EvidenceOpts {
+  packageName: string;
+  signingCertSha256Digests: Uint8Array[];
+  minAppVersionCode?: number;
+  now: Date;
+}
+
+const PATCH_STALE_ROWS = new Set([
+  "AL2_OS_PATCH_STALE",
+  "AL2_VENDOR_PATCH_STALE",
+  "AL2_BOOT_PATCH_STALE",
+]);
 
 function yyyymmFloor(now: Date, monthsBack: number): number {
   const d = new Date(
@@ -652,28 +619,25 @@ function yyyymmddFloor(now: Date, daysBack: number): number {
 }
 
 /**
- * Evaluate the AL2-only rows of CP Appendix A.3.1 against a parsed
- * KeyDescription. The baseline rows (hardware security level, challenge,
- * SPKI binding, package name, 12-month os patch-gate) are hard-reject checks
- * in validateAndroidAttestation and are NOT re-checked here. Note StrongBox
- * is NOT required for AL2: A.3.1 accepts 1 (TrustedEnvironment) or
- * 2 (StrongBox) for both security levels, and the baseline SOFTWARE reject
- * is exactly that row — an android-tee device passing this table is
- * AL2-eligible by design.
+ * Enforce the AL2-only rows of CP Appendix A.3.1 against a parsed
+ * KeyDescription. The base rows (hardware security level, challenge, SPKI
+ * binding, package name) are checked by validateAndroidAttestation before
+ * this runs. StrongBox is NOT required: A.3.1 accepts TrustedEnvironment or
+ * StrongBox for both security levels.
  *
- * Pure function; failures accumulate (never throws) so one log line shows
- * everything keeping a device at AL1.
+ * Every row is evaluated before throwing, so the rejection names every failed
+ * row. The code is ATTESTATION_STALE_PATCH when only patch-currency rows
+ * failed (the app renders "update your device" for that code) and
+ * AL2_EVIDENCE_FAILED otherwise.
  */
-export function evaluateAl2Evidence(
+export function enforceAl2Evidence(
   desc: KeyDescription,
-  opts: Al2EvidenceOpts & { packageName: string },
-): Al2Evaluation {
+  opts: Al2EvidenceOpts,
+): void {
   const failures: string[] = [];
 
   // attestationApplicationID row: registered signing cert + version floor.
-  if (opts.signingCertSha256Digests.length === 0) {
-    failures.push("AL2_APP_SIGNING_CONFIG_MISSING");
-  } else if (
+  if (
     !desc.appSigningCertDigests.some((got) =>
       opts.signingCertSha256Digests.some((want) => ctEqual(got, want))
     )
@@ -718,11 +682,11 @@ export function evaluateAl2Evidence(
   // also say the value cannot be in the future.
   const monthNow = yyyymmFloor(opts.now, 0);
   if (
-    desc.osPatchLevelHw === null ||
-    desc.osPatchLevelHw < yyyymmFloor(opts.now, 3)
+    desc.osPatchLevel === null ||
+    desc.osPatchLevel < yyyymmFloor(opts.now, 3)
   ) {
     failures.push("AL2_OS_PATCH_STALE");
-  } else if (desc.osPatchLevelHw > monthNow) {
+  } else if (desc.osPatchLevel > monthNow) {
     failures.push("AL2_OS_PATCH_FUTURE");
   }
   const dayFloor = yyyymmddFloor(opts.now, 90);
@@ -738,7 +702,13 @@ export function evaluateAl2Evidence(
     failures.push("AL2_BOOT_PATCH_FUTURE");
   }
 
-  return { eligible: failures.length === 0, failures };
+  if (failures.length === 0) return;
+  throw new AttestationError(
+    failures.every((f) => PATCH_STALE_ROWS.has(f))
+      ? "ATTESTATION_STALE_PATCH"
+      : "AL2_EVIDENCE_FAILED",
+    `A.3.1 rows failed: ${failures.join(",")}`,
+  );
 }
 
 // Walks an AuthorizationList SEQUENCE looking for the [706] context-class
@@ -832,61 +802,10 @@ export function extractOsPatchLevel(authList: any): number | null {
     }
 
     // Sanity bound: YYYYMM must fall in [2000_01, 2100_12]. Anything
-    // outside is a malformed leaf (or a far-future date that the rolling-
-    // window check would reject anyway). Returning null surfaces it as
-    // "no patch-level field" → the caller's fail-closed branch rejects.
+    // outside is a malformed leaf. Returning null surfaces it as "no
+    // patch-level field" → the os patch row fails.
     if (value < 200001 || value > 210012) return null;
     return value;
   }
   return null;
-}
-
-/**
- * Pick the leaf cert's osPatchLevel given both AuthorizationList halves.
- *
- * KeyMint v3+ MANDATES that TAG_OS_PATCH_LEVEL ([706]) live in the
- * hardwareEnforced list, but older Keymaster v2 attestations carry it only in
- * softwareEnforced. Both lists sit inside the same signed leaf, so
- * prefer-hardware-first is about KeyMint version compatibility, not a per-list
- * trust tier. Returns null when neither list carries the field (the caller's
- * fail-closed branch then rejects).
- */
-export function selectOsPatchLevel(
-  hardwareEnforced: unknown,
-  softwareEnforced: unknown,
-): number | null {
-  return extractOsPatchLevel(hardwareEnforced) ??
-    extractOsPatchLevel(softwareEnforced);
-}
-
-/**
- * Apply the enrollment patch-gate threshold rule. Throws
- * AttestationError('ATTESTATION_STALE_PATCH') iff a threshold is supplied AND
- * the device fails it. Two failure modes:
- *
- *   - osPatchLevel is null (no [706] tag): fail closed — a malformed /
- *     pre-Keymaster-v3 leaf can't prove the device meets the gate.
- *   - osPatchLevel < minOsPatchLevel: strict less-than (a device patched
- *     exactly at the threshold is ACCEPTED).
- *
- * Resolves when no threshold is supplied (the iOS path omits minOsPatchLevel,
- * since App Attest carries no OS patch signal) or when the device passes.
- */
-export function enforcePatchGate(
-  osPatchLevel: number | null,
-  minOsPatchLevel: number | undefined,
-): void {
-  if (minOsPatchLevel === undefined) return;
-  if (osPatchLevel === null) {
-    throw new AttestationError(
-      "ATTESTATION_STALE_PATCH",
-      "leaf cert has no osPatchLevel (AuthorizationList tag [706]); cannot prove device meets the enrollment patch-gate",
-    );
-  }
-  if (osPatchLevel < minOsPatchLevel) {
-    throw new AttestationError(
-      "ATTESTATION_STALE_PATCH",
-      `device osPatchLevel ${osPatchLevel} < required ${minOsPatchLevel} (YYYYMM)`,
-    );
-  }
 }

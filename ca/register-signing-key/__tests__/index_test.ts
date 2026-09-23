@@ -125,6 +125,18 @@ function buildAndroidBody(overrides: BuildBodyOverrides = {}): unknown {
   };
 }
 
+// register-signing-key reads ANDROID_APP_SIGNING_CERT_SHA256 per request and
+// fails closed without it, so every Android test that reaches the validator
+// runs under this.
+const TEST_SIGNING_CERT_SHA256 = "ab".repeat(32);
+function withAndroidSigningCertEnv(
+  fn: () => Promise<void>,
+  value = TEST_SIGNING_CERT_SHA256,
+): Promise<void> {
+  Deno.env.set("ANDROID_APP_SIGNING_CERT_SHA256", value);
+  return fn().finally(() => Deno.env.delete("ANDROID_APP_SIGNING_CERT_SHA256"));
+}
+
 /**
  * Build a RegisterDeps with sensible happy-path stubs. Tests override
  * individual fields to drive specific failure modes. Modeled on the
@@ -141,6 +153,7 @@ function buildDeps(opts: {
   csrSpkiBytes?: Uint8Array;
   validateAppleAttestationImpl?: RegisterDeps["validateAppleAttestation"];
   validateAndroidAttestationImpl?: RegisterDeps["validateAndroidAttestation"];
+  loadAndroidRevocationListImpl?: RegisterDeps["loadAndroidRevocationList"];
   loadKmsCredentialsImpl?: RegisterDeps["loadKmsCredentials"];
   kmsSignDigestImpl?: RegisterDeps["kmsSignDigest"];
   ensureIntermediateImpl?: RegisterDeps["ensureIntermediateMatchesKms"];
@@ -175,11 +188,9 @@ function buildDeps(opts: {
     validateAppleAttestation: opts.validateAppleAttestationImpl ??
       (() => Promise.resolve({ credCertPublicKey: new Uint8Array(65) })),
     validateAndroidAttestation: opts.validateAndroidAttestationImpl ??
-      // Default happy-path stub: returns a recent osPatchLevel so the
-      // patch-gate decision in register-signing-key/index.ts:Android-
-      // branch always accepts. Individual tests override
-      // validateAndroidAttestationImpl to drive specific failure modes.
-      (() => Promise.resolve({ osPatchLevel: 209901 })),
+      (() => Promise.resolve()),
+    loadAndroidRevocationList: opts.loadAndroidRevocationListImpl ??
+      (() => Promise.resolve(new Map())),
     parseCSRFromPem: opts.parseCSRFromPemImpl ??
       // deno-lint-ignore no-explicit-any
       (((_pem: string) => ({ __mockCsr: true })) as any),
@@ -629,24 +640,25 @@ Deno.test("register-signing-key — iOS attestation rejected → 400 Invalid att
   assertEquals(body.error, "Invalid attestation");
 });
 
-Deno.test("register-signing-key — Android attestation rejected → 400", async () => {
-  const { deps } = buildDeps({
-    validateAndroidAttestationImpl: () => {
-      throw new AttestationError(
-        "CHAIN_INVALID",
-        "cert chain validation failed",
-      );
-    },
-  });
+Deno.test("register-signing-key — Android attestation rejected → 400", () =>
+  withAndroidSigningCertEnv(async () => {
+    const { deps } = buildDeps({
+      validateAndroidAttestationImpl: () => {
+        throw new AttestationError(
+          "CHAIN_INVALID",
+          "cert chain validation failed",
+        );
+      },
+    });
 
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
-    deps,
-  );
-  const { status, body } = await readJsonResponse<{ error: string }>(res);
-  assertEquals(status, 400);
-  assertEquals(body.error, "Invalid attestation");
-});
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<{ error: string }>(res);
+    assertEquals(status, 400);
+    assertEquals(body.error, "Invalid attestation");
+  }));
 
 Deno.test("register-signing-key — Android attestation non-JSON → 400", async () => {
   const { deps } = buildDeps();
@@ -676,126 +688,201 @@ Deno.test("register-signing-key — Android attestation non-array → 400", asyn
   assertEquals(res.status, 400);
 });
 
-// ---------- Android enrollment patch-gate --------------
+// ---------- Android: AL2 evidence, config, revocation list ------------
 //
-// register-signing-key threads ANDROID_MIN_PATCH_LOOKBACK_MONTHS into the
-// android validator and lets the validator's own osPatchLevel comparison
-// throw ATTESTATION_STALE_PATCH. The handler then returns a distinct
-// 400 with a `code: "ATTESTATION_STALE_PATCH"` field so the client can
-// render an actionable "device security patches out of date" message.
-// All other AttestationError codes stay generic ("Invalid attestation")
-// so we don't leak which check failed to attackers tweaking inputs.
+// The validator enforces the full CP A.3.1 table and throws; the handler
+// maps ATTESTATION_STALE_PATCH to a distinct 400 (`code` field, so the app
+// can say "update your device"), CA_CONFIG_INVALID to a 500, and every other
+// AttestationError to the generic 400 so a rejection never says which check
+// failed.
 
-Deno.test("register-signing-key — Android patch-gate: fresh patch level → 200", async () => {
-  let receivedMinPatch: number | undefined;
-  const { deps } = buildDeps({
-    validateAndroidAttestationImpl: (opts) => {
-      // Capture the threshold the handler passes through. This pins the
-      // wiring contract: when the validator decides to enforce the
-      // gate, it sees a numeric YYYYMM threshold from the handler.
-      receivedMinPatch = opts.minOsPatchLevel;
-      return Promise.resolve({ osPatchLevel: 209901 });
-    },
-  });
-
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
-    deps,
-  );
-  assertEquals(res.status, 200);
-  assertExists(receivedMinPatch);
-  // YYYYMM bounds — anything in this range is a sane rolling-window
-  // threshold derived from "now - 12 months". A tighter bound is
-  // calendar-dependent; we only need to pin that the handler isn't
-  // passing through undefined or a degenerate value.
-  if (receivedMinPatch < 200001 || receivedMinPatch > 210012) {
-    throw new Error(`unexpected minOsPatchLevel ${receivedMinPatch}`);
-  }
-});
-
-Deno.test("register-signing-key — Android patch-gate: stale patch level → 400 ATTESTATION_STALE_PATCH", async () => {
-  const { deps } = buildDeps({
-    validateAndroidAttestationImpl: (opts) => {
-      // Simulate a device whose osPatchLevel is older than the threshold
-      // the handler passes through. The real validator raises this
-      // exact AttestationError; here we throw it directly to pin the
-      // handler's surfacing behavior (status + body shape).
-      const threshold = opts.minOsPatchLevel!;
-      return Promise.reject(
-        new AttestationError(
-          "ATTESTATION_STALE_PATCH",
-          `device osPatchLevel 202001 < required ${threshold} (YYYYMM)`,
+Deno.test("register-signing-key — Android: AL2 evidence failure → 400 Invalid attestation, no code", () =>
+  withAndroidSigningCertEnv(async () => {
+    const { deps, mockClient } = buildDeps({
+      validateAndroidAttestationImpl: () =>
+        Promise.reject(
+          new AttestationError(
+            "AL2_EVIDENCE_FAILED",
+            "A.3.1 rows failed: AL2_APP_SIGNING_CERT_MISMATCH,AL2_DEVICE_NOT_LOCKED",
+          ),
         ),
+    });
+
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<
+      { error: string; code?: string }
+    >(res);
+    assertEquals(status, 400);
+    assertEquals(body.error, "Invalid attestation");
+    assertEquals(body.code, undefined);
+    assertEquals(
+      mockClient.calls.some((c) => c.table === "rpc:register_user_signing_key"),
+      false,
+    );
+  }));
+
+Deno.test("register-signing-key — Android: ATTESTATION_STALE_PATCH → 400 with code", () =>
+  withAndroidSigningCertEnv(async () => {
+    const { deps } = buildDeps({
+      validateAndroidAttestationImpl: () =>
+        Promise.reject(
+          new AttestationError(
+            "ATTESTATION_STALE_PATCH",
+            "A.3.1 rows failed: AL2_OS_PATCH_STALE,AL2_VENDOR_PATCH_STALE",
+          ),
+        ),
+    });
+
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<
+      { error: string; code?: string }
+    >(res);
+    assertEquals(status, 400);
+    assertEquals(body.code, "ATTESTATION_STALE_PATCH");
+    assertEquals(body.error, "Device security patch level out of date");
+  }));
+
+Deno.test("register-signing-key — Android: other AttestationError codes stay masked", () =>
+  withAndroidSigningCertEnv(async () => {
+    for (const code of ["CHAIN_INVALID", "ATTESTATION_CERT_REVOKED"]) {
+      const { deps } = buildDeps({
+        validateAndroidAttestationImpl: () =>
+          Promise.reject(new AttestationError(code, "rejected")),
+      });
+      const res = await handleRegister(
+        buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+        deps,
       );
-    },
-  });
+      const { status, body } = await readJsonResponse<
+        { error: string; code?: string }
+      >(res);
+      assertEquals(status, 400, code);
+      assertEquals(body.error, "Invalid attestation", code);
+      assertEquals(body.code, undefined, code);
+    }
+  }));
 
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
-    deps,
-  );
-  const { status, body } = await readJsonResponse<
-    { error: string; code?: string }
-  >(res);
-  assertEquals(status, 400);
-  // Distinct UX-actionable payload — the client uses `code` to render
-  // "your device is out of date" rather than the generic "device
-  // attestation failed" copy.
-  assertEquals(body.code, "ATTESTATION_STALE_PATCH");
-  assertEquals(body.error, "Device security patch level out of date");
-});
-
-Deno.test("register-signing-key — Android patch-gate: missing osPatchLevel field → 400 ATTESTATION_STALE_PATCH", async () => {
-  // A leaf cert without a TAG_OS_PATCH_LEVEL is treated as "older than
-  // any threshold" (fail closed). The validator surfaces this as the
-  // same AttestationError code, so the handler's UX path is the same.
-  const { deps } = buildDeps({
-    validateAndroidAttestationImpl: () =>
-      Promise.reject(
-        new AttestationError(
-          "ATTESTATION_STALE_PATCH",
-          "leaf cert has no osPatchLevel; cannot prove patch-gate",
-        ),
-      ),
-  });
-
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
-    deps,
-  );
-  const { status, body } = await readJsonResponse<
-    { error: string; code?: string }
-  >(res);
-  assertEquals(status, 400);
-  assertEquals(body.code, "ATTESTATION_STALE_PATCH");
-});
-
-Deno.test("register-signing-key — Android: generic AttestationError stays masked (no code leak)", async () => {
-  // CHAIN_INVALID and friends must NOT leak through `code`. Only
-  // ATTESTATION_STALE_PATCH gets the special UX treatment.
-  const { deps } = buildDeps({
+Deno.test("register-signing-key — Android: ANDROID_APP_SIGNING_CERT_SHA256 unset → 500, validator never called", async () => {
+  Deno.env.delete("ANDROID_APP_SIGNING_CERT_SHA256");
+  let validatorCalled = false;
+  const { deps, mockClient } = buildDeps({
     validateAndroidAttestationImpl: () => {
-      throw new AttestationError(
-        "CHAIN_INVALID",
-        "cert chain validation failed",
-      );
+      validatorCalled = true;
+      return Promise.resolve();
     },
   });
-
   const res = await handleRegister(
     buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
     deps,
   );
-  const { status, body } = await readJsonResponse<
-    { error: string; code?: string }
-  >(res);
-  assertEquals(status, 400);
-  assertEquals(body.error, "Invalid attestation");
-  // Belt-and-suspenders: a future regression that added `code` to the
-  // generic branch would silently broaden the attacker's view of which
-  // check failed. Assert absence.
-  assertEquals(body.code, undefined);
+  const { status, body } = await readJsonResponse<{ error: string }>(res);
+  assertEquals(status, 500);
+  assertEquals(body.error, "Server misconfiguration");
+  assertEquals(validatorCalled, false);
+  assertEquals(
+    mockClient.calls.some((c) => c.table === "rpc:register_user_signing_key"),
+    false,
+  );
 });
+
+Deno.test("register-signing-key — Android: malformed ANDROID_APP_SIGNING_CERT_SHA256 → 500", () =>
+  withAndroidSigningCertEnv(async () => {
+    const { deps } = buildDeps();
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<{ error: string }>(res);
+    assertEquals(status, 500);
+    assertEquals(body.error, "Server misconfiguration");
+  }, "not-a-digest"));
+
+Deno.test("register-signing-key — Android: junk ANDROID_MIN_APP_VERSION_CODE → 500", () =>
+  withAndroidSigningCertEnv(async () => {
+    Deno.env.set("ANDROID_MIN_APP_VERSION_CODE", "latest");
+    try {
+      const { deps } = buildDeps();
+      const res = await handleRegister(
+        buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+        deps,
+      );
+      assertEquals(res.status, 500);
+    } finally {
+      Deno.env.delete("ANDROID_MIN_APP_VERSION_CODE");
+    }
+  }));
+
+Deno.test("register-signing-key — Android: revocation list unavailable → 503 + Retry-After, validator never called", () =>
+  withAndroidSigningCertEnv(async () => {
+    let validatorCalled = false;
+    const { deps, mockClient } = buildDeps({
+      loadAndroidRevocationListImpl: () =>
+        Promise.reject(
+          new Error(
+            "Android attestation revocation list unavailable: HTTP 503",
+          ),
+        ),
+      validateAndroidAttestationImpl: () => {
+        validatorCalled = true;
+        return Promise.resolve();
+      },
+    });
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<{ error: string }>(res);
+    assertEquals(status, 503);
+    assertEquals(body.error, "Service temporarily unavailable");
+    assertEquals(res.headers.get("Retry-After"), "60");
+    assertEquals(validatorCalled, false);
+    assertEquals(
+      mockClient.calls.some((c) => c.table === "rpc:register_user_signing_key"),
+      false,
+    );
+  }));
+
+Deno.test("register-signing-key — Android: validator receives the env digests, version floor, and the revocation list", () =>
+  withAndroidSigningCertEnv(async () => {
+    Deno.env.set("ANDROID_MIN_APP_VERSION_CODE", "7");
+    try {
+      const list = new Map([
+        ["abcd", { status: "REVOKED", reason: "KEY_COMPROMISE" }],
+      ]);
+      const captured: Array<
+        Parameters<RegisterDeps["validateAndroidAttestation"]>[0]
+      > = [];
+      const { deps } = buildDeps({
+        loadAndroidRevocationListImpl: () => Promise.resolve(list),
+        validateAndroidAttestationImpl: (opts) => {
+          captured.push(opts);
+          return Promise.resolve();
+        },
+      });
+      const res = await handleRegister(
+        buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+        deps,
+      );
+      assertEquals(res.status, 200);
+      assertEquals(captured.length, 1);
+      const opts = captured[0];
+      assertEquals(opts.revokedSerials, list);
+      assertEquals(opts.signingCertSha256Digests, [
+        new Uint8Array(32).fill(0xab),
+      ]);
+      assertEquals(opts.minAppVersionCode, 7);
+      assertEquals(opts.expectedSecurityLevel, "strongbox");
+      assertEquals(opts.validationTime, undefined);
+    } finally {
+      Deno.env.delete("ANDROID_MIN_APP_VERSION_CODE");
+    }
+  }));
 
 // =====================================================================
 // KMS + leaf issuance (failure paths)
@@ -941,22 +1028,23 @@ Deno.test("register-signing-key — iOS happy path → 200 with leafChainPEM + k
   assertEquals(insertArgs.p_app_attest_public_key, expectedHex);
 });
 
-Deno.test("register-signing-key — Android happy path → 200 with leafChainPEM, app_attest_public_key NULL", async () => {
-  const { deps, mockClient } = buildDeps();
+Deno.test("register-signing-key — Android happy path → 200 with leafChainPEM, app_attest_public_key NULL", () =>
+  withAndroidSigningCertEnv(async () => {
+    const { deps, mockClient } = buildDeps();
 
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
-    deps,
-  );
-  assertEquals(res.status, 200);
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+      deps,
+    );
+    assertEquals(res.status, 200);
 
-  // Android rows persist app_attest_public_key = NULL by design (no
-  // App Attest equivalent on Android — Play Integrity uses different
-  // primitives that don't surface a per-key pubkey).
-  const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
-  assertEquals(insertArgs.p_platform, "android-strongbox");
-  assertEquals(insertArgs.p_app_attest_public_key, null);
-});
+    // Android rows persist app_attest_public_key = NULL by design (no
+    // App Attest equivalent on Android — Play Integrity uses different
+    // primitives that don't surface a per-key pubkey).
+    const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
+    assertEquals(insertArgs.p_platform, "android-strongbox");
+    assertEquals(insertArgs.p_app_attest_public_key, null);
+  }));
 
 Deno.test(
   "register-signing-key — happy path passes burn RPC the correct (challenge, user_id) args",
@@ -1209,7 +1297,7 @@ function withV2Env(
   });
 }
 
-Deno.test("register-signing-key — v2 iOS: issuance gets v2 opts + 180d, response carries assuranceLevel AL1", () =>
+Deno.test("register-signing-key — v2 iOS: issuance gets v2 opts + 180d at AL1", () =>
   withV2Env({ ios: PLACEHOLDER_CPL_UUID }, async () => {
     const capturedOpts: Array<
       Parameters<RegisterDeps["issueLeafChainFromCSR"]>[1]
@@ -1235,13 +1323,45 @@ Deno.test("register-signing-key — v2 iOS: issuance gets v2 opts + 180d, respon
     >(res);
     assertEquals(status, 200);
     assertEquals(body.ok, true);
-    assertEquals(body.assuranceLevel, "AL1"); // iOS is AL1 by policy
+    assertEquals("assuranceLevel" in body, false);
     assertEquals(capturedOpts.length, 1);
     assertEquals(capturedOpts[0].validityDays, 180);
     assertEquals(capturedOpts[0].v2?.platform, "ios");
     assertEquals(capturedOpts[0].v2?.assuranceLevel, "AL1");
     assertEquals(capturedOpts[0].v2?.cplRecordUuid, PLACEHOLDER_CPL_UUID);
   }));
+
+Deno.test("register-signing-key — v2 Android: always AL2, 90d", () =>
+  withV2Env(
+    { android: PLACEHOLDER_CPL_UUID },
+    () =>
+      withAndroidSigningCertEnv(async () => {
+        const capturedOpts: Array<
+          Parameters<RegisterDeps["issueLeafChainFromCSR"]>[1]
+        > = [];
+        const { deps } = buildDeps({
+          issueLeafChainImpl: (_csr, opts) => {
+            capturedOpts.push(opts);
+            return Promise.resolve({
+              pem:
+                "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
+              serialDecimal: "12345678",
+              serialBytes: new Uint8Array([1, 2, 3, 4]),
+              notAfter: new Date("2026-10-24T00:00:00Z"),
+            });
+          },
+        });
+        const res = await handleRegister(
+          buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+          deps,
+        );
+        assertEquals(res.status, 200);
+        assertEquals(capturedOpts.length, 1);
+        assertEquals(capturedOpts[0].validityDays, 90);
+        assertEquals(capturedOpts[0].v2?.platform, "android");
+        assertEquals(capturedOpts[0].v2?.assuranceLevel, "AL2");
+      }),
+  ));
 
 Deno.test("register-signing-key — v2 with unset CPL UUID: 500, nothing persisted", () =>
   withV2Env({}, async () => {
@@ -1290,10 +1410,9 @@ Deno.test("register-signing-key — v1 default: no v2 opts to issuance, no assur
   assertEquals(capturedOpts[0].v2, undefined);
 });
 
-Deno.test("leafValidityDays — v2 per-platform/per-AL map; v1 flat 180", () => {
-  assertEquals(leafValidityDays("v1", "ios", "AL1"), 180);
-  assertEquals(leafValidityDays("v1", "android", "AL2"), 180);
-  assertEquals(leafValidityDays("v2", "ios", "AL1"), 180);
-  assertEquals(leafValidityDays("v2", "android", "AL1"), 180);
-  assertEquals(leafValidityDays("v2", "android", "AL2"), 90);
+Deno.test("leafValidityDays — v2 per-platform; v1 flat 180", () => {
+  assertEquals(leafValidityDays("v1", "ios"), 180);
+  assertEquals(leafValidityDays("v1", "android"), 180);
+  assertEquals(leafValidityDays("v2", "ios"), 180);
+  assertEquals(leafValidityDays("v2", "android"), 90);
 });
