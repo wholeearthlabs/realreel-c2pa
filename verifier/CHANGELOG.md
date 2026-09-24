@@ -1,5 +1,11 @@
 # @realreel/verifier
 
+## 0.12.1
+
+### Patch Changes
+
+- [`82d4dc5`](https://github.com/wholeearthlabs/realreel-c2pa/commit/82d4dc5596006c379547aba0a401e63f40e27b62) Thanks [@boojamya](https://github.com/boojamya)! - Stop Sentry's Fastify integration from reporting every `VerifyError` a second time as an unhandled, error-level exception. Fastify runs the SDK's `onError` hook before the verifier's own error handler, so the reply status is still 200 when the SDK's default filter looks at it, and each routine 422 rejection also surfaced as a high-priority issue next to the structured `verify_error.<CODE>` message. The integration now receives a `shouldHandleError` that skips `VerifyError`; every other throw still reports as the 500 it becomes.
+
 ## 0.12.0
 
 ### Minor Changes
