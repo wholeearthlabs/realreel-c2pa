@@ -88,6 +88,25 @@ When the verifier rejects an Android upload with a Play-Integrity-related error 
 - `ATTESTATION_INVALID` on Android uploads → user-side issue, look at the token / device.
 - `VERIFIER_UNAVAILABLE` from Android uploads → a server-side issue: look at the runtime SA's project + Play Console link, env vars, or Google's status page.
 
+## Diagnostics: OCSP revocation of wrap-mode parents
+
+With `NETWORK_REVOCATION=true`, every wrapped third-party capture (Pixel) has its leaf certificate checked against the OCSP responder its trust source declares (`revocation.ocsp_hosts` in `trust-sources.yaml`, the only hosts c2pa-rs may contact). RealReel's own certificates are never checked over the network — the issued-certificates ledger is their system of record. The upload is accepted only on the responder's `notRevoked` answer; everything else rejects. The outcome decides the code:
+
+| Responder outcome | c2pa-rs code (on the capture's ingredient row) | Verifier `error_code` | Likely cause | Where to look |
+|---|---|---|---|---|
+| good | `signingCredential.ocsp.notRevoked` | (accepted) | — | — |
+| revoked | `signingCredential.ocsp.revoked` | `UNTRUSTED_ISSUER`, `category: ocsp` | The vendor revoked that camera's certificate (a leaked key — the public Pixel forgery reads this way). Not retryable. | `detail` is the code plus c2pa-rs's explanation, revocation time included |
+| unknown | `signingCredential.ocsp.unknown` | `UNTRUSTED_ISSUER`, `category: ocsp` | The responder does not know the certificate. Vendor-side. | Vendor status; the same capture through `c2patool --settings` with OCSP on |
+| unreachable, HTTP error, or the responder host is not on the allow-list | `signingCredential.ocsp.inaccessible` | `VERIFIER_UNAVAILABLE`, `category: ocsp` | Responder outage, Cloud Run egress, or the vendor moved its responder to a host the YAML doesn't list. `detail` names the bucket and codes seen. Retryable. | Cloud Run egress; the AIA host on a fresh sample capture against `revocation.ocsp_hosts`; Google's status page |
+| no usable answer: OCSP-level `tryLater` / `unauthorized` / `malformed`, an unparseable or certificate-less response, a response for a different certificate, a revocation whose time postdates the capture's trusted timestamp, or a response **stapled** into the manifest (c2pa-rs then never fetches; a staple's `notRevoked` files as `informational`) | (none, or `signingCredential.ocsp.notRevoked` outside `success`) | `VERIFIER_UNAVAILABLE`, `category: ocsp`, `detail` says `none` or names the bucket | Silent in c2pa-rs 0.90.22. Mostly responder-side and transient; a staple is permanent — if a camera vendor starts stapling OCSP into its captures, every upload from it rejects until the verifier learns to validate staples. | The same capture through `c2patool --settings` with OCSP on; the raw responder answer with `openssl ocsp` |
+| no answer within `OCSP_FETCH_TIMEOUT_MS` (10 s) | (none) | `VERIFIER_UNAVAILABLE`, `category: ocsp`, `detail` says "exceeded 10000 ms" | Hung responder; c2pa-rs's HTTP client has no timeout of its own, so `verify.ts` bounds the read. Retryable. | Same as above |
+
+Cost: one responder round trip per wrapped upload — about 1.5 s on a fresh instance, tens of milliseconds once the connection is warm. Residual on the pinned engine (c2pa-rs 0.90.22): the response's signature is verified but the responder's certificate is not chained to a trust anchor, and the request travels over plain HTTP, so a party on the path between Cloud Run and the responder could forge a `good` answer. c2pa-rs 0.91 closes this (#2542, #2616); see `CRJSON_HARNESS.md` for why the engine waits on a matching `c2patool`.
+
+**Quick triage rule of thumb:**
+- `UNTRUSTED_ISSUER` with `category: ocsp` (`detail` starts with `signingCredential.ocsp.`) → the camera's certificate, not our stack.
+- `VERIFIER_UNAVAILABLE` with `category: ocsp` → reachability of the vendor's responder from Cloud Run, or a silent outcome from the row above.
+
 ## Monitoring + alerts
 
 Wire alerts through your own tooling — there's no in-code alert config. At minimum,
@@ -96,7 +115,12 @@ watch for sustained spikes in these structured `error_code`s:
 - **`VERIFIER_UNAVAILABLE`** — a server-side problem (runtime SA not authorized against
   the linked project, bad/expired SA credentials, `PLAY_INTEGRITY_*` typo) *or* a Google
   API outage. The Diagnostics
-  table above maps the underlying Google HTTP status to the cause.
+  table above maps the underlying Google HTTP status to the cause. Tagged
+  `category: ocsp`, it is a vendor OCSP responder unreachable or timing out — see
+  [Diagnostics: OCSP](#diagnostics-ocsp-revocation-of-wrap-mode-parents).
+- **`UNTRUSTED_ISSUER`** tagged `category: ocsp` — a vendor revoked that camera's
+  certificate. Expected for the public Pixel forgery; a spike means a new leaked key
+  is being laundered.
 - **`ATTESTATION_INVALID`** (Android) — a client-side problem (tampered/stale token,
   mismatched cloud project, a `requestHash` that doesn't bind the manifest's challenge
   and signing key). A low baseline is normal; a spike usually means a client regression.
@@ -124,7 +148,7 @@ vendor):
 5. Rebuild image, redeploy to Cloud Run. The trust bundle is image-baked — rotation = redeploy.
 6. Close the open GitHub issue (`label: trust-anchors`).
 
-Note: `trust-sources.yaml` no longer carries an `issuer_match` field. The cross-process trust metadata (`id`, `displayName`, `issuerMatch`, `rootCommonName`) lives in `@realreel/c2pa-trust-core`; the verifier's YAML now holds only the per-source server policy (`root_cert`, `verification_profile`).
+Note: `trust-sources.yaml` no longer carries an `issuer_match` field. The cross-process trust metadata (`id`, `displayName`, `issuerMatch`, `rootCommonName`) lives in `@realreel/c2pa-trust-core`; the verifier's YAML now holds only the per-source server policy (`root_cert`, `verification_profile`, `revocation`). A rotated vendor chain can move its OCSP responder too: re-read the AIA hosts off a fresh sample capture and update `revocation.ocsp_hosts`, or every wrapped upload from that vendor fails `VERIFIER_UNAVAILABLE`.
 
 **First real rotation rewrites this section as it happens** — these are sketches, not a proven playbook.
 

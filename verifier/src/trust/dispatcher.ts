@@ -24,7 +24,11 @@
 // guaranteeing both validators agree on what counts as a trusted issuer.
 
 import { TRUSTED_ISSUERS } from "@realreel/c2pa-trust-core";
-import type { TrustConfig, VerificationProfile } from "./types.js";
+import type {
+  RevocationConfig,
+  TrustConfig,
+  VerificationProfile,
+} from "./types.js";
 
 /**
  * Resolve a signature's issuer + common_name to a trust-source id, or
@@ -79,6 +83,7 @@ export interface ResolvedTrustSource {
   id: string;
   name: string;
   profile: VerificationProfile;
+  revocation?: RevocationConfig;
 }
 
 /** Signature-identity → trust-source resolver. verify.ts builds one per
@@ -111,6 +116,7 @@ export function makeTrustSourceResolver(
       id: source.id,
       name: source.name,
       profile: source.verification_profile,
+      revocation: source.revocation,
     };
   };
 }

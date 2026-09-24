@@ -116,6 +116,14 @@ export interface Config {
    *  playIntegrity unset is a startup error (you can't require an envelope
    *  you can't decode). */
   attestationRequired: boolean;
+
+  /** Network revocation for the trust sources that declare `revocation` in
+   *  trust-sources.yaml (today: Pixel). When true, c2pa-rs fetches OCSP
+   *  status from those responders — the only hosts it may contact — and a
+   *  capture from a `reject` source needs a `notRevoked` answer. Production
+   *  must set NETWORK_REVOCATION to "true" or "false" explicitly; elsewhere
+   *  it defaults to off so tests and local runs make no network request. */
+  networkRevocation: boolean;
 }
 
 export interface PlayIntegrityConfig {
@@ -159,7 +167,24 @@ export function loadConfig(): Config {
     isProduction,
     playIntegrity,
     attestationRequired,
+    networkRevocation: parseNetworkRevocation(isProduction),
   };
+}
+
+function parseNetworkRevocation(isProduction: boolean): boolean {
+  const raw = process.env.NETWORK_REVOCATION;
+  // Same fail-closed rule as ATTESTATION_REQUIRED: off, the verifier never
+  // learns that a third-party camera certificate was revoked, so production
+  // must choose rather than fall through on an unset or mistyped value.
+  if (isProduction && raw !== "true" && raw !== "false") {
+    throw new Error(
+      `NETWORK_REVOCATION must be explicitly "true" or "false" in production ` +
+        `(got ${raw === undefined ? "(unset)" : `'${raw}'`}). Set =true to ` +
+        `check wrap-mode parents against their vendor's OCSP responder, or ` +
+        `=false to deliberately skip network revocation.`,
+    );
+  }
+  return raw === "true";
 }
 
 function parseAttestationRequired(

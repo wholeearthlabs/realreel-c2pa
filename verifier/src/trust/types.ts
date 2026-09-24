@@ -21,12 +21,27 @@
 //                         rejected at the force-wrap gate.
 export type VerificationProfile = "realreel" | "wrap_parent_only";
 
+/** Network revocation for the certificates a source signs with. A source
+ * that declares it gets a capture accepted only on the responder's
+ * `notRevoked` answer; no answer (unreachable, blocked, timed out, stapled
+ * away) is a retryable rejection. Sources whose certificates are revoked
+ * through the issued-certificates ledger (the RealReel hierarchies) declare
+ * none. */
+export interface RevocationConfig {
+  /** c2pa-rs `HostPattern` strings — `scheme://[*.]host[:port]`, scheme
+   * required — naming the source's OCSP responders. The union over every
+   * source is c2pa-rs's outbound host allow-list. */
+  ocsp_hosts: string[];
+}
+
 export interface TrustSourceConfig {
   id: string;
   name: string;
   description: string;
   root_cert: string;
   verification_profile: VerificationProfile;
+  /** Absent: no network revocation check for this source. */
+  revocation?: RevocationConfig;
 }
 
 export interface TrustSource extends TrustSourceConfig {
@@ -93,4 +108,9 @@ export interface TrustConfig {
    * identifyTrustSource() on every /verify request — pre-computed so it isn't
    * rebuilt on the hot path. Immutable after the loader returns. */
   loadedIds: ReadonlySet<string>;
+
+  /** Every loaded source's `revocation.ocsp_hosts`, deduplicated: the whole
+   * of c2pa-rs's outbound host allow-list (see buildVerifierSettings). Empty
+   * blocks every c2pa-rs network request. */
+  ocspHosts: readonly string[];
 }

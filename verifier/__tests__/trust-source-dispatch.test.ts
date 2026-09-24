@@ -47,6 +47,7 @@ function configWithLoaded(...ids: string[]): TrustConfig {
     tsaRoots: [],
     trustAnchorsBundle: "",
     loadedIds: new Set(ids),
+    ocspHosts: [],
   };
 }
 

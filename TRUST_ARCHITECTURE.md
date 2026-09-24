@@ -111,6 +111,9 @@ trusted Stage 1 parent while Stage 2 records what changed.
 The verifier then:
 
 - looks up the key by certificate serial and rejects any revoked key;
+- for a third-party capture, asks the vendor's OCSP responder — the only host
+  c2pa-rs may contact — whether the capture's leaf certificate is revoked, and
+  rejects a revoked or an unanswered status;
 - validates the attestation envelope — an App Attest assertion verified locally
   on iOS, or a Play Integrity token decoded via Google's API on Android (requiring
   a hardware-backed `MEETS_STRONG_INTEGRITY` verdict on Android 13+);
@@ -202,6 +205,7 @@ Stage 2 records the resize / compress / rotate applied at upload.
 | Cross-device token replay | The challenge is minted bound to a registry-owned key, and on Android the verifier rebuilds the token's `requestHash` from that challenge and the enrolled public key, so a token for device A can't be redeemed by device B. |
 | Stale Android firmware | Enrollment requires OS, vendor and boot patch levels inside the C2PA AL2 windows, plus a hardware-backed `MEETS_STRONG_INTEGRITY` verdict (Android 13+) at upload. |
 | Compromised or lost device | A revocation denylist — the verifier rejects any upload signed by, or whose capture references, a revoked key. Immediate, independent of token TTL. |
+| Leaked third-party camera key (a revoked Pixel certificate) | Network revocation: the verifier queries the vendor's OCSP responder for every wrapped capture's leaf certificate, rejects a `revoked` answer, and treats no answer as a retryable failure rather than acceptance. Residual on the pinned engine (c2pa-rs 0.90.22): the responder's answer is signature-checked but its certificate is not chained to a trust anchor, so a party on the path to the responder could forge a `good` answer; c2pa-rs 0.91 closes this. |
 | Backdated signatures | Trusted RFC 3161 timestamps anchor each signature to an independent clock; the verifier validates each certificate as of its timestamp (an upper-bound proof of when the signature was made). |
 | Sensor-level deepfake (point a camera at a screen) | Out of scope for app-based C2PA — see [Scope and assumptions](#scope-and-assumptions). |
 

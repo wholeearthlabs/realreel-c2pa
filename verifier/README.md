@@ -73,7 +73,7 @@ ASSET_STORAGE_HOST_ALLOWLIST=127.0.0.1:54321
 
 `ASSET_STORAGE_HOST_REGEX` is the first SSRF layer (URL shape match); `ASSET_STORAGE_HOST_ALLOWLIST` is the authoritative second layer — comma-separated lowercase hosts compared against `new URL(signedUrl).host`. The two-step defense neutralizes the userinfo-prefix trick (`https://abc.supabase.co@attacker.com/...`) even if the regex is permissive.
 
-Stage-2 attestation env (`PLAY_INTEGRITY_PACKAGE_NAME`, `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER`, `ATTESTATION_REQUIRED`) is intentionally left unset locally — the verifier runs in lenient mode (structural envelope check + nonce burn, JWS decode skipped). Production sets all three; see [DEPLOY.md](DEPLOY.md).
+Stage-2 attestation env (`PLAY_INTEGRITY_PACKAGE_NAME`, `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER`, `ATTESTATION_REQUIRED`) and `NETWORK_REVOCATION` are intentionally left unset locally — the verifier runs in lenient mode (structural envelope check + nonce burn, JWS decode skipped) and makes no OCSP request. Production sets all four; see [DEPLOY.md](DEPLOY.md).
 
 ## Running tests
 
@@ -118,6 +118,9 @@ The trust list is split across two files. The cross-process portion — `id`, `d
 - `name`, `description`: human-readable.
 - `root_cert`: relative path to the trust anchor's root PEM.
 - `verification_profile`: `realreel` (eligible to sign Stage 2 / active manifest) or `wrap_parent_only` (trusted only as a Stage 1 parent inside a RealReel-wrapped upload).
+- `revocation` (optional): `ocsp_hosts`, the source's OCSP responders as c2pa-rs host patterns (`scheme://[*.]host[:port]`, scheme required, port matched literally). The union of every source's hosts is the only set of hosts c2pa-rs may contact. RealReel sources declare none: their certificates are revoked through the issued-certificates ledger.
+
+**Third-party parent revocation.** A wrapped capture from a `wrap_parent_only` source has no ledger row, so with `NETWORK_REVOCATION=true` (see [DEPLOY.md](DEPLOY.md)) c2pa-rs asks the responder that source declares for the parent's leaf-certificate OCSP status on every wrapped upload. A `revoked` answer rejects as `UNTRUSTED_ISSUER`; no answer — responder unreachable, blocked, timed out, or a response stapled into the manifest, which c2pa-rs never fetches past — rejects as retryable `VERIFIER_UNAVAILABLE` rather than passing. Off (the default outside production), c2pa-rs makes no network request. The engine pinned today (c2pa-rs 0.90.22) checks the response's signature but does not chain the responder's certificate to a trust anchor; that lands with c2pa-rs 0.91 (#2542, #2616), together with querying the issuing CAs (#2615).
 
 **One ingestion profile, force-wrap.** The verifier dispatches only the `realreel` profile when ingesting an active manifest (see `verify.ts` — anything else is rejected with `UNTRUSTED_ISSUER`). Every upload must therefore carry a RealReel-signed Stage 2 manifest. `wrap_parent_only` (today: Pixel) means the root sits in the c2pa-node trust bundle so parent-chain validation succeeds in wrap mode, but a raw single-stage upload chained to that root is rejected at the force-wrap gate.
 
@@ -130,8 +133,9 @@ Substring matching is for routing, **not** for trust: by the time the dispatcher
 1. Register the entry in `trust-core/src/trust-list/trusted-issuers.ts` with the cross-process metadata.
 2. Append a `trust-sources.yaml` entry here with the matching `id` and verifier-specific policy.
 3. Commit the PEM file at `trust-sources/<id>/root.pem`.
-4. Ensure a verification profile handler exists.
-5. Redeploy.
+4. Read the OCSP responder host off a sample capture's leaf certificate — its AIA `OCSP` URI (`c2patool <sample> --certs`, then `openssl x509 -noout -ext authorityInfoAccess`) — and declare it as `revocation.ocsp_hosts`. Without the block the source gets no network revocation check.
+5. Ensure a verification profile handler exists.
+6. Redeploy.
 
 **To remove a vendor:** delete the entry from both files + the PEM directory; redeploy.
 

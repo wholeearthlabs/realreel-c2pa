@@ -272,3 +272,118 @@ sources:
     );
   });
 });
+
+// ---------------------------------------------------------------
+// revocation: per-source OCSP responders
+// ---------------------------------------------------------------
+
+/** A realreel source plus a pixel source carrying `revocationYaml` (already
+ *  indented four spaces, or empty). Both point at the same PEM: the loader
+ *  only reads bytes. */
+function withPixel(revocationYaml: string): string {
+  return `
+sources:
+  - id: realreel
+    name: RealReel
+    description: Test fixture.
+    root_cert: trust-sources/realreel/root.pem
+    verification_profile: realreel
+  - id: pixel
+    name: Google Pixel
+    description: Test fixture.
+    root_cert: trust-sources/realreel/root.pem
+    verification_profile: wrap_parent_only
+${revocationYaml}`;
+}
+
+describe("loadTrustConfig — revocation", () => {
+  it("parses the block and unions ocsp_hosts", async () => {
+    const yamlPath = await writeYamlFixture(
+      withPixel(`    revocation:
+      ocsp_hosts: ["http://c2pa-ocsp.pki.goog", "https://*.pki.goog:8443"]
+`),
+    );
+    const config = await loadTrustConfig(yamlPath);
+    expect(config.sources.find((s) => s.id === "pixel")!.revocation).toEqual({
+      ocsp_hosts: ["http://c2pa-ocsp.pki.goog", "https://*.pki.goog:8443"],
+    });
+    expect(config.sources.find((s) => s.id === "realreel")!.revocation).toBeUndefined();
+    expect(config.ocspHosts).toEqual(["http://c2pa-ocsp.pki.goog", "https://*.pki.goog:8443"]);
+  });
+
+  it("ocspHosts is empty when no source declares revocation", async () => {
+    const config = await loadTrustConfig(await writeYamlFixture(withPixel("")));
+    expect(config.ocspHosts).toEqual([]);
+  });
+
+  it("rejects a host pattern that is not scheme://[*.]host[:port]", async () => {
+    for (const bad of [
+      "c2pa-ocsp.pki.goog",
+      "http://c2pa-ocsp.pki.goog/",
+      "http://c2pa-ocsp.pki.goog/ocsp",
+      "http://*pki.goog",
+      "ftp://c2pa-ocsp.pki.goog",
+      "http://user@c2pa-ocsp.pki.goog",
+    ]) {
+      const yamlPath = await writeYamlFixture(
+        withPixel(`    revocation:
+      ocsp_hosts: ["${bad}"]
+`),
+      );
+      await expect(loadTrustConfig(yamlPath), bad).rejects.toThrow(
+        /is not a scheme-pinned host pattern/,
+      );
+    }
+  });
+
+  it("rejects a block without ocsp_hosts, an empty ocsp_hosts, and a non-mapping", async () => {
+    for (const block of ["    revocation: {}\n", "    revocation:\n      ocsp_hosts: []\n"]) {
+      await expect(
+        loadTrustConfig(await writeYamlFixture(withPixel(block))),
+        block,
+      ).rejects.toThrow(/'revocation.ocsp_hosts' must be a non-empty list/);
+    }
+    await expect(
+      loadTrustConfig(await writeYamlFixture(withPixel("    revocation: yes\n"))),
+    ).rejects.toThrow(/'revocation' must be a mapping with 'ocsp_hosts'/);
+  });
+
+  it("rejects unknown revocation keys (the retired on_unreachable included)", async () => {
+    const yamlPath = await writeYamlFixture(
+      withPixel(`    revocation:
+      ocsp_hosts: ["http://c2pa-ocsp.pki.goog"]
+      on_unreachable: allow
+`),
+    );
+    await expect(loadTrustConfig(yamlPath)).rejects.toThrow(
+      /unknown 'revocation' key 'on_unreachable'/,
+    );
+  });
+
+  it("rejects revocation on a realreel-profile source", async () => {
+    const yamlPath = await writeYamlFixture(`
+sources:
+  - id: realreel
+    name: RealReel
+    description: Test fixture.
+    root_cert: trust-sources/realreel/root.pem
+    verification_profile: realreel
+    revocation:
+      ocsp_hosts: ["http://ocsp.realreel.xyz"]
+`);
+    await expect(loadTrustConfig(yamlPath)).rejects.toThrow(
+      /a 'realreel' source cannot declare 'revocation'/,
+    );
+  });
+
+  it("the production trust list declares Google's responder for Pixel and nothing for RealReel", async () => {
+    const config = await loadTrustConfig(resolve(VERIFIER_ROOT, "trust-sources.yaml"));
+    expect(config.ocspHosts).toEqual(["http://c2pa-ocsp.pki.goog"]);
+    expect(config.sources.find((s) => s.id === "pixel")!.revocation).toEqual({
+      ocsp_hosts: ["http://c2pa-ocsp.pki.goog"],
+    });
+    for (const s of config.sources.filter((s) => s.verification_profile === "realreel")) {
+      expect(s.revocation, s.id).toBeUndefined();
+    }
+  });
+});

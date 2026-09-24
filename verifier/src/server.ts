@@ -45,7 +45,7 @@ import { initObservability, Sentry } from "./observability.js";
 import { initDb, pingDb } from "./db.js";
 import { loadTrustConfig } from "./trust/loader.js";
 import type { TrustConfig } from "./trust/types.js";
-import { verify } from "./verify.js";
+import { fetchesOcsp, verify } from "./verify.js";
 import {
   isLocationLevel,
   type LocationLevel,
@@ -106,6 +106,23 @@ export function buildServer(opts: {
         "PLAY_INTEGRITY_PACKAGE_NAME and PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER " +
         "are unset; Android JWS decode is DISABLED, nonce burn only. " +
         "Set both env vars to enable full verdict enforcement.",
+    );
+  }
+
+  // The effective network posture, so a deploy that set NETWORK_REVOCATION
+  // against a trust list with no responders is visible in the logs.
+  const ocspHosts = [...trustConfig.ocspHosts];
+  if (config.networkRevocation && ocspHosts.length === 0) {
+    fastify.log.warn(
+      { category: "ocsp", ocspHosts },
+      "NETWORK_REVOCATION=true but no trust source declares revocation.ocsp_hosts; no OCSP check runs",
+    );
+  } else {
+    fastify.log.info(
+      { category: "ocsp", networkRevocation: config.networkRevocation, ocspHosts },
+      fetchesOcsp(trustConfig, config.networkRevocation)
+        ? "network revocation ON: c2pa-rs may contact the listed OCSP responders and no other host"
+        : "network revocation OFF: c2pa-rs makes no network request",
     );
   }
 
@@ -322,6 +339,7 @@ function registerRoutes(
       trustConfig,
       playIntegrityConfig: config.playIntegrity,
       attestationRequired: config.attestationRequired,
+      networkRevocation: config.networkRevocation,
     });
 
     reply.status(200).send({

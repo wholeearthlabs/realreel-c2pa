@@ -215,10 +215,12 @@ export function pemCertificates(bundle: string): string[] {
 /** The settings document both children get: verify.ts's own builder with the
  *  supplied lists as the anchor pool. c2pa-rs keeps ONE pool for claim-signing
  *  and TSA certificates (EKU-discriminated), so the two lists are concatenated
- *  — the same pooling trust/loader.ts does for trust-sources.yaml. */
+ *  — the same pooling trust/loader.ts does for trust-sources.yaml. No network:
+ *  the host allow-list is empty and OCSP fetch stays off, which keeps the
+ *  output a function of its inputs. */
 export function harnessSettings(trustListPem: string, tsaTrustListPem: string): string {
   const anchors = [...pemCertificates(trustListPem), ...pemCertificates(tsaTrustListPem)];
-  const settings = buildVerifierSettings({ trustAnchorsBundle: anchors.join("\n") + "\n" });
+  const settings = buildVerifierSettings({ trustAnchorsBundle: anchors.join("\n") + "\n", ocspHosts: [] });
   if (anchors.length > 0) return settings;
   // Two empty lists = nothing trusted. c2pa-rs refuses to configure from an
   // empty anchor STRING ("COSE error parsing certificate") but treats an

@@ -38,8 +38,9 @@ const config: Config = {
   isProduction: true,
   playIntegrity: undefined,
   attestationRequired: false,
+  networkRevocation: false,
 };
-const trustConfig = {} as unknown as TrustConfig;
+const trustConfig = { ocspHosts: [] } as unknown as TrustConfig;
 
 // A body valid in every field EXCEPT declaredLocation, which each case sets.
 function bodyWith(declaredLocation: unknown) {

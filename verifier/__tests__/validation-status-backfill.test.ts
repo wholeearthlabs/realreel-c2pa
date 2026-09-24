@@ -32,6 +32,7 @@ describe("c2pa-node validation_status backfill (claim v2)", () => {
       tsaRoots: [],
       trustAnchorsBundle: realreelRootPem,
       loadedIds: new Set(),
+      ocspHosts: [],
     };
 
     const bytes = await readFile(resolve(fixturesDir, "pixel-og.jpg"));

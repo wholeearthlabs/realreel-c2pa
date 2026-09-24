@@ -40,11 +40,13 @@ const config: Config = {
   isProduction: true,
   playIntegrity: undefined,
   attestationRequired: false,
+  networkRevocation: false,
 };
 
-// Empty trust config — readiness doesn't touch it. Cast through unknown
-// because the full TrustConfig surface is irrelevant here.
-const trustConfig = {} as unknown as TrustConfig;
+// Minimal trust config — readiness doesn't touch it; only the startup log
+// reads ocspHosts. Cast through unknown because the rest of the TrustConfig
+// surface is irrelevant here.
+const trustConfig = { ocspHosts: [] } as unknown as TrustConfig;
 
 beforeEach(() => {
   vi.mocked(pingDb).mockReset();

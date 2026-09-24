@@ -47,6 +47,49 @@ describe("classifyStrictValidationStatus", () => {
     );
   });
 
+  it("maps signingCredential.ocsp.revoked → UNTRUSTED_ISSUER, never KEY_REVOKED", () => {
+    // KEY_REVOKED makes the app discard the uploader's own key; a revoked
+    // wrap-mode parent is another camera's certificate.
+    expect(codeThrownBy([{ code: "signingCredential.ocsp.revoked" }])).toBe(
+      VerifyErrorCode.UNTRUSTED_ISSUER,
+    );
+  });
+
+  it("an OCSP rejection carries the code in its detail and the ocsp category (c2pa-rs's explanation alone never says 'ocsp')", () => {
+    try {
+      classifyStrictValidationStatus([
+        { code: "signingCredential.ocsp.revoked", explanation: "certificate revoked" },
+      ]);
+      throw new Error("expected classifyStrictValidationStatus to throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(VerifyError);
+      expect((e as VerifyError).detail).toBe("signingCredential.ocsp.revoked: certificate revoked");
+      expect((e as VerifyError).category).toBe("ocsp");
+    }
+  });
+
+  it("maps signingCredential.ocsp.unknown → UNTRUSTED_ISSUER", () => {
+    expect(codeThrownBy([{ code: "signingCredential.ocsp.unknown" }])).toBe(
+      VerifyErrorCode.UNTRUSTED_ISSUER,
+    );
+  });
+
+  it("finds ocsp.revoked anywhere in the array, ahead of the first-entry mapping", () => {
+    expect(
+      codeThrownBy([
+        { code: "manifest.unknownFutureCode" },
+        { code: "signingCredential.ocsp.revoked" },
+      ]),
+    ).toBe(VerifyErrorCode.UNTRUSTED_ISSUER);
+    expect(
+      codeThrownBy([
+        { code: "signingCredential.expired" },
+        { code: "assertion.hashedURI.mismatch" },
+        { code: "signingCredential.ocsp.revoked", explanation: "certificate revoked at: 2026-09-01" },
+      ]),
+    ).toBe(VerifyErrorCode.UNTRUSTED_ISSUER);
+  });
+
   it("maps claimSignature.* / *.mismatch / *.invalid → SIGNATURE_INVALID", () => {
     expect(codeThrownBy([{ code: "claimSignature.mismatch" }])).toBe(
       VerifyErrorCode.SIGNATURE_INVALID,
@@ -65,7 +108,7 @@ describe("classifyStrictValidationStatus", () => {
     );
   });
 
-  it("classifies on the FIRST status entry", () => {
+  it("classifies on the FIRST status entry (revocation aside)", () => {
     // First wins: an expired-cert entry ahead of a benign one still rejects.
     expect(
       codeThrownBy([

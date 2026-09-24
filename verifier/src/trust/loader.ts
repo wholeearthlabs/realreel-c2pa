@@ -18,6 +18,7 @@ import { parse as parseYaml } from "yaml";
 import * as SentrySdk from "@sentry/node";
 import { TRUSTED_ISSUERS } from "@realreel/c2pa-trust-core";
 import type {
+  RevocationConfig,
   TrustConfig,
   TrustSource,
   TrustSourceConfig,
@@ -179,7 +180,45 @@ export async function loadTrustConfig(
   // timestamps).
   const loadedIds: ReadonlySet<string> = new Set(sources.map((s) => s.id));
 
-  return { sources, tsaRoots, trustAnchorsBundle, loadedIds };
+  const ocspHosts: readonly string[] = [
+    ...new Set(sources.flatMap((s) => s.revocation?.ocsp_hosts ?? [])),
+  ];
+
+  return { sources, tsaRoots, trustAnchorsBundle, loadedIds, ocspHosts };
+}
+
+// c2pa-rs HostPattern with the scheme pinned: scheme://[*.]host[:port].
+// c2pa-rs compares the port literally, so a pattern with one matches only
+// AIA URLs that carry it.
+const OCSP_HOST_PATTERN =
+  /^https?:\/\/(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/i;
+
+function validateRevocationConfig(revocation: unknown, ctx: string): void {
+  if (
+    typeof revocation !== "object" ||
+    revocation === null ||
+    Array.isArray(revocation)
+  ) {
+    throw new Error(`${ctx}: 'revocation' must be a mapping with 'ocsp_hosts'`);
+  }
+  for (const key of Object.keys(revocation)) {
+    if (key !== "ocsp_hosts") {
+      throw new Error(`${ctx}: unknown 'revocation' key '${key}' (only 'ocsp_hosts')`);
+    }
+  }
+  const { ocsp_hosts } = revocation as Partial<RevocationConfig>;
+  if (!Array.isArray(ocsp_hosts) || ocsp_hosts.length === 0) {
+    throw new Error(
+      `${ctx}: 'revocation.ocsp_hosts' must be a non-empty list of host patterns`,
+    );
+  }
+  for (const host of ocsp_hosts) {
+    if (typeof host !== "string" || !OCSP_HOST_PATTERN.test(host)) {
+      throw new Error(
+        `${ctx}: 'revocation.ocsp_hosts' entry ${JSON.stringify(host)} is not a scheme-pinned host pattern (expected http(s)://[*.]host[:port])`,
+      );
+    }
+  }
 }
 
 function validateSourceConfig(
@@ -216,6 +255,16 @@ function validateSourceConfig(
     throw new Error(
       `${ctx} '${cfg.id}': unknown verification_profile '${cfg.verification_profile}' (expected 'realreel' or 'wrap_parent_only')`,
     );
+  }
+  if (cfg.revocation !== undefined) {
+    // RealReel certificates are revoked through the issued-certificates
+    // ledger; the verifier never contacts RealReel's own responder.
+    if (cfg.verification_profile === "realreel") {
+      throw new Error(
+        `${ctx} '${cfg.id}': a 'realreel' source cannot declare 'revocation' (revocation comes from the ledger)`,
+      );
+    }
+    validateRevocationConfig(cfg.revocation, `${ctx} '${cfg.id}'`);
   }
 }
 

@@ -34,18 +34,22 @@ describe("harness inputs", () => {
     expect(pemCertificates("not a pem")).toEqual([]);
   });
 
-  it("builds the settings through the verifier's own builder, with the two lists pooled", () => {
+  it("builds the settings through the verifier's own builder, with the two lists pooled and no network", () => {
     const settings = JSON.parse(harnessSettings(TRUST_LISTS.production, TSA_LISTS.production)) as {
       trust: { trust_anchors: string };
+      core: { allowed_network_hosts: string[] };
       verify: Record<string, unknown>;
     };
     const anchors = pemCertificates(settings.trust.trust_anchors);
     expect(anchors).toEqual([...pemCertificates(TRUST_LISTS.production), ...pemCertificates(TSA_LISTS.production)]);
-    // Byte-identical to what verify.ts hands c2pa-node for the same bundle —
-    // the verifier's no-network + time-stamp-trust flags ride along.
+    // Byte-identical to what verify.ts hands c2pa-node for the same bundle
+    // with network revocation off — the time-stamp-trust flag rides along,
+    // the host allow-list is empty and OCSP fetch is off, so the output is a
+    // function of its inputs (conformance evidence must be deterministic).
     expect(harnessSettings(TRUST_LISTS.production, TSA_LISTS.production)).toBe(
-      buildVerifierSettings({ trustAnchorsBundle: anchors.join("\n") + "\n" }),
+      buildVerifierSettings({ trustAnchorsBundle: anchors.join("\n") + "\n", ocspHosts: [] }),
     );
+    expect(settings.core).toEqual({ allowed_network_hosts: [] });
     expect(settings.verify).toMatchObject({
       verify_timestamp_trust: true,
       remote_manifest_fetch: false,

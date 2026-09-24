@@ -23,6 +23,7 @@ Registry).
 | `PLAY_INTEGRITY_PACKAGE_NAME` | Android package name, matches Play Console listing | `com.realreel.app` |
 | `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` | Google Cloud project number (NOT project ID) issuing Play Integrity tokens for this build. Must match the `CLOUD_PROJECT_NUMBER` hardcoded const in `native/android/.../PhotoAttestModule.kt` | `123456789012` |
 | `ATTESTATION_REQUIRED` | **⚠️ Most safety-critical setting.** Strict per-platform require-presence of Stage 2 (upload-time) attestation per the signing key's platform: iOS → `org.realreel.app_attest`, Android → `org.realreel.play_integrity`. (Stage 1 carries no per-capture device-health check — enrollment-only trust.) **In production this MUST be set explicitly to `true` or `false` — an unset or ambiguous value FAILS CLOSED (the verifier throws at startup).** | `true` |
+| `NETWORK_REVOCATION` | OCSP revocation for wrap-mode parents from trust sources that declare `revocation.ocsp_hosts` in `trust-sources.yaml` (today: Pixel, `c2pa-ocsp.pki.goog`). With it on, c2pa-rs makes outbound HTTP requests to those responders — and to no other host — on every wrapped upload; a `revoked` answer rejects as `UNTRUSTED_ISSUER`, and no answer rejects as retryable `VERIFIER_UNAVAILABLE`. Cloud Run egress must reach the responders. **In production this MUST be set explicitly to `true` or `false`** (unset or ambiguous throws at startup) — **set it on the service before deploying the first image that reads it**: `make deploy-verifier` keeps the existing env, and an image booting without it fails the startup probe. See [OPERATIONS.md](OPERATIONS.md#diagnostics-ocsp-revocation-of-wrap-mode-parents). | `true` |
 
 > **⚠️ `DATABASE_URL` must use the Supabase _Shared_ Pooler (Supavisor), over IPv4.**
 > Cloud Run — like serverless platforms generally — has **IPv4-only egress**. Supabase's
@@ -53,6 +54,7 @@ For a real production deploy, set ALL of these in the Cloud Run env block:
 PLAY_INTEGRITY_PACKAGE_NAME=com.realreel.app
 PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER=<numeric, from Google Cloud console>
 ATTESTATION_REQUIRED=true
+NETWORK_REVOCATION=true
 ```
 
 The Cloud Run runtime service account must **belong to that same Google Cloud project** — there is **no IAM role to grant**. See **Deploy step 3** below.
@@ -204,7 +206,7 @@ Once these are in hand, you're ready for the **Deploy** flow below.
      --region=<region> --project=<verifier-project> \
      --service-account=realreel-verifier@<verifier-project>.iam.gserviceaccount.com \
      --set-secrets="DATABASE_URL=verifier-database-url:latest,VERIFIER_SHARED_SECRET=verifier-shared-secret:latest,SENTRY_DSN=verifier-sentry-dsn:latest" \
-     --set-env-vars="^@^ATTESTATION_REQUIRED=true@PLAY_INTEGRITY_PACKAGE_NAME=com.realreel.app@PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER=<numeric>@ASSET_STORAGE_HOST_ALLOWLIST=<project-ref>.supabase.co@ASSET_STORAGE_HOST_REGEX=^https://<project-ref>\.supabase\.co/storage/v1/object/sign/@MAX_ASSET_MIB=75" \
+     --set-env-vars="^@^ATTESTATION_REQUIRED=true@NETWORK_REVOCATION=true@PLAY_INTEGRITY_PACKAGE_NAME=com.realreel.app@PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER=<numeric>@ASSET_STORAGE_HOST_ALLOWLIST=<project-ref>.supabase.co@ASSET_STORAGE_HOST_REGEX=^https://<project-ref>\.supabase\.co/storage/v1/object/sign/@MAX_ASSET_MIB=75" \
      --startup-probe=httpGet.path=/healthz/ready,httpGet.port=8080,failureThreshold=6,periodSeconds=5,timeoutSeconds=4
    ```
 

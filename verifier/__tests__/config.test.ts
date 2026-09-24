@@ -29,6 +29,7 @@ const TOUCHED_ENV_VARS = [
   "PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER",
   "ATTESTATION_REQUIRED",
   "MAX_ASSET_MIB",
+  "NETWORK_REVOCATION",
 ] as const;
 
 let savedEnv: Record<string, string | undefined>;
@@ -209,6 +210,7 @@ describe("loadConfig — ATTESTATION_REQUIRED fail-closed in production", () => 
     withMinimumValidEnv();
     process.env.NODE_ENV = "production";
     process.env.ATTESTATION_REQUIRED = "false";
+    process.env.NETWORK_REVOCATION = "false";
     const config = loadConfig();
     expect(config.attestationRequired).toBe(false);
     expect(config.isProduction).toBe(true);
@@ -220,6 +222,7 @@ describe("loadConfig — ATTESTATION_REQUIRED fail-closed in production", () => 
     process.env.PLAY_INTEGRITY_PACKAGE_NAME = "com.realreel.app";
     process.env.PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER = "874158087818";
     process.env.ATTESTATION_REQUIRED = "true";
+    process.env.NETWORK_REVOCATION = "false";
     const config = loadConfig();
     expect(config.attestationRequired).toBe(true);
     expect(config.isProduction).toBe(true);
@@ -415,9 +418,11 @@ describe("loadConfig — isProduction flag", () => {
   it("isProduction === true when NODE_ENV=production", () => {
     withMinimumValidEnv();
     process.env.NODE_ENV = "production";
-    // Production fails closed on an ambiguous ATTESTATION_REQUIRED, so set it
-    // explicitly here (this test only cares about the isProduction flag).
+    // Production fails closed on an ambiguous ATTESTATION_REQUIRED or
+    // NETWORK_REVOCATION, so set both explicitly here (this test only cares
+    // about the isProduction flag).
     process.env.ATTESTATION_REQUIRED = "false";
+    process.env.NETWORK_REVOCATION = "false";
     const config = loadConfig();
     expect(config.isProduction).toBe(true);
   });
@@ -427,5 +432,49 @@ describe("loadConfig — isProduction flag", () => {
     process.env.NODE_ENV = "development";
     const config = loadConfig();
     expect(config.isProduction).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------
+// NETWORK_REVOCATION — OCSP for wrap-mode parents; fail-closed in production
+// ---------------------------------------------------------------
+
+describe("loadConfig — NETWORK_REVOCATION", () => {
+  it("defaults off outside production, so tests and local runs stay offline", () => {
+    withMinimumValidEnv();
+    expect(loadConfig().networkRevocation).toBe(false);
+  });
+
+  it("only the literal 'true' enables it", () => {
+    withMinimumValidEnv();
+    process.env.NETWORK_REVOCATION = "true";
+    expect(loadConfig().networkRevocation).toBe(true);
+    for (const off of ["1", "yes", "", "false"]) {
+      process.env.NETWORK_REVOCATION = off;
+      expect(loadConfig().networkRevocation, off).toBe(false);
+    }
+  });
+
+  it("throws when unset or ambiguous in production", () => {
+    withMinimumValidEnv();
+    process.env.NODE_ENV = "production";
+    process.env.ATTESTATION_REQUIRED = "false";
+    expect(() => loadConfig()).toThrow(
+      /NETWORK_REVOCATION must be explicitly "true" or "false" in production/,
+    );
+    process.env.NETWORK_REVOCATION = "1";
+    expect(() => loadConfig()).toThrow(
+      /NETWORK_REVOCATION must be explicitly "true" or "false" in production/,
+    );
+  });
+
+  it("accepts an explicit value in production", () => {
+    withMinimumValidEnv();
+    process.env.NODE_ENV = "production";
+    process.env.ATTESTATION_REQUIRED = "false";
+    process.env.NETWORK_REVOCATION = "true";
+    expect(loadConfig().networkRevocation).toBe(true);
+    process.env.NETWORK_REVOCATION = "false";
+    expect(loadConfig().networkRevocation).toBe(false);
   });
 });

@@ -22,6 +22,7 @@ import {
   Reader,
   createTrustSettings,
   settingsToJson,
+  type Settings,
 } from "@contentauth/c2pa-node";
 import { VerifyError, VerifyErrorCode } from "./errors.js";
 import type { PlayIntegrityConfig } from "./config.js";
@@ -84,6 +85,12 @@ export interface VerifyArgs {
    *  (see src/ports.ts). Defaults to the Postgres-backed `postgresAdapter`;
    *  an OSS integrator injects their own VerifierDatastore here. */
   datastore?: VerifierDatastore;
+  /** When true, c2pa-rs fetches OCSP status from the responders the trust
+   *  sources declare (`revocation.ocsp_hosts`), and a capture from a source
+   *  with `on_unreachable: reject` needs a `notRevoked` answer. Set from
+   *  NETWORK_REVOCATION; off by default so tests and local runs make no
+   *  network request. */
+  networkRevocation?: boolean;
 }
 
 export interface VerifyResult {
@@ -105,34 +112,81 @@ export interface VerifyResult {
 // manifest then reports signingCredential.untrusted). verifyTimestampTrust pins
 // the current c2pa-rs default.
 //
-// remoteManifestFetch + ocspFetch: false — the verifier makes NO outbound request
-// during verification. c2pa-rs defaults remoteManifestFetch ON: an asset with no
-// embedded manifest but a remote-manifest reference would make the Reader GET an
-// attacker-chosen URL (SSRF). ocspFetch is off by default but pinned for the same
-// reason. Both are lossless — RealReel ingests embedded manifests only and does
-// revocation via the datastore, not OCSP.
+// core.allowedNetworkHosts is the whole of c2pa-rs's outbound allow-list — the
+// OCSP responders trust-sources.yaml declares — and is checked on every request
+// c2pa-rs makes; an empty list blocks all of them. remoteManifestFetch stays
+// off: a remote-manifest reference is an attacker-chosen URL. ocspFetch is on
+// only when network revocation is enabled and a source declares a responder;
+// c2pa-rs then queries every chain it validates before checking the
+// signature, and a chain whose responder is off the list reads
+// signingCredential.ocsp.inaccessible (informational, so the profile requires
+// the positive answer itself — see enforceParentRevocationStatus).
 //
 // Serialize with settingsToJson, never resolveSettings: resolveSettings GETs
 // any trustAnchors / userAnchors / trustConfig / allowedList handed to it as a
-// URL — the same outbound request the two flags above exist to prevent.
+// URL.
 //
-// Takes only the anchor bundle so the conformance harness (src/harness/) can
-// hand c2pa-rs a Program-supplied trust list through this exact function —
-// same settings, different anchors — instead of mirroring it.
+// Takes only the anchor bundle and host list so the conformance harness
+// (src/harness/) can hand c2pa-rs a Program-supplied trust list through this
+// exact function — same settings, different anchors, no network.
+type VerifierSettings = Settings & {
+  core: { allowedNetworkHosts: string[] };
+};
+
 export function buildVerifierSettings(
-  trust: Pick<TrustConfig, "trustAnchorsBundle">,
+  trust: Pick<TrustConfig, "trustAnchorsBundle" | "ocspHosts">,
+  networkRevocation = false,
 ): string {
-  return settingsToJson({
+  const settings: VerifierSettings = {
     ...createTrustSettings({
       verifyTrustList: false,
       trustAnchors: trust.trustAnchorsBundle,
     }),
+    core: { allowedNetworkHosts: [...trust.ocspHosts] },
     verify: {
       verifyTimestampTrust: true,
       remoteManifestFetch: false,
-      ocspFetch: false,
+      ocspFetch: fetchesOcsp(trust, networkRevocation),
     },
+  };
+  return settingsToJson(settings);
+}
+
+/** True when the settings buildVerifierSettings emits make c2pa-rs contact
+ *  an OCSP responder. */
+export function fetchesOcsp(
+  trust: Pick<TrustConfig, "ocspHosts">,
+  networkRevocation: boolean,
+): boolean {
+  return networkRevocation && trust.ocspHosts.length > 0;
+}
+
+// c2pa-rs's HTTP client carries no timeout, so a read with OCSP fetch on is
+// bounded here: the request is released and the native read runs on to
+// completion unobserved. 10 s bounds the whole read (parse plus one or two
+// responder round trips, about 1.5 s cold) inside the route's other budgets
+// (15 s storage fetch, 10 s ffprobe).
+export const OCSP_FETCH_TIMEOUT_MS = 10_000;
+
+export function withOcspTimeout<T>(
+  read: Promise<T>,
+  ms = OCSP_FETCH_TIMEOUT_MS,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new VerifyError(
+            VerifyErrorCode.VERIFIER_UNAVAILABLE,
+            `c2pa read with OCSP fetch exceeded ${ms} ms`,
+            { category: "ocsp" },
+          ),
+        ),
+      ms,
+    );
   });
+  return Promise.race([read, timeout]).finally(() => clearTimeout(timer));
 }
 
 export async function verify(args: VerifyArgs): Promise<VerifyResult> {
@@ -145,6 +199,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     attestationRequired = false,
     clock = SYSTEM_CLOCK,
     datastore = postgresAdapter,
+    networkRevocation = false,
   } = args;
 
   // Gate the client-supplied mimeType BEFORE it selects a c2pa-rs asset
@@ -168,15 +223,18 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     );
   }
 
-  const trustSettings = buildVerifierSettings(trustConfig);
+  const trustSettings = buildVerifierSettings(trustConfig, networkRevocation);
+  const ocspFetched = fetchesOcsp(trustConfig, networkRevocation);
 
   let reader: Reader | null;
   try {
-    reader = await Reader.fromAsset(
+    const read = Reader.fromAsset(
       { buffer: assetBytes, mimeType: normalizedMime },
       trustSettings,
     );
+    reader = ocspFetched ? await withOcspTimeout(read) : await read;
   } catch (e) {
+    if (e instanceof VerifyError) throw e;
     // Reader throws on parse-level errors (truncated JUMBF, etc.).
     throw new VerifyError(
       VerifyErrorCode.MANIFEST_MALFORMED,
@@ -265,6 +323,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     attestationRequired,
     datastore,
     tsaState,
+    ocspFetched,
   );
 
   // Derive displayed metadata from the now-verified bytes + active manifest.

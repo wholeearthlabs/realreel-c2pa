@@ -21,11 +21,19 @@ export {
   REALREEL_UPLOAD_ALLOWED_ACTIONS,
 } from "@realreel/c2pa-trust-core";
 
+const OCSP_CODE_PREFIX = "signingCredential.ocsp.";
+const OCSP_NOT_REVOKED = "signingCredential.ocsp.notRevoked";
+
 /**
  * Map a c2pa-rs validation_status array to our VerifyError taxonomy.
  * Strict: every non-empty status is a hard reject.
  *
  * C2PA validation status codes (see C2PA §15.6):
+ *   - signingCredential.ocsp.revoked / .unknown, anywhere in the array
+ *                                 → UNTRUSTED_ISSUER (never KEY_REVOKED: that
+ *                                   code makes the app discard the uploader's
+ *                                   own key, and a revoked wrap-mode parent
+ *                                   is another camera's certificate)
  *   - signingCredential.expired   → CERT_EXPIRED
  *   - signingCredential.untrusted → UNTRUSTED_ISSUER
  *   - claimSignature.* / *.mismatch / *.invalid → SIGNATURE_INVALID
@@ -35,13 +43,21 @@ export function classifyStrictValidationStatus(
   status: Array<{ code: string; explanation?: string | null }>,
 ): void {
   // INVARIANT (pinned by classify-validation-status.test.ts): this throws on
-  // ANY non-empty validation status. We only classify status[0] into a
-  // specific code, but the catch-all `else` below guarantees a non-empty
-  // array can never be accepted — so a real failure at status[1+] can't slip
-  // through. Do NOT add a tolerant branch that returns without throwing on a
-  // non-empty status.
+  // ANY non-empty validation status. Apart from revocation, only status[0]
+  // is classified into a specific code, but the catch-all `else` below
+  // guarantees a non-empty array can never be accepted — so a real failure
+  // at status[1+] can't slip through. Do NOT add a tolerant branch that
+  // returns without throwing on a non-empty status.
   const v = status[0];
   if (!v) return;
+  const ocsp = status.find((s) => s.code.startsWith(OCSP_CODE_PREFIX));
+  if (ocsp) {
+    throw new VerifyError(
+      VerifyErrorCode.UNTRUSTED_ISSUER,
+      ocsp.explanation ? `${ocsp.code}: ${ocsp.explanation}` : ocsp.code,
+      { category: "ocsp" },
+    );
+  }
   const detail = v.explanation ?? v.code;
   if (v.code.startsWith("signingCredential.expired")) {
     throw new VerifyError(VerifyErrorCode.CERT_EXPIRED, detail);
@@ -157,6 +173,78 @@ export function enforceParentTrustSource(
     );
   }
   return source;
+}
+
+/**
+ * Require the responder's `notRevoked` answer for the capture when its
+ * source declares OCSP responders and the Reader ran with OCSP fetch on.
+ * c2pa-rs files an ingredient's revocation codes under the ingredient
+ * assertion that references it (`validation_results.ingredientDeltas[]`,
+ * keyed by assertion URI), so the capture's rows are found by URI rather
+ * than by position, and the active manifest's own OCSP codes are never
+ * consulted. Only the `success` bucket counts: a live fetch files
+ * `notRevoked` there, while a response stapled into the COSE unprotected
+ * header — writable by whoever assembles the upload, and it suppresses the
+ * fetch — files as `informational`. A missing answer is
+ * VERIFIER_UNAVAILABLE, retryable; a `revoked` answer is already rejected by
+ * classifyStrictValidationStatus.
+ */
+export function enforceParentRevocationStatus(
+  store: ManifestStoreShape,
+  capture: ManifestShape,
+  source: ResolvedTrustSource,
+  ocspFetched: boolean,
+): void {
+  if (!ocspFetched || !source.revocation) return;
+  const uris = captureIngredientAssertionUris(store, capture);
+  const deltas = (store.validation_results?.ingredientDeltas ?? []).filter(
+    (d) =>
+      typeof d.ingredientAssertionURI === "string" &&
+      uris.has(d.ingredientAssertionURI),
+  );
+  const seen: string[] = [];
+  for (const delta of deltas) {
+    const buckets = delta.validationDeltas ?? {};
+    if ((buckets.success ?? []).some((e) => e.code === OCSP_NOT_REVOKED)) {
+      return;
+    }
+    for (const bucket of ["success", "informational", "failure"] as const) {
+      for (const e of buckets[bucket] ?? []) {
+        if (typeof e.code === "string" && e.code.startsWith(OCSP_CODE_PREFIX)) {
+          seen.push(`${bucket}:${e.code}`);
+        }
+      }
+    }
+  }
+  throw new VerifyError(
+    VerifyErrorCode.VERIFIER_UNAVAILABLE,
+    `stage 1 revocation status not confirmed by the '${source.id}' OCSP responder (OCSP codes seen: ${seen.length ? seen.join(", ") : "none"})`,
+    { category: "ocsp" },
+  );
+}
+
+/** The `ingredientAssertionURI`s under which c2pa-rs reports the capture's
+ *  validation: every ingredient entry that references the capture's label,
+ *  addressed by its holding manifest and assertion label. */
+function captureIngredientAssertionUris(
+  store: ManifestStoreShape,
+  capture: ManifestShape,
+): Set<string> {
+  const uris = new Set<string>();
+  if (typeof capture.label !== "string") return uris;
+  for (const [holderLabel, manifest] of Object.entries(store.manifests ?? {})) {
+    for (const ingredient of manifest.ingredients ?? []) {
+      if (
+        ingredient.active_manifest === capture.label &&
+        typeof ingredient.label === "string"
+      ) {
+        uris.add(
+          `self#jumbf=/c2pa/${holderLabel}/c2pa.assertions/${ingredient.label}`,
+        );
+      }
+    }
+  }
+  return uris;
 }
 
 /**

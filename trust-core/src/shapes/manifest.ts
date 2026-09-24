@@ -72,6 +72,12 @@ export interface ValidationResultsBucketsShape {
 export interface IngredientShape {
   active_manifest?: string;
   relationship?: string;
+  /** Label of the `c2pa.ingredient.*` assertion this entry was read from
+   * (instance-suffixed past the first, e.g. `c2pa.ingredient.v3__1`). Joined
+   * with the holding manifest's label, it is the `ingredientAssertionURI`
+   * under which `validation_results.ingredientDeltas[]` files the codes the
+   * validator computed for this ingredient. */
+  label?: string;
   /** Ingredient MIME type as recorded by the claim generator. Display-
    * informational; policy keys media kind off the capture's hard-binding
    * assertion label instead. */

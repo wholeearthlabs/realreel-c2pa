@@ -1,8 +1,9 @@
 # Per-source server-side policy for trusted C2PA content sources.
 #
 # This file holds the verifier-only fields per trusted source: which
-# root_cert to load into c2pa-node's trust bundle and which verification
-# profile to dispatch to.
+# root_cert to load into c2pa-node's trust bundle, which verification
+# profile to dispatch to, and where the source's certificates are checked
+# for revocation.
 #
 # The cross-process portion of the trust list (id, displayName,
 # issuerMatch substring, rootCommonName) lives in
@@ -25,12 +26,24 @@
 #                               RealReel-wrapped upload. A raw single-stage
 #                               upload chained to this root is rejected at
 #                               the force-wrap gate.
-#   5. Regenerate the client's copy of this pool — `npm run
+#   5. Declare network revocation for a third-party camera:
+#        revocation:
+#          ocsp_hosts: ["http://<responder-host>"]   # scheme://[*.]host[:port]
+#      Read the responder host off the vendor's leaf certificate (the AIA
+#      "OCSP" URI of a sample capture), matched literally: a port in the
+#      pattern matches only URLs that carry it. The union of every source's
+#      hosts is the only set c2pa-rs may contact, and with
+#      NETWORK_REVOCATION=true the verifier asks it on every wrapped
+#      upload; a capture whose responder gave no answer is rejected
+#      (retryable). Leave the block out for sources revoked through the
+#      issued-certificates ledger (the RealReel hierarchies; the loader
+#      refuses it on a `realreel` profile).
+#   6. Regenerate the client's copy of this pool — `npm run
 #      codegen:trust-anchors` in trust-core/ — and commit the result
 #      (the app passes it to photo-attest so sign-time ingredient
 #      validation trusts the same roots; the client-trust-anchors
 #      lockstep test fails until it's regenerated).
-#   6. Redeploy the verifier (and eventually publish trust-core so
+#   7. Redeploy the verifier (and eventually publish trust-core so
 #      clients pick up the new pool).
 #
 # To remove a source: delete the entry from both files + the PEM
@@ -84,8 +97,10 @@ sources:
       Content captured with Google Pixel devices (Pixel 8 and later) via
       the stock Pixel Camera app with Content Credentials. Single-stage
       capture manifest (no parent ingredient, no Stage 2 — Pixel doesn't
-      re-sign at upload). No per-device revocation: Pixels don't enroll
-      into user_signing_keys.
+      re-sign at upload). Pixels don't enroll into user_signing_keys, so
+      revocation is Google's: the per-device leaf (and both intermediates,
+      G3 L3 and L4) publish OCSP at c2pa-ocsp.pki.goog, and the verifier
+      asks it about the leaf for every wrapped Pixel capture.
     # Root cert is "Google C2PA Root CA G3" (CN), extracted cert #6 from
     # the official C2PA Trust List at
     # https://github.com/c2pa-org/conformance-public/blob/main/trust-list/C2PA-TRUST-LIST.pem
@@ -94,6 +109,8 @@ sources:
     # Renew when Google publishes a G4 (current G3 valid through 2050).
     root_cert: trust-sources/pixel/root.pem
     verification_profile: wrap_parent_only
+    revocation:
+      ocsp_hosts: ["http://c2pa-ocsp.pki.goog"]
 
 # Time-Stamp Authority (TSA) roots — distinct from `sources` above.
 #

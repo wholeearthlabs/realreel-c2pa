@@ -339,3 +339,62 @@ describe.skipIf(!fixtureExists)(
     });
   },
 );
+
+// ---------------------------------------------------------------
+// Network revocation, hermetic: the gate through verify()
+// ---------------------------------------------------------------
+//
+// With OCSP fetch on and an allow-list that excludes Google's responder, the
+// request is refused inside c2pa-rs (no socket opens), the Pixel capture reads
+// `signingCredential.ocsp.inaccessible`, and the profile must reject rather
+// than pass. This is the only hermetic test that runs the whole chain —
+// settings → Reader → profile gate — so a dropped flag, a lost call, or a
+// c2pa-node bump that renames the ingredient label or the delta URI fails
+// here rather than in production.
+
+describe.skipIf(!fixtureExists)(
+  "verify() — network revocation on a wrapped Pixel capture (hermetic)",
+  () => {
+    let wrapBytes: Buffer;
+    let trustConfig: Awaited<ReturnType<typeof loadTrustConfig>>;
+
+    beforeEach(async () => {
+      vi.mocked(lookupSigningKeyRevocation).mockReset();
+      wrapBytes = await readFile(wrapFixturePath);
+      trustConfig = await loadTrustConfig(trustSourcesPath);
+      mockWrapKeys(defaultStage2Row());
+    });
+
+    it("rejects VERIFIER_UNAVAILABLE (category ocsp) when the responder is off the allow-list", async () => {
+      expect(trustConfig.ocspHosts).toEqual(["http://c2pa-ocsp.pki.goog"]);
+      await expect(
+        verify({
+          assetBytes: wrapBytes,
+          mimeType: "image/jpeg",
+          expectedUserId: STAGE2_USER,
+          trustConfig: { ...trustConfig, ocspHosts: ["http://ocsp.invalid"] },
+          declaredLocation: "precise",
+          networkRevocation: true,
+        }),
+      ).rejects.toMatchObject({
+        code: VerifyErrorCode.VERIFIER_UNAVAILABLE,
+        category: "ocsp",
+        detail: expect.stringContaining("informational:signingCredential.ocsp.inaccessible"),
+      });
+      // The gate sits ahead of every DB read.
+      expect(vi.mocked(lookupSigningKeyRevocation)).not.toHaveBeenCalled();
+    });
+
+    it("with network revocation off, the same upload is accepted without any OCSP answer", async () => {
+      const result = await verify({
+        assetBytes: wrapBytes,
+        mimeType: "image/jpeg",
+        expectedUserId: STAGE2_USER,
+        trustConfig: { ...trustConfig, ocspHosts: ["http://ocsp.invalid"] },
+        declaredLocation: "precise",
+        networkRevocation: false,
+      });
+      expect(result.sanitizedManifest.validation_state).toBe("trusted");
+    });
+  },
+);
