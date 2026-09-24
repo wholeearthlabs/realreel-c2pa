@@ -6,7 +6,7 @@
 # bookworm (not alpine): that prebuilt is glibc, not musl.
 
 # ---------- Stage 1: build ----------
-FROM --platform=linux/amd64 node:24-bookworm-slim AS builder
+FROM --platform=linux/amd64 node:25-bookworm-slim AS builder
 WORKDIR /app
 
 # build-essential: fallback if c2pa-node has no prebuilt for this arch/libc.
@@ -29,7 +29,7 @@ RUN npm run build -w trust-core
 RUN npm run build -w verifier
 
 # ---------- Stage 2: runtime base (the service and the harness share it) ----------
-FROM --platform=linux/amd64 node:24-bookworm-slim AS runtime-base
+FROM --platform=linux/amd64 node:25-bookworm-slim AS runtime-base
 WORKDIR /app
 
 # ffprobe — video metadata probe (src/derive-metadata.ts). GPL: separate
@@ -62,7 +62,7 @@ ENV TRUST_SOURCES_PATH=/app/trust-sources.yaml
 # publishes only a glibc build for Linux and it needs 2.38 (bookworm has 2.36).
 # `docker build -f verifier/Dockerfile --target crjson-harness .` — usage in
 # verifier/CRJSON_HARNESS.md.
-FROM --platform=linux/amd64 node:24-trixie-slim AS crjson-harness
+FROM --platform=linux/amd64 node:25-trixie-slim AS crjson-harness
 ARG C2PATOOL_VERSION=0.27.22
 ARG C2PATOOL_SHA256=6f138ad53da1a62f1cd6ee71c60727efa27d13b811f4c0ea8c2a8528968b358b
 RUN apt-get update \
