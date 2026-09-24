@@ -1,5 +1,11 @@
 # @realreel/c2pa-trust-core
 
+## 0.8.1
+
+### Patch Changes
+
+- [`75f462b`](https://github.com/wholeearthlabs/realreel-c2pa/commit/75f462b668d8347eda4b8ce0762776c358c62c58) Thanks [@boojamya](https://github.com/boojamya)! - `IngredientShape` gains the optional `label` c2pa-rs emits on every ingredient entry — the label of the `c2pa.ingredient.*` assertion it was read from, instance-suffixed past the first. Joined with the holding manifest's label it is the `ingredientAssertionURI` under which `validation_results.ingredientDeltas[]` files that ingredient's validation codes; the verifier uses it to find a wrapped capture's OCSP status.
+
 ## 0.8.0
 
 ### Minor Changes
