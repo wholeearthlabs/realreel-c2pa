@@ -245,7 +245,8 @@ Found something that isn't captured here? Please report it privately via
 The "attest at enrollment, trust the key downstream" model isn't novel: it's what
 Pixel's C2PA Content Credentials camera and iOS App Attest both do. The signing
 key is attested at issuance and then trusted to sign without re-attesting device
-health on every event.
+health on every event. RealReel is on the C2PA Conforming Products List beside
+Pixel Camera: Android at Assurance Level 2, iOS at Level 1.
 
 What Pixel has that RealReel does not:
 
@@ -254,9 +255,6 @@ What Pixel has that RealReel does not:
   Enclave / StrongBox / TEE: same residual class, lower assurance tier.
 - A **hardware-rooted timestamp** in silicon, offline at the moment of capture.
   RealReel uses external RFC 3161 timestamping authorities instead.
-- A **C2PA Assurance Level 2 listing** — Pixel Camera is on the Conforming
-  Products List at AL2. RealReel's Android path is built to the AL2 evidence
-  requirements but is not listed yet; iOS targets AL1.
 - A **vendor-owned end-to-end stack** — Google ships the SoC, the OS, the camera,
   and the trust chain as one. RealReel is an app on someone else's OS.
 
