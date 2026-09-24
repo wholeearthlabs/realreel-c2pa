@@ -5,7 +5,7 @@
   },
   "jsonGenerator": {
     "name": "c2pa-rs",
-    "version": "0.90.15"
+    "version": "0.90.22"
   },
   "manifests": [
     {

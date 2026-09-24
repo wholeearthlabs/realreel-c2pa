@@ -167,9 +167,9 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     // Bump these together with ci.yml, the Dockerfile stage and the README
     // table; the cross-check only means "same engine" while the minor matches.
     const run = runCrjsonHarness({ assetPath: fixture(V2), ...production, validationTime: AT.baseline });
-    expect(run.record.validator.c2patool).toBe("c2patool 0.27.15");
-    expect(run.record.validator.c2paRs).toBe("0.90.15");
-    expect(ENGINE_IDENTITY).toEqual({ package: "@contentauth/c2pa-node", version: "0.9.1", c2paRs: "0.90.15" });
+    expect(run.record.validator.c2patool).toBe("c2patool 0.27.22");
+    expect(run.record.validator.c2paRs).toBe("0.90.22");
+    expect(ENGINE_IDENTITY).toEqual({ package: "@contentauth/c2pa-node", version: "0.9.7", c2paRs: "0.90.22" });
     expect(run.record.validator.c2paRs!.split(".").slice(0, 2)).toEqual(ENGINE_IDENTITY.c2paRs!.split(".").slice(0, 2));
     // c2pa-rs's own statement of the spec it validated against (a constant in
     // its crJSON serializer) — not ours to rewrite; noticed here if it moves.
@@ -264,7 +264,7 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     expect(run.record.engineAgreement.agree).toBe(true);
   });
 
-  it("KNOWN LIMITATION (c2pa-rs ≤ 0.90.15): the crJSON serializer aborts on an ingredient v3 that breaks the CDDL co-presence rule", () => {
+  it("KNOWN LIMITATION (c2pa-rs ≤ 0.90.22): the crJSON serializer aborts on an ingredient v3 that breaks the CDDL co-presence rule", () => {
     // pixel-edited.jpg's ingredient has activeManifest without
     // validationResults; c2pa-rs's Ingredient serializer Errs and crjson.rs
     // propagates it, so c2patool exits instead of emitting `{}` for that
@@ -272,7 +272,7 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     // (verify-pixel.test.ts). When upstream fixes it this fails: delete it
     // and add the fixture to the goldens.
     expect(() => runCrjsonHarness({ assetPath: fixture(PIXEL_EDITED), ...production, validationTime: AT.baseline })).toThrow(
-      expect.objectContaining({ kind: "validator-failed", detail: expect.stringMatching(/must both be present or absent/) }),
+      expect.objectContaining({ kind: "validator-failed", detail: expect.stringMatching(/activeManifest requires validationResults/) }),
     );
   });
 

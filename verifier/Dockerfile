@@ -63,8 +63,8 @@ ENV TRUST_SOURCES_PATH=/app/trust-sources.yaml
 # `docker build -f verifier/Dockerfile --target crjson-harness .` — usage in
 # verifier/CRJSON_HARNESS.md.
 FROM --platform=linux/amd64 node:24-trixie-slim AS crjson-harness
-ARG C2PATOOL_VERSION=0.27.15
-ARG C2PATOOL_SHA256=7a035b727a6cdda8ad08d98fe94b3c20febee4aea4e7c1de02571b295730faf0
+ARG C2PATOOL_VERSION=0.27.22
+ARG C2PATOOL_SHA256=6f138ad53da1a62f1cd6ee71c60727efa27d13b811f4c0ea8c2a8528968b358b
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl faketime \
   && curl -fsSL -o /tmp/c2patool.tar.gz \
