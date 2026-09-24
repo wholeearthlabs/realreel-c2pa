@@ -130,7 +130,7 @@ export interface AppAttestEnvelope {
  *      `fetchSingleChallenge` (upload is online by definition).
  *   2. Calling `PhotoAttest.generatePlayIntegrityToken(alias, challenge)`
  *      which returns the JWS token bytes Google signs with verdicts
- *      (PLAY_RECOGNIZED, MEETS_DEVICE_INTEGRITY) bound to
+ *      (PLAY_RECOGNIZED, MEETS_STRONG_INTEGRITY) bound to
  *      `SHA256(challenge || SPKI)` via the `requestHash` field. The
  *      Google Cloud project number is a compile-time const inside the
  *      native module (not a JS-passed parameter).

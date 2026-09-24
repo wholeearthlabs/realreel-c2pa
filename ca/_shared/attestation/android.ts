@@ -682,29 +682,31 @@ export function enforceAl2Evidence(
   // Patch-currency rows. A.3.1's os window is the CSR month plus the three
   // before it ("for August 2026: 202608, 202607, 202606, or 202605") — a
   // floor of monthsBack=3, not 4. Vendor/boot are ≤ 90 days. All three rows
-  // also say the value cannot be in the future.
-  const monthNow = yyyymmFloor(opts.now, 0);
+  // also say the value cannot be in the future. A bulletin is labelled with
+  // its publication date and OEMs ship it early (Samsung the week before the
+  // month, Pixel days before the 5th), so "future" is read as more than a
+  // month ahead for os and more than 31 days ahead for vendor/boot.
   if (desc.osPatchLevel === null) {
     failures.push("AL2_OS_PATCH_MISSING");
   } else if (desc.osPatchLevel < yyyymmFloor(opts.now, 3)) {
     failures.push("AL2_OS_PATCH_STALE");
-  } else if (desc.osPatchLevel > monthNow) {
+  } else if (desc.osPatchLevel > yyyymmFloor(opts.now, -1)) {
     failures.push("AL2_OS_PATCH_FUTURE");
   }
   const dayFloor = yyyymmddFloor(opts.now, 90);
-  const dayNow = yyyymmddFloor(opts.now, 0);
+  const dayCeiling = yyyymmddFloor(opts.now, -31);
   if (desc.vendorPatchLevel === null) {
     failures.push("AL2_VENDOR_PATCH_MISSING");
   } else if (desc.vendorPatchLevel < dayFloor) {
     failures.push("AL2_VENDOR_PATCH_STALE");
-  } else if (desc.vendorPatchLevel > dayNow) {
+  } else if (desc.vendorPatchLevel > dayCeiling) {
     failures.push("AL2_VENDOR_PATCH_FUTURE");
   }
   if (desc.bootPatchLevel === null) {
     failures.push("AL2_BOOT_PATCH_MISSING");
   } else if (desc.bootPatchLevel < dayFloor) {
     failures.push("AL2_BOOT_PATCH_STALE");
-  } else if (desc.bootPatchLevel > dayNow) {
+  } else if (desc.bootPatchLevel > dayCeiling) {
     failures.push("AL2_BOOT_PATCH_FUTURE");
   }
 

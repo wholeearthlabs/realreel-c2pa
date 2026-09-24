@@ -591,30 +591,35 @@ Deno.test("enforceAl2Evidence — rootOfTrust rows", () => {
 });
 
 Deno.test("enforceAl2Evidence — patch-currency rows and their exact boundaries", () => {
-  // os window per the A.3.1 worked example: CSR month + 3 back. At
-  // 2026-07-27 that's 202604..202607 inclusive.
+  // os window per the A.3.1 worked example: CSR month + 3 back, plus the
+  // month after (bulletins ship early). At 2026-07-27 that's 202604..202608.
   enforceAl2Evidence(passingDesc({ osPatchLevel: 202604 }), AL2_OPTS);
+  enforceAl2Evidence(passingDesc({ osPatchLevel: 202608 }), AL2_OPTS);
   assertEquals(
     al2Error({ osPatchLevel: 202603 }).message,
     ROWS_PREFIX + "AL2_OS_PATCH_STALE",
   );
   assertEquals(
-    al2Error({ osPatchLevel: 202608 }).message,
+    al2Error({ osPatchLevel: 202609 }).message,
     ROWS_PREFIX + "AL2_OS_PATCH_FUTURE",
   );
-  // vendor/boot ≤ 90 days and not future: window at 2026-07-27 is
-  // 20260428..20260727.
+  // vendor/boot ≤ 90 days back and ≤ 31 days ahead: window at 2026-07-27 is
+  // 20260428..20260827.
   enforceAl2Evidence(passingDesc({ vendorPatchLevel: 20260428 }), AL2_OPTS);
+  enforceAl2Evidence(
+    passingDesc({ vendorPatchLevel: 20260827, bootPatchLevel: 20260827 }),
+    AL2_OPTS,
+  );
   assertEquals(
     al2Error({ vendorPatchLevel: 20260427 }).message,
     ROWS_PREFIX + "AL2_VENDOR_PATCH_STALE",
   );
   assertEquals(
-    al2Error({ vendorPatchLevel: 20260728 }).message,
+    al2Error({ vendorPatchLevel: 20260828 }).message,
     ROWS_PREFIX + "AL2_VENDOR_PATCH_FUTURE",
   );
   assertEquals(
-    al2Error({ bootPatchLevel: 20260728 }).message,
+    al2Error({ bootPatchLevel: 20260828 }).message,
     ROWS_PREFIX + "AL2_BOOT_PATCH_FUTURE",
   );
 });
@@ -654,9 +659,9 @@ Deno.test("enforceAl2Evidence — only stale patch rows → ATTESTATION_STALE_PA
 });
 
 Deno.test("enforceAl2Evidence — future-dated or mixed failures stay generic", () => {
-  assertEquals(al2Error({ osPatchLevel: 202608 }).code, "AL2_EVIDENCE_FAILED");
+  assertEquals(al2Error({ osPatchLevel: 202609 }).code, "AL2_EVIDENCE_FAILED");
   assertEquals(
-    al2Error({ osPatchLevel: 202603, vendorPatchLevel: 20260728 }).code,
+    al2Error({ osPatchLevel: 202603, vendorPatchLevel: 20260828 }).code,
     "AL2_EVIDENCE_FAILED",
   );
   const mixed = al2Error({
