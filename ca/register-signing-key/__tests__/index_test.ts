@@ -768,9 +768,10 @@ Deno.test("register-signing-key — Android: other AttestationError codes stay m
     }
   }));
 
-Deno.test("register-signing-key — Android: ANDROID_APP_SIGNING_CERT_SHA256 unset → 500, validator never called", async () => {
+Deno.test("register-signing-key — Android: ANDROID_APP_SIGNING_CERT_SHA256 unset → 500 before the rate limit, burn, and validator", async () => {
   Deno.env.delete("ANDROID_APP_SIGNING_CERT_SHA256");
   let validatorCalled = false;
+  let rateLimitCalled = false;
   const { deps, mockClient } = buildDeps({
     validateAndroidAttestationImpl: () => {
       validatorCalled = true;
@@ -779,16 +780,20 @@ Deno.test("register-signing-key — Android: ANDROID_APP_SIGNING_CERT_SHA256 uns
   });
   const res = await handleRegister(
     buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
-    deps,
+    {
+      ...deps,
+      enforceRateLimit: () => {
+        rateLimitCalled = true;
+        return Promise.resolve({ ok: true });
+      },
+    },
   );
   const { status, body } = await readJsonResponse<{ error: string }>(res);
   assertEquals(status, 500);
   assertEquals(body.error, "Server misconfiguration");
   assertEquals(validatorCalled, false);
-  assertEquals(
-    mockClient.calls.some((c) => c.table === "rpc:register_user_signing_key"),
-    false,
-  );
+  assertEquals(rateLimitCalled, false);
+  assertEquals(mockClient.calls.length, 0); // no burn, no persist
 });
 
 Deno.test("register-signing-key — Android: malformed ANDROID_APP_SIGNING_CERT_SHA256 → 500", () =>
@@ -818,9 +823,10 @@ Deno.test("register-signing-key — Android: junk ANDROID_MIN_APP_VERSION_CODE �
     }
   }));
 
-Deno.test("register-signing-key — Android: revocation list unavailable → 503 + Retry-After, validator never called", () =>
+Deno.test("register-signing-key — Android: revocation list unavailable → 503 + Retry-After before the rate limit, burn, and validator", () =>
   withAndroidSigningCertEnv(async () => {
     let validatorCalled = false;
+    let rateLimitCalled = false;
     const { deps, mockClient } = buildDeps({
       loadAndroidRevocationListImpl: () =>
         Promise.reject(
@@ -835,18 +841,39 @@ Deno.test("register-signing-key — Android: revocation list unavailable → 503
     });
     const res = await handleRegister(
       buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
-      deps,
+      {
+        ...deps,
+        enforceRateLimit: () => {
+          rateLimitCalled = true;
+          return Promise.resolve({ ok: true });
+        },
+      },
     );
     const { status, body } = await readJsonResponse<{ error: string }>(res);
     assertEquals(status, 503);
     assertEquals(body.error, "Service temporarily unavailable");
     assertEquals(res.headers.get("Retry-After"), "60");
     assertEquals(validatorCalled, false);
-    assertEquals(
-      mockClient.calls.some((c) => c.table === "rpc:register_user_signing_key"),
-      false,
-    );
+    assertEquals(rateLimitCalled, false);
+    assertEquals(mockClient.calls.length, 0); // no burn, no persist
   }));
+
+Deno.test("register-signing-key — iOS never touches the Android config or the revocation list", async () => {
+  Deno.env.delete("ANDROID_APP_SIGNING_CERT_SHA256");
+  let listLoaded = false;
+  const { deps } = buildDeps({
+    loadAndroidRevocationListImpl: () => {
+      listLoaded = true;
+      return Promise.reject(new Error("unavailable"));
+    },
+  });
+  const res = await handleRegister(
+    buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
+    deps,
+  );
+  assertEquals(res.status, 200);
+  assertEquals(listLoaded, false);
+});
 
 Deno.test("register-signing-key — Android: validator receives the env digests, version floor, and the revocation list", () =>
   withAndroidSigningCertEnv(async () => {
@@ -1277,7 +1304,7 @@ Deno.test(
 
 // ---------- v2 hierarchy wiring ---------------------------------------
 
-import { leafValidityDays } from "../index.ts";
+import { assuranceLevelFor, leafValidityDays } from "../index.ts";
 
 const PLACEHOLDER_CPL_UUID = "00000000-0000-4000-8000-000000000000";
 
@@ -1410,9 +1437,11 @@ Deno.test("register-signing-key — v1 default: no v2 opts to issuance, no assur
   assertEquals(capturedOpts[0].v2, undefined);
 });
 
-Deno.test("leafValidityDays — v2 per-platform; v1 flat 180", () => {
-  assertEquals(leafValidityDays("v1", "ios"), 180);
-  assertEquals(leafValidityDays("v1", "android"), 180);
-  assertEquals(leafValidityDays("v2", "ios"), 180);
-  assertEquals(leafValidityDays("v2", "android"), 90);
+Deno.test("leafValidityDays — v2 per assurance level; v1 flat 180", () => {
+  assertEquals(leafValidityDays("v1", "AL1"), 180);
+  assertEquals(leafValidityDays("v1", "AL2"), 180);
+  assertEquals(leafValidityDays("v2", "AL1"), 180);
+  assertEquals(leafValidityDays("v2", "AL2"), 90);
+  assertEquals(assuranceLevelFor("ios"), "AL1");
+  assertEquals(assuranceLevelFor("android"), "AL2");
 });

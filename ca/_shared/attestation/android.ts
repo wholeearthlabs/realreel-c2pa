@@ -26,7 +26,7 @@ import type { Certificate } from "./pki.ts";
 import { GOOGLE_HW_ATTESTATION_ROOT_PEMS } from "./roots.ts";
 import {
   type AndroidRevocationList,
-  certSerialHex,
+  findRevoked,
 } from "./android_revocation.ts";
 
 // Two OIDs in active use across the Android device population:
@@ -176,13 +176,15 @@ export async function validateAndroidAttestation(
 
   // === Step 3: no cert in the chain is on Google's revocation list ===
   for (const cert of chain) {
-    const serial = certSerialHex(cert);
-    const entry = opts.revokedSerials.get(serial);
-    if (entry) {
+    const hit = findRevoked(
+      new Uint8Array(cert.serialNumber.valueBlock.valueHexView),
+      opts.revokedSerials,
+    );
+    if (hit) {
       throw new AttestationError(
         "ATTESTATION_CERT_REVOKED",
-        `chain cert serial ${serial} is on Google's attestation revocation list: ${entry.status}` +
-          (entry.reason ? `/${entry.reason}` : ""),
+        `chain cert serial ${hit.serial} is on Google's attestation revocation list: ${hit.entry.status}` +
+          (hit.entry.reason ? `/${hit.entry.reason}` : ""),
       );
     }
   }
@@ -626,9 +628,10 @@ function yyyymmddFloor(now: Date, daysBack: number): number {
  * StrongBox for both security levels.
  *
  * Every row is evaluated before throwing, so the rejection names every failed
- * row. The code is ATTESTATION_STALE_PATCH when only patch-currency rows
- * failed (the app renders "update your device" for that code) and
- * AL2_EVIDENCE_FAILED otherwise.
+ * row. The code is ATTESTATION_STALE_PATCH when the only failures are stale
+ * patch levels (the app renders "update your device" for that code) and
+ * AL2_EVIDENCE_FAILED otherwise — a missing or future-dated patch level is
+ * not something an update fixes, so it stays generic.
  */
 export function enforceAl2Evidence(
   desc: KeyDescription,
@@ -681,22 +684,25 @@ export function enforceAl2Evidence(
   // floor of monthsBack=3, not 4. Vendor/boot are ≤ 90 days. All three rows
   // also say the value cannot be in the future.
   const monthNow = yyyymmFloor(opts.now, 0);
-  if (
-    desc.osPatchLevel === null ||
-    desc.osPatchLevel < yyyymmFloor(opts.now, 3)
-  ) {
+  if (desc.osPatchLevel === null) {
+    failures.push("AL2_OS_PATCH_MISSING");
+  } else if (desc.osPatchLevel < yyyymmFloor(opts.now, 3)) {
     failures.push("AL2_OS_PATCH_STALE");
   } else if (desc.osPatchLevel > monthNow) {
     failures.push("AL2_OS_PATCH_FUTURE");
   }
   const dayFloor = yyyymmddFloor(opts.now, 90);
   const dayNow = yyyymmddFloor(opts.now, 0);
-  if (desc.vendorPatchLevel === null || desc.vendorPatchLevel < dayFloor) {
+  if (desc.vendorPatchLevel === null) {
+    failures.push("AL2_VENDOR_PATCH_MISSING");
+  } else if (desc.vendorPatchLevel < dayFloor) {
     failures.push("AL2_VENDOR_PATCH_STALE");
   } else if (desc.vendorPatchLevel > dayNow) {
     failures.push("AL2_VENDOR_PATCH_FUTURE");
   }
-  if (desc.bootPatchLevel === null || desc.bootPatchLevel < dayFloor) {
+  if (desc.bootPatchLevel === null) {
+    failures.push("AL2_BOOT_PATCH_MISSING");
+  } else if (desc.bootPatchLevel < dayFloor) {
     failures.push("AL2_BOOT_PATCH_STALE");
   } else if (desc.bootPatchLevel > dayNow) {
     failures.push("AL2_BOOT_PATCH_FUTURE");

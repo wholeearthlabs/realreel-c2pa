@@ -30,6 +30,10 @@ production server because:
 - `android_tee.json` — captured from a TEE-only device (older Pixels, most
   Samsungs pre-S20, or any device where StrongBox is unavailable). **Not yet
   captured.** Tests for this platform skip silently until a fixture lands.
+- `android_attestation_status_excerpt.json` — seven entries copied verbatim
+  from `https://android.googleapis.com/attestation/status` on 2026-09-23:
+  three serials the list writes in decimal, three in hex, one `SOFTWARE_FLAW`.
+  Pins both radices in `android_revocation_test.ts`.
 - `sample_csr.pem` — a synthetic P-256 PKCS#10 CSR (subject
   `CN=RealReel-Test-CSR`) generated via
   `step certificate create --csr --kty EC --crv P-256`. Its matching private key

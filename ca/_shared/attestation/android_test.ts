@@ -599,10 +599,6 @@ Deno.test("enforceAl2Evidence — patch-currency rows and their exact boundaries
     ROWS_PREFIX + "AL2_OS_PATCH_STALE",
   );
   assertEquals(
-    al2Error({ osPatchLevel: null }).message,
-    ROWS_PREFIX + "AL2_OS_PATCH_STALE",
-  );
-  assertEquals(
     al2Error({ osPatchLevel: 202608 }).message,
     ROWS_PREFIX + "AL2_OS_PATCH_FUTURE",
   );
@@ -618,13 +614,22 @@ Deno.test("enforceAl2Evidence — patch-currency rows and their exact boundaries
     ROWS_PREFIX + "AL2_VENDOR_PATCH_FUTURE",
   );
   assertEquals(
-    al2Error({ bootPatchLevel: null }).message,
-    ROWS_PREFIX + "AL2_BOOT_PATCH_STALE",
-  );
-  assertEquals(
     al2Error({ bootPatchLevel: 20260728 }).message,
     ROWS_PREFIX + "AL2_BOOT_PATCH_FUTURE",
   );
+});
+
+Deno.test("enforceAl2Evidence — a missing patch tag is a generic failure, not a stale patch", () => {
+  const cases: Array<[Partial<KeyDescription>, string]> = [
+    [{ osPatchLevel: null }, "AL2_OS_PATCH_MISSING"],
+    [{ vendorPatchLevel: null }, "AL2_VENDOR_PATCH_MISSING"],
+    [{ bootPatchLevel: null }, "AL2_BOOT_PATCH_MISSING"],
+  ];
+  for (const [over, row] of cases) {
+    const err = al2Error(over);
+    assertEquals(err.code, "AL2_EVIDENCE_FAILED", row);
+    assertEquals(err.message, ROWS_PREFIX + row);
+  }
 });
 
 Deno.test("enforceAl2Evidence — only stale patch rows → ATTESTATION_STALE_PATCH", () => {
@@ -632,9 +637,9 @@ Deno.test("enforceAl2Evidence — only stale patch rows → ATTESTATION_STALE_PA
     const over of [
       { osPatchLevel: 202603 },
       { vendorPatchLevel: 20260427 },
-      { bootPatchLevel: null },
+      { bootPatchLevel: 20260101 },
       {
-        osPatchLevel: null,
+        osPatchLevel: 202601,
         vendorPatchLevel: 20260101,
         bootPatchLevel: 20260101,
       },
@@ -677,7 +682,7 @@ Deno.test("enforceAl2Evidence — every failed row is named, in table order", ()
   assertEquals(
     err.message,
     ROWS_PREFIX +
-      "AL2_APP_SIGNING_CERT_MISMATCH,AL2_DEVICE_NOT_LOCKED,AL2_VERIFIED_BOOT_NOT_VERIFIED,AL2_VENDOR_PATCH_STALE",
+      "AL2_APP_SIGNING_CERT_MISMATCH,AL2_DEVICE_NOT_LOCKED,AL2_VERIFIED_BOOT_NOT_VERIFIED,AL2_VENDOR_PATCH_MISSING",
   );
 });
 

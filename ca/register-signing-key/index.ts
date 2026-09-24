@@ -90,8 +90,9 @@ import {
 // before expiry via a non-destructive key rotation (the app's enrollment
 // client).
 //
-// v1 issues a flat 180 days. v2 validity is per platform: Android is issued
-// at AL2, which CP §7.1.2 caps at 90 days; iOS at AL1 (cap 366).
+// v1 issues a flat 180 days. v2 validity follows the assurance level the
+// leaf's c2pa-al extension declares: CP §7.1.2 caps AL2 at 90 days, AL1 at
+// 366. Both come from assuranceLevelFor so they cannot disagree.
 //
 // No verifier-side sync needed: the verifier's time gate reads each leaf's
 // actual issued_at/expires_at from the issued_certificates ledger
@@ -99,10 +100,24 @@ import {
 // lifetime here propagates through the ledger rows automatically.
 export function leafValidityDays(
   hierarchy: CaHierarchy,
-  platform: LeafPlatform,
+  assuranceLevel: AssuranceLevel,
 ): number {
   if (hierarchy === "v1") return 180;
-  return platform === "android" ? 90 : 180;
+  return assuranceLevel === "AL2" ? 90 : 180;
+}
+
+// iOS is AL1 by policy (CP Apple-side CA validation guidance is still "under
+// development"). Android is AL2: validateAndroidAttestation enforces the full
+// CP Appendix A.3.1 evidence table and rejects anything short of it.
+export function assuranceLevelFor(platform: LeafPlatform): AssuranceLevel {
+  return platform === "android" ? "AL2" : "AL1";
+}
+
+interface AndroidEnrollmentInputs {
+  certChainBase64: string[];
+  signingCertSha256Digests: Uint8Array[];
+  minAppVersionCode: number | undefined;
+  revokedSerials: AndroidRevocationList;
 }
 
 /**
@@ -335,23 +350,6 @@ export async function handleRegister(
   const aalReject = await deps.requireAal2IfMfaEnrolled(user);
   if (aalReject) return aalReject;
 
-  // Per-user rate limit: prevents a buggy retry loop or a stolen-JWT spammer
-  // from accumulating thousands of orphan rows in user_signing_keys.
-  const rl = await deps.enforceRateLimit(
-    "register-signing-key",
-    user.id,
-    RATE_LIMIT_WINDOWS,
-  );
-  if (!rl.ok) {
-    return jsonResponse(
-      { error: "Rate limit exceeded" },
-      {
-        status: 429,
-        extraHeaders: { "Retry-After": String(rl.retryAfter) },
-      },
-    );
-  }
-
   let body: RegisterBody;
   try {
     body = await req.json();
@@ -440,6 +438,64 @@ export async function handleRegister(
   // anything that doesn't look like our own client's output.
   if (!csrPem.includes("-----BEGIN CERTIFICATE REQUEST-----")) {
     return jsonResponse({ error: "Malformed csr" }, { status: 400 });
+  }
+
+  // Android needs two server-side inputs that can fail for reasons that are
+  // not the caller's: the registered APK signing digests (env) and Google's
+  // attestation revocation list (network). Resolve them before the rate
+  // limit and the challenge burn, so a misconfiguration (500) or an
+  // unreachable list (503) costs the user neither a rate-limit slot nor a
+  // challenge.
+  let androidInputs: AndroidEnrollmentInputs | null = null;
+  if (platform !== "ios") {
+    let certChainBase64: string[];
+    try {
+      certChainBase64 = JSON.parse(attestation);
+    } catch {
+      return jsonResponse({ error: "Invalid attestation" }, { status: 400 });
+    }
+    if (!Array.isArray(certChainBase64)) {
+      return jsonResponse({ error: "Invalid attestation" }, { status: 400 });
+    }
+    try {
+      androidInputs = {
+        certChainBase64,
+        signingCertSha256Digests: androidSigningCertDigestsFromEnv(),
+        minAppVersionCode: androidMinAppVersionCodeFromEnv(),
+        revokedSerials: await deps.loadAndroidRevocationList(),
+      };
+    } catch (e) {
+      if (e instanceof AttestationError && e.code === "CA_CONFIG_INVALID") {
+        console.error(`[register-signing-key] config error: ${e.message}`);
+        return jsonResponse({ error: "Server misconfiguration" }, {
+          status: 500,
+        });
+      }
+      console.error(
+        `[register-signing-key] ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return jsonResponse(
+        { error: "Service temporarily unavailable" },
+        { status: 503, extraHeaders: { "Retry-After": "60" } },
+      );
+    }
+  }
+
+  // Per-user rate limit: prevents a buggy retry loop or a stolen-JWT spammer
+  // from accumulating thousands of orphan rows in user_signing_keys.
+  const rl = await deps.enforceRateLimit(
+    "register-signing-key",
+    user.id,
+    RATE_LIMIT_WINDOWS,
+  );
+  if (!rl.ok) {
+    return jsonResponse(
+      { error: "Rate limit exceeded" },
+      {
+        status: 429,
+        extraHeaders: { "Retry-After": String(rl.retryAfter) },
+      },
+    );
   }
 
   // === Burn the enrollment challenge atomically ===
@@ -538,14 +594,9 @@ export async function handleRegister(
   }
 
   // Platform group + assurance level for leaf issuance (v2 semantics; v1
-  // ignores both). iOS is AL1 by policy (CP Apple-side CA validation
-  // guidance is still "under development"). Android is AL2:
-  // validateAndroidAttestation enforces the full CP Appendix A.3.1 evidence
-  // table and rejects anything short of it.
+  // ignores both).
   const leafPlatform: LeafPlatform = platform === "ios" ? "ios" : "android";
-  const assuranceLevel: AssuranceLevel = leafPlatform === "android"
-    ? "AL2"
-    : "AL1";
+  const assuranceLevel = assuranceLevelFor(leafPlatform);
 
   let appAttestPublicKey: Uint8Array | null = null;
   try {
@@ -563,54 +614,19 @@ export async function handleRegister(
       appAttestPublicKey = credCertPublicKey;
     } else {
       // android-strongbox or android-tee
-      let certChainBase64: string[];
-      try {
-        certChainBase64 = JSON.parse(attestation);
-      } catch {
-        return jsonResponse({ error: "Invalid attestation" }, { status: 400 });
-      }
-      if (!Array.isArray(certChainBase64)) {
-        return jsonResponse({ error: "Invalid attestation" }, { status: 400 });
-      }
-      const signingCertSha256Digests = androidSigningCertDigestsFromEnv();
-      const minAppVersionCode = androidMinAppVersionCodeFromEnv();
-      let revokedSerials: AndroidRevocationList;
-      try {
-        revokedSerials = await deps.loadAndroidRevocationList();
-      } catch (e) {
-        console.error(
-          `[register-signing-key] ${
-            e instanceof Error ? e.message : String(e)
-          }`,
-        );
-        return jsonResponse(
-          { error: "Service temporarily unavailable" },
-          { status: 503, extraHeaders: { "Retry-After": "60" } },
-        );
-      }
+      if (!androidInputs) throw new Error("Android inputs unresolved");
       await deps.validateAndroidAttestation({
-        certChainBase64,
         challenge: challengeBytes,
         sePublicKey,
         packageName: ANDROID_PACKAGE_NAME,
         expectedSecurityLevel: platform === "android-strongbox"
           ? "strongbox"
           : "tee",
-        signingCertSha256Digests,
-        minAppVersionCode,
-        revokedSerials,
+        ...androidInputs,
       });
     }
   } catch (e) {
     if (e instanceof AttestationError) {
-      if (e.code === "CA_CONFIG_INVALID") {
-        console.error(
-          `[register-signing-key] config error code=${e.code}: ${e.message}`,
-        );
-        return jsonResponse({ error: "Server misconfiguration" }, {
-          status: 500,
-        });
-      }
       console.warn(
         `[register-signing-key] attestation rejected user=${user.id} platform=${platform} code=${e.code} message=${e.message}`,
       );
@@ -652,7 +668,7 @@ export async function handleRegister(
     await deps.ensureIntermediateMatchesKms(kmsCreds, intermediatePem);
     const issued = await deps.issueLeafChainFromCSR(csr, {
       intermediatePem,
-      validityDays: leafValidityDays(hierarchy, leafPlatform),
+      validityDays: leafValidityDays(hierarchy, assuranceLevel),
       signer: (digest) =>
         deps.kmsSignDigest(
           digest,

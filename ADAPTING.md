@@ -28,6 +28,7 @@ build-time constants.
 | Apple Team ID | `ca/_shared/config.ts`, `verifier/src/attestation/apple.ts` | env `APPLE_TEAM_ID` |
 | Apple bundle ID | `ca/_shared/config.ts`, `verifier/src/attestation/apple.ts` | env `APPLE_BUNDLE_ID` — on the CA side this is the BASE id (the local-dev gate appends `.dev` itself and rejects a value already ending in `.dev`); a verifier dev deployment may instead take the fully-resolved `.dev` id |
 | Android package | `ca/_shared/config.ts` | env `ANDROID_PACKAGE_NAME` — BASE id, same rule as the Apple bundle ID |
+| Android APK signing cert(s) | `ca/register-signing-key/index.ts` | env `ANDROID_APP_SIGNING_CERT_SHA256` — comma-separated SHA-256 hex digests of the signing cert of every APK that may enroll (Play App Signing in production). Required: Android enrollment answers 500 without it. Optional `ANDROID_MIN_APP_VERSION_CODE` versionCode floor |
 | Play Integrity package + project (verifier) | verifier config | env `PLAY_INTEGRITY_PACKAGE_NAME`, `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` |
 | Play Integrity project (native) | `native/android/.../PhotoAttestModule.kt` (`CLOUD_PROJECT_NUMBER`) | edit the constant (native build-time) |
 | CSR subject DN (native) | `native/{android,ios}/...` constants | edit the constants — but note the CA overwrites the leaf subject at issuance, so these never reach a published cert |

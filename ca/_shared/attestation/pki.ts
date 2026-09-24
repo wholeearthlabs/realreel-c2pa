@@ -303,10 +303,10 @@ export function parseCertFromPem(pem: string): pkijs.Certificate {
 //     keystore cert chain are both ordered).
 //   * We pass `findIssuer` undefined → pkijs builds the chain from the supplied
 //     certs and trusted roots automatically.
-//   * `validationTime` overrides "now" for the validity-window checks.
-//     TEST-ONLY: committed fixtures carry short-lived RKP intermediates that
-//     expire weeks after capture, so fixture tests pin this to the capture
-//     date. Production callers must omit it.
+//   * `validationTime` is the evaluation time for the validity-window checks
+//     (default: now). Tests pin it to a fixture's capture date, since the
+//     committed fixtures carry short-lived RKP intermediates that expire
+//     weeks after capture.
 export async function verifyChainToTrustedRoots(
   chain: pkijs.Certificate[],
   trustedRoots: pkijs.Certificate[],

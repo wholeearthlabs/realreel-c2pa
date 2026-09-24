@@ -1,41 +1,94 @@
-// Tests for the Google attestation revocation list: serial normalization,
-// list parsing, and the loader's cache/fallback policy. No network — the
-// loader takes an injected fetch.
+// Tests for the Google attestation revocation list: serial matching in both
+// radices the list uses, list parsing, and the loader's cache/fallback policy.
+// No network — the loader takes an injected fetch.
 
 import { assertEquals, assertRejects, assertThrows } from "std/assert/mod.ts";
 import {
   ANDROID_ATTESTATION_STATUS_URL,
   buildAndroidRevocationLoader,
-  certSerialHex,
+  findRevoked,
   parseAndroidRevocationList,
-  serialHex,
+  serialForms,
 } from "./android_revocation.ts";
 import { base64ToBytes, parseCertFromDer } from "./pki.ts";
 
-Deno.test("serialHex — lowercase hex, no leading zeros, DER 0x00 pad byte dropped", () => {
-  assertEquals(serialHex(new Uint8Array([0x00, 0x92, 0x42])), "9242");
-  assertEquals(serialHex(new Uint8Array([0x00, 0x00, 0x01])), "1");
-  assertEquals(serialHex(new Uint8Array([0x0e, 0xfa])), "efa");
-  assertEquals(serialHex(new Uint8Array([0xab, 0xcd])), "abcd");
-  assertEquals(serialHex(new Uint8Array([0x01])), "1");
-});
-
-Deno.test("certSerialHex — real chain cert whose DER serial starts with a 0x00 byte", async () => {
-  let fix: { attestation: string };
+async function loadJson(name: string): Promise<unknown | null> {
   try {
-    fix = JSON.parse(
+    return JSON.parse(
       await Deno.readTextFile(
-        new URL("./__fixtures__/android_strongbox.json", import.meta.url),
+        new URL(`./__fixtures__/${name}`, import.meta.url),
       ),
     );
   } catch {
-    return;
+    return null;
   }
+}
+
+Deno.test("serialForms — lowercase hex and decimal, no leading zeros, DER 0x00 pad dropped", () => {
+  assertEquals(serialForms(new Uint8Array([0x00, 0x92, 0x42])), {
+    hex: "9242",
+    dec: "37442",
+  });
+  assertEquals(serialForms(new Uint8Array([0x00, 0x00, 0x01])), {
+    hex: "1",
+    dec: "1",
+  });
+  assertEquals(serialForms(new Uint8Array([0x0e, 0xfa])), {
+    hex: "efa",
+    dec: "3834",
+  });
+});
+
+Deno.test("serialForms — real chain cert whose DER serial starts with a 0x00 byte", async () => {
+  const fix = await loadJson("android_strongbox.json") as
+    | { attestation: string }
+    | null;
+  if (!fix) return;
   const chain = (JSON.parse(fix.attestation) as string[]).map((b) =>
     parseCertFromDer(base64ToBytes(b))
   );
-  assertEquals(certSerialHex(chain[0]), "1");
-  assertEquals(certSerialHex(chain[3]), "924250191903e3ba65320efd6a2085fb");
+  const der = (i: number) =>
+    new Uint8Array(chain[i].serialNumber.valueBlock.valueHexView);
+  assertEquals(serialForms(der(0)).hex, "1");
+  assertEquals(serialForms(der(3)).hex, "924250191903e3ba65320efd6a2085fb");
+});
+
+// Excerpt of the live list (2026-09-23): three 64-bit serials written in
+// decimal, three 128-bit serials written in hex, one SOFTWARE_FLAW entry.
+Deno.test("findRevoked — matches serials the list writes in decimal or in hex", async () => {
+  const snapshot = await loadJson("android_attestation_status_excerpt.json");
+  if (!snapshot) throw new Error("excerpt fixture missing");
+  const list = parseAndroidRevocationList(snapshot);
+  assertEquals(list.size, 7);
+
+  const der = (hex: string) =>
+    new Uint8Array(hex.match(/../g)!.map((h) => parseInt(h, 16)));
+  // 6681152659205225093 = 0x5cb838f1fe157a85: listed in decimal only.
+  assertEquals(findRevoked(der("5cb838f1fe157a85"), list), {
+    serial: "6681152659205225093",
+    entry: { status: "REVOKED", reason: "KEY_COMPROMISE" },
+  });
+  // 9408173275444922801 = 0x82908bbf5437c9b1: top bit set, so DER pads it.
+  assertEquals(
+    findRevoked(der("0082908bbf5437c9b1"), list)?.serial,
+    "9408173275444922801",
+  );
+  assertEquals(
+    findRevoked(der("f277e2565b15fd0b"), list)?.entry.reason,
+    "SOFTWARE_FLAW",
+  );
+  // Hex-listed serial.
+  assertEquals(
+    findRevoked(der("c35747a084470c3135aeefe2b8d40cd6"), list)?.serial,
+    "c35747a084470c3135aeefe2b8d40cd6",
+  );
+  assertEquals(
+    findRevoked(der("001f4363f4acefdf83ae59202b934cead9"), list)?.serial,
+    "1f4363f4acefdf83ae59202b934cead9",
+  );
+  // Unlisted.
+  assertEquals(findRevoked(der("5cb838f1fe157a86"), list), null);
+  assertEquals(findRevoked(der("01"), list), null);
 });
 
 Deno.test("parseAndroidRevocationList — normalizes keys, keeps status + reason", () => {
@@ -53,15 +106,34 @@ Deno.test("parseAndroidRevocationList — normalizes keys, keeps status + reason
   assertEquals(list.get("ef01"), { status: "SUSPENDED", reason: null });
 });
 
-Deno.test("parseAndroidRevocationList — rejects a body without an entries object", () => {
+Deno.test("parseAndroidRevocationList — rejects empty, missing, array-shaped, or non-numeric-key lists", () => {
   assertThrows(() => parseAndroidRevocationList({}), Error, "entries");
   assertThrows(() => parseAndroidRevocationList(null), Error, "entries");
   assertThrows(() => parseAndroidRevocationList({ entries: "x" }), Error);
+  assertThrows(
+    () => parseAndroidRevocationList({ entries: [] }),
+    Error,
+    "entries",
+  );
+  assertThrows(
+    () => parseAndroidRevocationList({ entries: {} }),
+    Error,
+    "empty",
+  );
+  assertThrows(
+    () =>
+      parseAndroidRevocationList({
+        entries: { "0x1234": { status: "REVOKED" } },
+      }),
+    Error,
+    "non-numeric",
+  );
 });
 
 // --- loader ------------------------------------------------------------
 
-const HOUR = 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const ENTRIES = { abcd: { status: "REVOKED", reason: "KEY_COMPROMISE" } };
 
@@ -115,14 +187,22 @@ Deno.test("loader — fetches the fixed URL with a timeout signal and caches for
   assertEquals(calls.length, 2);
 });
 
-Deno.test("loader — fetch failure with a cache under 7 days old serves the cache", async () => {
-  const { fetchImpl, calls } = scriptedFetch(["ok", "network"]);
+Deno.test("loader — failed refresh serves the cache under 7 days old and backs off for 5 minutes", async () => {
+  const { fetchImpl, calls } = scriptedFetch(["ok", "network", "ok"]);
   const c = clock();
   const load = buildAndroidRevocationLoader({ fetch: fetchImpl, now: c.now });
   const first = await load();
-  c.advance(6 * DAY);
-  assertEquals(await load(), first);
+  c.advance(25 * HOUR);
+  assertEquals(await load(), first); // refresh fails → stale copy
   assertEquals(calls.length, 2);
+  c.advance(1 * MINUTE);
+  assertEquals(await load(), first); // inside the back-off → no network
+  assertEquals(calls.length, 2);
+  c.advance(5 * MINUTE);
+  await load(); // back-off over → refresh succeeds
+  assertEquals(calls.length, 3);
+  c.advance(6 * DAY);
+  assertEquals(await load(), first); // still under 7 days after the refresh... no: fresh copy from call 3
 });
 
 Deno.test("loader — fetch failure with a cache over 7 days old throws", async () => {

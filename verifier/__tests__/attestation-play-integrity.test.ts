@@ -68,6 +68,7 @@ import { consumeAndRecordAttestation } from "../src/db.js";
 import {
   PLAY_INTEGRITY_LABEL,
   consumePlayIntegrityForStage,
+  expectedRequestHash,
   hasPlayIntegrityAssertion,
   validatePlayIntegrityStructure,
   __resetAuthClientForTests,
@@ -615,6 +616,26 @@ describe("consumePlayIntegrityForStage — verdict enforcement", () => {
       expect((e as VerifyError).code).toBe(VerifyErrorCode.ATTESTATION_INVALID);
       expect((e as VerifyError).message).toContain("too old");
     }
+  });
+});
+
+describe("expectedRequestHash — known answer", () => {
+  it("matches a vector computed outside Node (Python hashlib, 2026-09-23)", () => {
+    // A 32-byte challenge and the 91-byte P-256 SPKI DER from the CA's
+    // committed android_strongbox fixture: SHA-256(challenge || SPKI),
+    // base64url without padding.
+    const challenge = "N5ctYBIzwaPZS+wy131lN8SC+v+8Hm2ZfCubH4eil3M=";
+    const spki = Buffer.from(
+      "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERObEZFsoVJzhAGR6RmOr3Zjs8dkXCDbHzSemTrvI1Ee9xSZkAScW7ls9ZQg2eU2y+Hj6ACKCxQ+VggSEWZd8zw==",
+      "base64",
+    );
+    expect(spki.length).toBe(91);
+    expect(expectedRequestHash(challenge, new Uint8Array(spki))).toBe(
+      "fg_aH6u6pjzfC28WhS4qNifUBmy8A9IAnk-pVe2qZi4",
+    );
+    expect(requestHashFor(challenge, new Uint8Array(spki))).toBe(
+      "fg_aH6u6pjzfC28WhS4qNifUBmy8A9IAnk-pVe2qZi4",
+    );
   });
 });
 
