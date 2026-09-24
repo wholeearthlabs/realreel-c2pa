@@ -177,8 +177,8 @@ export function enforceParentTrustSource(
 
 /**
  * Require the responder's `notRevoked` answer for the capture when its
- * source declares OCSP responders and the Reader ran with OCSP fetch on.
- * c2pa-rs files an ingredient's revocation codes under the ingredient
+ * source declares OCSP responders. `store` is the read that ran with OCSP
+ * fetch on. c2pa-rs files an ingredient's revocation codes under the ingredient
  * assertion that references it (`validation_results.ingredientDeltas[]`,
  * keyed by assertion URI), so the capture's rows are found by URI rather
  * than by position, and the active manifest's own OCSP codes are never
@@ -193,9 +193,8 @@ export function enforceParentRevocationStatus(
   store: ManifestStoreShape,
   capture: ManifestShape,
   source: ResolvedTrustSource,
-  ocspFetched: boolean,
 ): void {
-  if (!ocspFetched || !source.revocation) return;
+  if (!source.revocation) return;
   const uris = captureIngredientAssertionUris(store, capture);
   const deltas = (store.validation_results?.ingredientDeltas ?? []).filter(
     (d) =>

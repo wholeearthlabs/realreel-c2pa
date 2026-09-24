@@ -116,8 +116,8 @@ export interface VerifyResult {
 // OCSP responders trust-sources.yaml declares — and is checked on every request
 // c2pa-rs makes; an empty list blocks all of them. remoteManifestFetch stays
 // off: a remote-manifest reference is an attacker-chosen URL. ocspFetch is on
-// only when network revocation is enabled and a source declares a responder;
-// c2pa-rs then queries every chain it validates before checking the
+// only for the second, network-revocation read (readStoreWithOcsp); c2pa-rs
+// then queries a responder for every chain it parses, before checking the
 // signature, and a chain whose responder is off the list reads
 // signingCredential.ocsp.inaccessible (informational, so the profile requires
 // the positive answer itself — see enforceParentRevocationStatus).
@@ -189,6 +189,33 @@ export function withOcspTimeout<T>(
   return Promise.race([read, timeout]).finally(() => clearTimeout(timer));
 }
 
+// The network revocation read: the same bytes again, OCSP fetch on. c2pa-rs
+// queries a responder for every claim it parses before checking signature or
+// trust, so an uploader-controlled store reaches the network only through
+// this call, which the profile makes for a wrap whose capture source declares
+// responders and only after every structural gate has passed — a handful of
+// claims at most. Costs one extra parse. The store it returns differs from
+// the offline one only in the OCSP codes the profile then judges.
+async function readStoreWithOcsp(
+  assetBytes: Buffer,
+  mimeType: string,
+  trustConfig: TrustConfig,
+): Promise<ManifestStoreShape> {
+  const reader = await withOcspTimeout(
+    Reader.fromAsset(
+      { buffer: assetBytes, mimeType },
+      buildVerifierSettings(trustConfig, true),
+    ),
+  );
+  if (reader === null) {
+    throw new VerifyError(
+      VerifyErrorCode.MANIFEST_MALFORMED,
+      "asset has no embedded C2PA provenance",
+    );
+  }
+  return reader.json() as unknown as ManifestStoreShape;
+}
+
 export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   const {
     assetBytes,
@@ -223,18 +250,16 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     );
   }
 
-  const trustSettings = buildVerifierSettings(trustConfig, networkRevocation);
-  const ocspFetched = fetchesOcsp(trustConfig, networkRevocation);
-
+  // Offline read: no network, whatever the store holds. The network
+  // revocation read, when enabled, happens inside the profile once the store
+  // has passed every structural gate (see readStoreWithOcsp).
   let reader: Reader | null;
   try {
-    const read = Reader.fromAsset(
+    reader = await Reader.fromAsset(
       { buffer: assetBytes, mimeType: normalizedMime },
-      trustSettings,
+      buildVerifierSettings(trustConfig),
     );
-    reader = ocspFetched ? await withOcspTimeout(read) : await read;
   } catch (e) {
-    if (e instanceof VerifyError) throw e;
     // Reader throws on parse-level errors (truncated JUMBF, etc.).
     throw new VerifyError(
       VerifyErrorCode.MANIFEST_MALFORMED,
@@ -323,7 +348,9 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     attestationRequired,
     datastore,
     tsaState,
-    ocspFetched,
+    fetchesOcsp(trustConfig, networkRevocation)
+      ? () => readStoreWithOcsp(assetBytes, normalizedMime, trustConfig)
+      : undefined,
   );
 
   // Derive displayed metadata from the now-verified bytes + active manifest.

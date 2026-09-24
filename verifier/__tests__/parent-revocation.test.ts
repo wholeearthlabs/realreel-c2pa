@@ -1,5 +1,6 @@
 // enforceParentRevocationStatus (src/profiles/_shared.ts): the positive-answer
-// rule over synthetic Reader JSON. c2pa-rs files a wrapped capture's OCSP
+// rule over synthetic Reader JSON — the store of the second, OCSP-on read the
+// profile requests for a wrap whose capture source declares responders. c2pa-rs files a wrapped capture's OCSP
 // codes under the ingredient assertion that references it, so the capture's
 // row is found by ingredientAssertionURI — never by position — and the active
 // manifest's own OCSP codes (always `inaccessible`: RealReel's responder is
@@ -89,12 +90,12 @@ function thrownBy(fn: () => void): VerifyError | null {
 describe("enforceParentRevocationStatus", () => {
   it("passes on the responder's notRevoked answer under the capture's ingredient assertion", () => {
     const s = store([delta(CAPTURE_URI, { success: [NOT_REVOKED] })]);
-    expect(() => enforceParentRevocationStatus(s, capture(s), PIXEL, true)).not.toThrow();
+    expect(() => enforceParentRevocationStatus(s, capture(s), PIXEL)).not.toThrow();
   });
 
   it("rejects VERIFIER_UNAVAILABLE when the responder was inaccessible, naming the bucket and code seen", () => {
     const s = store([delta(CAPTURE_URI, { informational: [INACCESSIBLE] })]);
-    const err = thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL, true));
+    const err = thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL));
     expect(err?.code).toBe(VerifyErrorCode.VERIFIER_UNAVAILABLE);
     expect(err?.detail).toContain(`informational:${INACCESSIBLE}`);
     expect(err?.detail).toContain("'pixel'");
@@ -104,7 +105,7 @@ describe("enforceParentRevocationStatus", () => {
   it("a notRevoked outside the success bucket is not evidence (a stapled response files as informational)", () => {
     for (const bucket of ["informational", "failure"] as const) {
       const s = store([delta(CAPTURE_URI, { [bucket]: [NOT_REVOKED] })]);
-      const err = thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL, true));
+      const err = thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL));
       expect(err?.code, bucket).toBe(VerifyErrorCode.VERIFIER_UNAVAILABLE);
       expect(err?.detail, bucket).toContain(`${bucket}:${NOT_REVOKED}`);
     }
@@ -112,7 +113,7 @@ describe("enforceParentRevocationStatus", () => {
 
   it("rejects when no OCSP code reached the capture at all", () => {
     for (const s of [store([delta(CAPTURE_URI)]), store([])]) {
-      const err = thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL, true));
+      const err = thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL));
       expect(err?.code).toBe(VerifyErrorCode.VERIFIER_UNAVAILABLE);
       expect(err?.detail).toContain("none");
     }
@@ -126,7 +127,7 @@ describe("enforceParentRevocationStatus", () => {
       delta(CAPTURE_URI, { informational: [INACCESSIBLE] }),
     ]);
     expect(
-      thrownBy(() => enforceParentRevocationStatus(wrongRow, capture(wrongRow), PIXEL, true))?.code,
+      thrownBy(() => enforceParentRevocationStatus(wrongRow, capture(wrongRow), PIXEL))?.code,
     ).toBe(VerifyErrorCode.VERIFIER_UNAVAILABLE);
     // notRevoked at index 1 under the capture's URI is.
     const rightRow = store([
@@ -134,7 +135,7 @@ describe("enforceParentRevocationStatus", () => {
       delta(CAPTURE_URI, { success: [NOT_REVOKED] }),
     ]);
     expect(() =>
-      enforceParentRevocationStatus(rightRow, capture(rightRow), PIXEL, true),
+      enforceParentRevocationStatus(rightRow, capture(rightRow), PIXEL),
     ).not.toThrow();
   });
 
@@ -142,7 +143,7 @@ describe("enforceParentRevocationStatus", () => {
     const s = store([]);
     s.validation_results!.activeManifest = { success: [{ code: NOT_REVOKED, url: "OCSP_RESPONSE" }] };
     expect(
-      thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL, true))?.code,
+      thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL))?.code,
     ).toBe(VerifyErrorCode.VERIFIER_UNAVAILABLE);
   });
 
@@ -150,7 +151,7 @@ describe("enforceParentRevocationStatus", () => {
     const s = store([delta(CAPTURE_URI, { success: [NOT_REVOKED] })]);
     delete s.manifests![ACTIVE]!.ingredients![0]!.label;
     expect(
-      thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL, true))?.detail,
+      thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL))?.detail,
     ).toContain("none");
   });
 
@@ -185,13 +186,12 @@ describe("enforceParentRevocationStatus", () => {
       },
     };
     expect(() =>
-      enforceParentRevocationStatus(s, s.manifests![CAPTURE]!, PIXEL, true),
+      enforceParentRevocationStatus(s, s.manifests![CAPTURE]!, PIXEL),
     ).not.toThrow();
   });
 
-  it("skips sources without revocation, and any run without OCSP fetch", () => {
+  it("skips sources without revocation", () => {
     const s = store([]);
-    expect(() => enforceParentRevocationStatus(s, capture(s), REALREEL, true)).not.toThrow();
-    expect(() => enforceParentRevocationStatus(s, capture(s), PIXEL, false)).not.toThrow();
+    expect(() => enforceParentRevocationStatus(s, capture(s), REALREEL)).not.toThrow();
   });
 });

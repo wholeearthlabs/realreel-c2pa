@@ -115,10 +115,12 @@ export interface RealReelVerifyResult {
  *   ledger-backed Gate 3 (a trusted TSA lifts the post-expiry bound; C2PA
  *   §15.7 then governs). The no-stamp default keeps direct callers and the
  *   gate fail-closed.
- * @param ocspFetched True when the Reader ran with OCSP fetch on
- *   (verify.ts fetchesOcsp), so a Stage-1 source that declares responders
- *   must show the responder's `notRevoked` answer. Off by default: with no
- *   fetch there is no answer to require.
+ * @param readWithOcsp Re-reads the asset with OCSP fetch on (verify.ts
+ *   readStoreWithOcsp). Present only when network revocation is enabled;
+ *   called only for a capture whose source declares responders, after every
+ *   structural gate, so the network is reached for a proven wrap alone. The
+ *   profile judges the returned store's OCSP codes. Absent by default: with
+ *   no fetch there is no answer to require.
  */
 export async function verifyRealReel(
   storeUnknown: unknown,
@@ -128,7 +130,7 @@ export async function verifyRealReel(
   attestationRequired: boolean = false,
   datastore: VerifierDatastore = postgresAdapter,
   tsaState: TsaState = { hasStamp: false, trusted: false },
-  ocspFetched: boolean = false,
+  readWithOcsp?: () => Promise<ManifestStoreShape>,
 ): Promise<RealReelVerifyResult> {
   const store = storeUnknown as ManifestStoreShape;
 
@@ -188,12 +190,18 @@ export async function verifyRealReel(
   enforceActionsAllowlist(active, REALREEL_UPLOAD_ALLOWED_ACTIONS, "Stage 2");
 
   // Stage 1 network revocation: a third-party capture (Pixel) has no ledger
-  // row, so its revocation comes from the vendor's OCSP responder. c2pa-rs
-  // already rejected a `revoked` answer through the strict classifier above;
-  // this requires the positive answer when the source declares responders.
-  // Last of the structural gates, so a responder outage (retryable) never
-  // hides a permanent rejection, and still ahead of every DB read.
-  enforceParentRevocationStatus(store, capture, captureSource, ocspFetched);
+  // row, so its revocation comes from the vendor's OCSP responder. The store
+  // above was read offline and carries no OCSP codes; this re-read carries
+  // them, so the strict classifier runs on it too (a `revoked` answer lands
+  // in its validation_status) before the positive answer is required. Last
+  // of the structural gates, so the network sees only a proven wrap and a
+  // responder outage (retryable) never hides a permanent rejection; still
+  // ahead of every DB read.
+  if (captureSource.revocation && readWithOcsp) {
+    const online = await readWithOcsp();
+    classifyStrictValidationStatus(online.validation_status ?? []);
+    enforceParentRevocationStatus(online, capture, captureSource);
+  }
 
   // === Stage 1 (parent, the capture) revocation denylist ===
   // Revocation is dual-stage: denylisting a CAPTURE key kills every upload

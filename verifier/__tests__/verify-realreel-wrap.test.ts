@@ -42,7 +42,7 @@
 // a future refactor that could subtly diverge the wrap branch (e.g. by
 // hoisting Stage 1 + Stage 2 lookups into different helpers).
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFile, access } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -77,6 +77,8 @@ vi.mock("../src/db.js", () => {
     },
   };
 });
+
+import { Reader } from "@contentauth/c2pa-node";
 
 import { verify } from "../src/verify.js";
 import { loadTrustConfig } from "../src/trust/loader.js";
@@ -395,6 +397,83 @@ describe.skipIf(!fixtureExists)(
         networkRevocation: false,
       });
       expect(result.sanitizedManifest.validation_state).toBe("trusted");
+    });
+  },
+);
+
+// ---------------------------------------------------------------
+// Network revocation, hermetic: the read is two-pass and bounded
+// ---------------------------------------------------------------
+//
+// c2pa-rs queries a responder for every claim it parses, before any policy,
+// so the network read must come second and only for a proven wrap: an
+// uploaded store never drives requests before it has passed the structural
+// gates, and a native RealReel upload never reaches the network at all.
+
+describe.skipIf(!fixtureExists)(
+  "verify() — network revocation reads offline first, then once with OCSP on",
+  () => {
+    let trustConfig: Awaited<ReturnType<typeof loadTrustConfig>>;
+    let fromAsset: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(async () => {
+      vi.mocked(lookupSigningKeyRevocation).mockReset();
+      trustConfig = await loadTrustConfig(trustSourcesPath);
+      mockWrapKeys(defaultStage2Row());
+      fromAsset = vi.spyOn(Reader, "fromAsset");
+    });
+
+    afterEach(() => {
+      fromAsset.mockRestore();
+    });
+
+    const ocspFetchOf = (call: unknown[]) =>
+      (JSON.parse(call[1] as string) as { verify: { ocsp_fetch: boolean } }).verify.ocsp_fetch;
+
+    it("a Pixel wrap: the offline read first, the OCSP read second", async () => {
+      await verify({
+        assetBytes: await readFile(wrapFixturePath),
+        mimeType: "image/jpeg",
+        expectedUserId: STAGE2_USER,
+        trustConfig: { ...trustConfig, ocspHosts: ["http://ocsp.invalid"] },
+        declaredLocation: "precise",
+        networkRevocation: true,
+      }).catch(() => undefined);
+      expect(fromAsset.mock.calls.map(ocspFetchOf)).toEqual([false, true]);
+    });
+
+    it("a native RealReel upload never reads with OCSP on, even with network revocation enabled", async () => {
+      const result = await verify({
+        assetBytes: await readFile(resolve(import.meta.dirname, "fixtures/realreel-uploaded.jpg")),
+        mimeType: "image/jpeg",
+        expectedUserId: STAGE2_USER,
+        trustConfig,
+        declaredLocation: "precise",
+        networkRevocation: true,
+      });
+      expect(result.sanitizedManifest.validation_state).toBe("trusted");
+      expect(fromAsset.mock.calls.map(ocspFetchOf)).toEqual([false]);
+    });
+
+    it("a wrap that fails a structural gate never reaches the OCSP read", async () => {
+      // The Stage-2 key lookup is mocked to miss, but that is a DB read, which
+      // sits after the OCSP read; make the structural failure come earlier by
+      // handing the profile a store whose active manifest has no ingredient.
+      const bytes = await readFile(wrapFixturePath);
+      const badTrust = { ...trustConfig, ocspHosts: ["http://ocsp.invalid"], loadedIds: new Set(["realreel", "realreel-legacy"]) };
+      // With the Pixel source unloaded, the parent resolves to no capture
+      // source (UNTRUSTED_ISSUER) before the OCSP read.
+      await expect(
+        verify({
+          assetBytes: bytes,
+          mimeType: "image/jpeg",
+          expectedUserId: STAGE2_USER,
+          trustConfig: badTrust,
+          declaredLocation: "precise",
+          networkRevocation: true,
+        }),
+      ).rejects.toMatchObject({ code: VerifyErrorCode.UNTRUSTED_ISSUER });
+      expect(fromAsset.mock.calls.map(ocspFetchOf)).toEqual([false]);
     });
   },
 );
