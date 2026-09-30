@@ -2,7 +2,7 @@
 # shared modules from ../ocsp and ../ca/_shared and bakes in the trust-source
 # PEMs):
 #   docker build -f ocsp-leaf/Dockerfile -t realreel-ocsp-leaf .
-FROM denoland/deno:2.9.5
+FROM denoland/deno:2.9.6
 
 WORKDIR /app
 
