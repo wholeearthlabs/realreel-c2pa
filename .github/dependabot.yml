@@ -30,13 +30,16 @@ updates:
       # would silently swap the in-repo trust-core for the published tarball.
       - dependency-name: '@realreel/*'
     groups:
+      # The validation engine rides alone. A c2pa-node bump moves the c2pa-rs
+      # it embeds, which needs the harness pin re-read off c2pa-js's
+      # Cargo.lock — grouped, that review holds the rest behind a red check.
+      # c2pa-types travels with it: c2pa-node pins one exact c2pa-types, and a
+      # newer one describes a newer c2pa-rs's JSON than the engine emits.
+      c2pa-engine:
+        patterns: ['@contentauth/c2pa-node', '@contentauth/c2pa-types']
       minor-and-patch:
         patterns: ['*']
-        # The validation engine rides alone. A c2pa-node bump moves the c2pa-rs
-        # it embeds, which needs the harness pin re-read off c2pa-js's
-        # Cargo.lock — grouped, that review holds the rest behind a red check.
-        # Excluded from the group, not ignored: it still gets its own PR.
-        exclude-patterns: ['@contentauth/c2pa-node']
+        exclude-patterns: ['@contentauth/c2pa-node', '@contentauth/c2pa-types']
         update-types: ['minor', 'patch']
 
   # Service base images — the SBOM lists no OS packages, so image CVE
