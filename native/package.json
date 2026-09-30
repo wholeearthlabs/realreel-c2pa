@@ -65,7 +65,7 @@
     "react-native": "*"
   },
   "devDependencies": {
-    "@expo/config-plugins": "~57.0.8",
+    "@expo/config-plugins": "~57.0.9",
     "@realreel/c2pa-trust-core": "*",
     "@types/node": "^24.13.3",
     "expo-module-scripts": "~56.0.0",
