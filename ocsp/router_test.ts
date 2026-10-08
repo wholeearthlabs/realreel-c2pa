@@ -194,6 +194,50 @@ Deno.test("a multi-cert request is unauthorized (pre-signed responses cover one 
   await expectOcsp(res, OCSP_UNAUTHORIZED, "multi-cert");
 });
 
+Deno.test("per-Request singleRequestExtensions are ignored, not fatal (RFC 6960 4.4.6)", async () => {
+  // pkijs < 3.3.3 mis-tagged this field and refused such requests as
+  // malformed; ocsp-leaf shares this parser, so this pins both responders.
+  const tlv = (tag: number, ...parts: Uint8Array[]): Uint8Array => {
+    const len = parts.reduce((n, p) => n + p.length, 0);
+    const header = len < 128 ? [tag, len] : [tag, 0x81, len];
+    const out = new Uint8Array(header.length + len);
+    out.set(header);
+    let off = header.length;
+    for (const p of parts) {
+      out.set(p, off);
+      off += p.length;
+    }
+    return out;
+  };
+  const bytes = (...b: number[]) => new Uint8Array(b);
+  // Service locator: issuer (empty Name), locator { id-ad-ocsp, URI }.
+  const serviceLocator = tlv(
+    0x30,
+    tlv(0x30),
+    tlv(
+      0x30,
+      tlv(
+        0x30,
+        bytes(0x06, 0x08, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x30, 0x01),
+        tlv(0x86, new TextEncoder().encode("http://ocsp.example")),
+      ),
+    ),
+  );
+  const extension = tlv(
+    0x30,
+    bytes(0x06, 0x09, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x30, 0x01, 0x07),
+    tlv(0x04, serviceLocator),
+  );
+  const certId = hexToBytes(REQ_SHA1_HEX).slice(-79); // the CertID TLV
+  const request = tlv(0x30, certId, tlv(0xa0, tlv(0x30, extension)));
+  const res = await handleRequest(
+    post(tlv(0x30, tlv(0x30, tlv(0x30, request)))),
+    assets,
+    store,
+  );
+  await expectOcsp(res, SHA1_STUB, "single-request-extensions");
+});
+
 Deno.test("unparseable POST body is malformedRequest", async () => {
   const res = await handleRequest(
     post(new TextEncoder().encode("not ocsp")),

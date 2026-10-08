@@ -93,6 +93,31 @@ Deno.test("good responses build and self-verify for both CertID hash algorithms"
   }
 });
 
+Deno.test("a high-S responder signature verifies (KMS doesn't normalize S)", async () => {
+  // noble v2 signs low-S by default, so force the other half: s' = n − s.
+  const signTbsHighS = async (tbs: Uint8Array): Promise<Uint8Array> => {
+    const sig = p256.Signature.fromBytes(await signTbs(tbs), "der");
+    const high = sig.hasHighS()
+      ? sig
+      : new p256.Signature(sig.r, p256.Point.Fn.ORDER - sig.s);
+    assert(high.hasHighS(), "test signature is high-S");
+    return high.toBytes("der");
+  };
+  const der = await buildOcspResponseDer({
+    ...base,
+    hashOid: OID_SHA256,
+    signTbs: signTbsHighS,
+  });
+  await verifyOcspResponseDer(der, {
+    rootPem,
+    icaPem,
+    hashOid: OID_SHA256,
+    status: "good",
+    now: NOW,
+    signerKeyBits: pub,
+  });
+});
+
 Deno.test("verification is pinned to the CertID hash algorithm", async () => {
   const der = await buildOcspResponseDer({ ...base, hashOid: OID_SHA1 });
   await assertRejects(
