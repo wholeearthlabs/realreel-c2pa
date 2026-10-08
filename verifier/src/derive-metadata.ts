@@ -75,9 +75,10 @@ const GPS_SCRUB = /location|gps|coordinate|iso6709|xyz|geo|\blatitude\b|\blongit
 
 // Some camera pipelines (e.g. Pixel HDR+) stash binary blobs under string-typed
 // EXIF tags; control bytes (bar tab/LF/CR) make postgres jsonb reject the INSERT
-// and render as garbage, so such a string is dropped whole.
+// and render as garbage, so such a string is dropped whole. Shared with
+// sanitize.ts's TSA-name lift.
 // eslint-disable-next-line no-control-regex
-const CONTROL_BYTES = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
+export const CONTROL_BYTES = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
 
 /** Find an assertion's `data` payload by label in a manifest. */
 function assertionData(
