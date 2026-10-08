@@ -28,6 +28,7 @@
     "test": "npm run build -w trust-core && npm run test:trust-core && npm run typecheck:verifier && npm run test:verifier && npm run test:ca && npm run test:pki && npm run test:ocsp && npm run test:ocsp-leaf && npm run test:native",
     "demo": "cd verifier && tsx ../examples/verify-demo.ts",
     "changeset": "changeset",
+    "version-packages": "changeset version && npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
     "release": "changeset publish"
   },
   "devDependencies": {
