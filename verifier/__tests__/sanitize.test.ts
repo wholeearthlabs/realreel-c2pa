@@ -329,6 +329,41 @@ describe("sanitizeManifestStore", () => {
     expect(out.manifests["stage1"]?.signature_info.timestamp_authority).toBe("SSL.com TSA");
   });
 
+  it("drops the trust-list suffix c2pa-rs 0.91 appends to a trusted stamp's name", () => {
+    // What a 0.91 engine records (device ingest, or the verifier's own read).
+    const out = sanitizeManifestStore(
+      {
+        active_manifest: "stage2",
+        manifests: {
+          stage1: { label: "stage1" },
+          stage2: {
+            label: "stage2",
+            ingredients: [
+              {
+                active_manifest: "stage1",
+                validation_results: {
+                  activeManifest: {
+                    success: [
+                      {
+                        code: "timeStamp.trusted",
+                        url: "self#jumbf=/c2pa/stage1/c2pa.signature",
+                        explanation:
+                          "timestamp cert trusted: SSL.com TSA, trust list: system_anchors",
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
+        validation_status: [],
+      },
+      "realreel",
+    );
+    expect(out.manifests["stage1"]?.signature_info.timestamp_authority).toBe("SSL.com TSA");
+  });
+
   it("leaves timestamp_authority null when there is no sigTst2 validation entry", () => {
     const out = sanitizeManifestStore(
       { active_manifest: "m1", manifests: { m1: { label: "m1" } }, validation_status: [] },

@@ -192,6 +192,7 @@ interface ValidationResults {
 // A timestamped signature's JUMBF URI → the owning manifest label, e.g.
 // "self#jumbf=/c2pa/urn:c2pa:abc…/c2pa.signature" → "urn:c2pa:abc…".
 const TSA_LABEL_FROM_URL = /\/c2pa\/([^/]+)\/c2pa\.signature/;
+const TRUST_LIST_SUFFIX = ", trust list: ";
 
 /**
  * Build a manifest-label → TSA-provider-name map from c2pa-rs's
@@ -221,10 +222,15 @@ function extractTsaByLabel(s: {
       if (byLabel[label]) continue;
       const explanation = typeof e.explanation === "string" ? e.explanation : "";
       const sep = explanation.indexOf(": ");
+      let raw = sep >= 0 ? explanation.slice(sep + 2) : "";
+      // c2pa-rs 0.91 appends the anchoring list to the trusted code only:
+      // "timestamp cert trusted: <CN>, trust list: <uri>".
+      const listSep = e.code === "timeStamp.trusted" ? raw.lastIndexOf(TRUST_LIST_SUFFIX) : -1;
+      if (listSep >= 0) raw = raw.slice(0, listSep);
       // Cap the lifted name: it derives from a cert subject CN (attacker-
       // influenced for an untrusted stamp), and this module's contract is to
       // bound what we persist. A real TSA name is ~50 chars; 200 is slack.
-      const name = sep >= 0 ? explanation.slice(sep + 2, sep + 202).trim() : "";
+      const name = raw.slice(0, 200).trim();
       if (name) byLabel[label] = name;
     }
   };
