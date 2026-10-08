@@ -95,7 +95,13 @@ Check which c2pa-rs each release embeds before bumping: c2pa-swift's
 `Configurations/Base.xcconfig` (`C2PA_VERSION`) and c2pa-android's
 `library/gradle.properties` (`c2paVersion`). 0.0.14 is c2pa-rs 0.91.2 on both.
 
-### Migrating to `trust.anchors[]` (required before any bump past c2pa-rs 0.91)
+### Migrating to c2pa-rs 0.92 (required before any bump past 0.91)
+
+c2pa-rs 0.92 (scheduled mid-November 2026) removes two things this module still
+uses, and neither removal fails loudly. Do both, in lockstep, on the bump that crosses
+0.92.
+
+#### Trust anchors → `trust.anchors[]`
 
 `settingsWithTrustAnchors` (both platforms) writes the trust pool as the deprecated
 `trust.trust_anchors`. **c2pa-rs 0.92 (scheduled mid-November 2026) removes that
@@ -128,6 +134,27 @@ When a c2pa-swift / c2pa-android release moves to c2pa-rs ≥ 0.92:
    and logs `trust-anchor settings load failed`.
 4. Update this section, both `settingsWithTrustAnchors` comments, and the verifier's
    `buildVerifierSettings`, which the native shape mirrors.
+
+#### Thread-local settings → explicit contexts
+
+0.92 also removes `c2pa_load_settings` (`Signer.loadSettings` / `C2PASigner.loadSettings`)
+and `c2pa_builder_from_json` (iOS's context-less `Builder(manifestJSON:)`). c2pa-swift
+0.0.14 already moved its context-less `Reader` onto c2pa-rs **defaults** rather than
+failing, which is why every read here now passes an explicit context. Expect the same
+of a context-less `Builder`, which would sign silently with no
+`created_assertion_labels`, no auto-timestamp or thumbnail pins, and no trust pool.
+
+1. iOS: build every `Builder` from a context carrying the path's settings JSON
+   (`SIGN_SETTINGS_JSON` / `UPDATE_MANIFEST_SETTINGS_JSON`, plus the trust pool),
+   as Android already does, then delete the `Signer.loadSettings` calls and their
+   defers. This also ends the thread-local merge workarounds: the explicit
+   `enabled` pins and the lingering-anchor caveat in `settingsWithTrustAnchors`.
+2. Android: delete the remaining `C2PASigner.loadSettings` calls. Every Reader and
+   Builder is context-based already, so they're inert today.
+3. The consuming app: any module of its own that calls the context-less `Reader`
+   needs the same explicit context.
+4. Device-test thumbnails, auto-timestamping on drains, and `created_assertions` on
+   both platforms, not just trust.
 
 ## API
 

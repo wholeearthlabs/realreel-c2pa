@@ -6,4 +6,6 @@ Native C2PA engines to c2pa-swift (formerly c2pa-ios) and c2pa-android 0.0.14, b
 
 c2pa-rs's context-less `Reader` now reads with its defaults, where remote manifest fetch is on, instead of the loaded settings. Every manifest read now passes our settings explicitly, so reading a user-chosen file still never goes to the network.
 
+iOS: a capture or Stage-2 upload signed after an offline drain on the same thread keeps its thumbnails. The drain's `thumbnail.enabled: false` used to persist in c2pa-rs's thread-local settings, because the restored sign settings never set it.
+
 **Consumer changes:** on Android, exclude `/META-INF/LICENSE.md` (`expo-build-properties` → `android.packagingOptions.exclude`), because BouncyCastle 1.85+ ships a duplicate in three jars. `compileSdk` must be 36. On iOS, run `npx expo prebuild --clean` so the Podfile picks up the renamed c2pa-swift package.

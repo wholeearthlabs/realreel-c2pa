@@ -474,7 +474,9 @@ class PhotoAttestModule : Module() {
     var stream: FileStream? = null
     var reader: C2PAReader? = null
     try {
-      settings = C2PASettings.create().updateFromString(SIGN_SETTINGS_JSON, "json")
+      // Two steps so the handle is closable even if the update throws.
+      settings = C2PASettings.create()
+      settings.updateFromString(SIGN_SETTINGS_JSON, "json")
       context = C2PAContext.fromSettings(settings)
       stream = FileStream(file, FileStream.Mode.READ)
       reader = C2PAReader.fromContext(context).withStream(mime, stream)
@@ -1907,7 +1909,7 @@ class PhotoAttestModule : Module() {
     // above. anchors[] entries load unchecked there and would fail later, past
     // those fallbacks. MIGRATE BEFORE ANY BUMP PAST c2pa-rs 0.91: 0.92 removes
     // the field and then ignores it, signing anchorless with no error. Steps:
-    // native/README.md "Migrating to trust.anchors[]". Lockstep with iOS.
+    // native/README.md "Migrating to c2pa-rs 0.92". Lockstep with iOS.
     fun settingsWithTrustAnchors(baseSettingsJson: String, trustAnchorsPem: String?): String {
       if (trustAnchorsPem.isNullOrBlank()) return baseSettingsJson
       val settings = JSONObject(baseSettingsJson)

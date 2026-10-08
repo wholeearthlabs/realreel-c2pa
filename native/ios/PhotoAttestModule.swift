@@ -680,11 +680,11 @@ public class PhotoAttestModule: Module {
     "mov": ("video/quicktime", true),
   ]
 
-  // c2pa-rs settings (global, applied via Signer.loadSettings before each sign).
-  // Merge semantics mean every path must set auto_timestamp_assertion.enabled
-  // EXPLICITLY rather than relying on the key's absence — otherwise a drain that
-  // turned it on would leak into a later Stage-2 upload, whose parentOf
-  // ingredient WOULD then get auto-stamped.
+  // c2pa-rs settings (thread-local, applied via Signer.loadSettings before each
+  // sign). Merge semantics mean every path must set auto_timestamp_assertion
+  // and thumbnail `enabled` EXPLICITLY rather than relying on the key's
+  // absence — otherwise a drain that turned auto-stamping on (or thumbnails
+  // off) would leak into a later capture or Stage-2 upload on that thread.
   //
   // verify_trust / verify_after_sign are off (see signCaptureManifest's comment).
   //
@@ -714,7 +714,7 @@ public class PhotoAttestModule: Module {
     #""created_assertion_labels":["c2pa.actions","c2pa.ingredient","c2pa.thumbnail.claim","c2pa.thumbnail.ingredient","c2pa.time-stamp","c2pa.metadata","org.realreel.capture","org.realreel.upload","org.realreel.play_integrity","org.realreel.app_attest"],"actions":{"all_actions_included":true}"#
 
   private static let SIGN_SETTINGS_JSON =
-    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false},"# + BUILDER_SETTINGS_JSON + #"}}"#
+    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false},"thumbnail":{"enabled":true},"# + BUILDER_SETTINGS_JSON + #"}}"#
 
   // Update-Manifest drain: auto-timestamp ON with fetch_scope=parent, so
   // c2pa-rs stamps the PARENT (Stage-1) signature it auto-incorporates from the
@@ -742,14 +742,15 @@ public class PhotoAttestModule: Module {
   // Android's settingsWithTrustAnchors — the canonical rationale lives there,
   // including why this is the deprecated `trust.trust_anchors` and not
   // `trust.anchors[]`. MIGRATE BEFORE ANY BUMP PAST c2pa-rs 0.91 (0.92 drops
-  // the field silently): native/README.md "Migrating to trust.anchors[]".
+  // the field silently): native/README.md "Migrating to c2pa-rs 0.92".
   // Nil/blank anchors → base unchanged.
   //
-  // iOS-specific: settings apply process-wide (c2pa_load_settings) with merge
-  // semantics, so the anchors linger after an anchored sign — harmless,
-  // because every sign path leads with a loadSettings that sets verify_trust
-  // explicitly (the same invariant the auto_timestamp_assertion comment above
-  // establishes).
+  // iOS-specific: settings are thread-local (c2pa_load_settings) with merge
+  // semantics, and c2pa-rs 0.91 unions anchors instead of replacing them, so a
+  // pool lingers on its thread after an anchored sign. Inert for unanchored
+  // signs (every path sets verify_trust explicitly, as above); the one cost is
+  // that a pool dropped by an in-process JS reload stays trusted until restart.
+  // The 0.92 move to context-based builders ends this.
   private static func settingsWithTrustAnchors(
     _ baseSettingsJson: String,
     trustAnchorsPem: String?
