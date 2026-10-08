@@ -329,6 +329,95 @@ describe("sanitizeManifestStore", () => {
     expect(out.manifests["stage1"]?.signature_info.timestamp_authority).toBe("SSL.com TSA");
   });
 
+  describe("c2pa-rs 0.91 trust-list suffix", () => {
+    const STAGE1_SIG = "self#jumbf=/c2pa/stage1/c2pa.signature";
+    // A Stage-2 store whose parent's recorded results (device ingest) are
+    // `recorded`, plus the verifier's own `deltas` for that parent.
+    const stage1Tsa = (recorded: unknown, deltas?: unknown): string | null =>
+      sanitizeManifestStore(
+        {
+          active_manifest: "stage2",
+          manifests: {
+            stage1: { label: "stage1" },
+            stage2: {
+              label: "stage2",
+              ingredients: [{ active_manifest: "stage1", validation_results: { activeManifest: recorded } }],
+            },
+          },
+          validation_status: [],
+          validation_results: deltas ? { ingredientDeltas: [{ validationDeltas: deltas }] } : undefined,
+        },
+        "realreel",
+      ).manifests["stage1"]?.signature_info.timestamp_authority ?? null;
+    const trusted = (explanation: string) => ({ code: "timeStamp.trusted", url: STAGE1_SIG, explanation });
+
+    it("device-recorded results in 0.91's order (validated, then suffixed trusted)", () => {
+      expect(
+        stage1Tsa({
+          success: [
+            { code: "timeStamp.validated", url: STAGE1_SIG, explanation: "timestamp message digest matched: SSL.com TSA" },
+            trusted("timestamp cert trusted: SSL.com TSA, trust list: system_anchors"),
+          ],
+        }),
+      ).toBe("SSL.com TSA");
+    });
+
+    it("a verifier on 0.91: the delta carries only the suffixed trusted entry", () => {
+      // c2pa-rs drops the verifier's own `validated` as a duplicate of the
+      // recorded one (code+url+kind), leaving `trusted` alone in the delta,
+      // which is scanned before the parent's recorded (here untrusted) results.
+      expect(
+        stage1Tsa(
+          {
+            success: [{ code: "timeStamp.validated", url: STAGE1_SIG, explanation: "timestamp message digest matched: SSL.com TSA" }],
+            informational: [{ code: "timeStamp.untrusted", url: STAGE1_SIG, explanation: "timestamp cert untrusted: SSL.com TSA" }],
+          },
+          { success: [trusted("timestamp cert trusted: SSL.com TSA, trust list: system_anchors")] },
+        ),
+      ).toBe("SSL.com TSA");
+    });
+
+    it.each([
+      ["an empty trust URI", "timestamp cert trusted: SSL.com TSA, trust list: "],
+      ["a trimmed separator", "timestamp cert trusted: SSL.com TSA, trust list:"],
+    ])("strips the suffix with %s", (_case, explanation) => {
+      expect(stage1Tsa({}, { success: [trusted(explanation)] })).toBe("SSL.com TSA");
+    });
+
+    it("keeps a CN that contains a comma", () => {
+      expect(stage1Tsa({}, { success: [trusted("timestamp cert trusted: Acme, Inc. TSA, trust list: system_anchors")] })).toBe(
+        "Acme, Inc. TSA",
+      );
+      expect(
+        stage1Tsa({ success: [{ code: "timeStamp.validated", url: STAGE1_SIG, explanation: "timestamp message digest matched: Acme, Inc. TSA" }] }),
+      ).toBe("Acme, Inc. TSA");
+    });
+  });
+
+  it.each([
+    ["a NUL", "timestamp cert untrusted: Evil\u0000 TSA", "Evil TSA"],
+    ["a lone surrogate", "timestamp cert untrusted: Evil \uD83D TSA", "Evil  TSA"],
+    ["an emoji split by the 200-char cap", `timestamp cert untrusted: ${"a".repeat(199)}\u{1F600}`, "a".repeat(199)],
+  ])("keeps a TSA name jsonb-safe with %s", (_case, explanation, expected) => {
+    const out = sanitizeManifestStore(
+      {
+        active_manifest: "m1",
+        manifests: { m1: { label: "m1" } },
+        validation_status: [],
+        validation_results: {
+          activeManifest: { informational: [{ code: "timeStamp.untrusted", url: "self#jumbf=/c2pa/m1/c2pa.signature", explanation }] },
+        },
+      },
+      "realreel",
+    );
+    const name = out.active_manifest?.signature_info.timestamp_authority;
+    expect(name).toBe(expected);
+    // jsonb rejects NUL and unpaired surrogates; encodeURIComponent throws on the latter.
+    expect(name).not.toContain("\u0000");
+    expect(() => encodeURIComponent(name!)).not.toThrow();
+    expect(JSON.parse(JSON.stringify(name))).toBe(name);
+  });
+
   it("leaves timestamp_authority null when there is no sigTst2 validation entry", () => {
     const out = sanitizeManifestStore(
       { active_manifest: "m1", manifests: { m1: { label: "m1" } }, validation_status: [] },

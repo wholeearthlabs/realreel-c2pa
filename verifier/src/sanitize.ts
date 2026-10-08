@@ -43,6 +43,7 @@ import {
   PLAY_INTEGRITY_LABEL,
   TIMESTAMP_ASSERTION_LABEL,
 } from "@realreel/c2pa-trust-core";
+import { CONTROL_BYTES } from "./derive-metadata.js";
 
 export interface SanitizedAssertion {
   label: string;
@@ -192,6 +193,16 @@ interface ValidationResults {
 // A timestamped signature's JUMBF URI → the owning manifest label, e.g.
 // "self#jumbf=/c2pa/urn:c2pa:abc…/c2pa.signature" → "urn:c2pa:abc…".
 const TSA_LABEL_FROM_URL = /\/c2pa\/([^/]+)\/c2pa\.signature/;
+// c2pa-rs 0.91 appends the anchoring list to a trusted stamp's text; the URI
+// may be empty, and a recorder may have trimmed the trailing space.
+const TRUST_LIST_SEP = ", trust list:";
+// A real TSA name is ~50 chars; 200 is slack.
+const MAX_TSA_NAME = 200;
+// Prefix ("legacy timestamp cert trusted: " is the longest c2pa-rs uses) +
+// name + separator, with slack: the only part of the explanation we read.
+const EXPLANATION_WINDOW = 64 + MAX_TSA_NAME + TRUST_LIST_SEP.length;
+const CONTROL_BYTES_ALL = new RegExp(CONTROL_BYTES.source, "g");
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
 /**
  * Build a manifest-label → TSA-provider-name map from c2pa-rs's
@@ -199,12 +210,18 @@ const TSA_LABEL_FROM_URL = /\/c2pa\/([^/]+)\/c2pa\.signature/;
  *
  * The provider name is not a structured field in the c2pa-node output: it
  * appears only in the human-readable explanation of the `timeStamp.*` entries
- * (e.g. "timestamp message digest matched: DigiCert SHA256 …"), so we take the
- * substring after the first ": " and key it by the manifest label parsed from
- * the entry's `url`. A parent (Stage-1) manifest's entries surface under
+ * — "<prefix>: <CN>", plus ", trust list: <uri>" on c2pa-rs 0.91's trusted
+ * code — so we take what follows the first ": ", drop any trust-list suffix
+ * whatever the code, and key it by the manifest label parsed from the entry's
+ * `url`. A parent (Stage-1) manifest's entries surface under
  * `ingredientDeltas[]` and nested in its ingredient's results, while the active
- * manifest's are under `activeManifest` — so all three are scanned. The names
- * agree across the validated/trusted/untrusted codes, so the first match wins.
+ * manifest's are under `activeManifest` — so all three are scanned, and the
+ * first match per label wins.
+ *
+ * The CN is attacker-influenced (an untrusted stamp, or text a device recorded),
+ * so only a bounded window is read, and control bytes and lone surrogates are
+ * removed: postgres jsonb rejects NUL and unpaired surrogates, failing the
+ * upload's INSERT.
  */
 function extractTsaByLabel(s: {
   manifests?: Record<string, unknown>;
@@ -219,12 +236,17 @@ function extractTsaByLabel(s: {
       if (!match) continue;
       const label = match[1]!;
       if (byLabel[label]) continue;
-      const explanation = typeof e.explanation === "string" ? e.explanation : "";
+      const explanation =
+        typeof e.explanation === "string" ? e.explanation.slice(0, EXPLANATION_WINDOW) : "";
       const sep = explanation.indexOf(": ");
-      // Cap the lifted name: it derives from a cert subject CN (attacker-
-      // influenced for an untrusted stamp), and this module's contract is to
-      // bound what we persist. A real TSA name is ~50 chars; 200 is slack.
-      const name = sep >= 0 ? explanation.slice(sep + 2, sep + 202).trim() : "";
+      let raw = sep >= 0 ? explanation.slice(sep + 2) : "";
+      const listSep = raw.lastIndexOf(TRUST_LIST_SEP);
+      if (listSep >= 0) raw = raw.slice(0, listSep);
+      const name = raw
+        .slice(0, MAX_TSA_NAME)
+        .replace(CONTROL_BYTES_ALL, "")
+        .replace(LONE_SURROGATE, "")
+        .trim();
       if (name) byLabel[label] = name;
     }
   };
