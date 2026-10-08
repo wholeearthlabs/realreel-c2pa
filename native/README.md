@@ -40,7 +40,7 @@ Add the config plugin and the build settings to your app config:
 export default {
   // ...
   plugins: [
-    // (1) Wires the iOS Swift Package deps (c2pa-ios `C2PA` + swift-certificates
+    // (1) Wires the iOS Swift Package deps (c2pa-swift `C2PA` + swift-certificates
     //     `X509`) into the Podfile on every prebuild. Required for iOS to build.
     "@realreel/photo-attest",
 
@@ -48,10 +48,11 @@ export default {
     [
       "expo-build-properties",
       {
-        ios: { deploymentTarget: "16.0" },          // c2pa-ios requires iOS 16+
+        ios: { deploymentTarget: "16.0" },          // c2pa-swift requires iOS 16+
         android: {
           minSdkVersion: 28,                          // c2pa-android requires API 28+
-          extraMavenRepos: ["https://www.jitpack.io"] // c2pa-android is on JitPack
+          extraMavenRepos: ["https://www.jitpack.io"], // c2pa-android is on JitPack
+          packagingOptions: { exclude: ["/META-INF/LICENSE.md"] } // BouncyCastle 1.85+
         }
       }
     ]
@@ -66,8 +67,12 @@ Then regenerate native projects: `npx expo prebuild --clean`.
 The C2PA native libraries impose real constraints, and we keep them explicit so you
 stay in control of your app's min versions and repositories:
 
-- **iOS deployment target 16.0** — `c2pa-ios` (see `ios/C2PA.version`) requires it.
-- **Android `minSdkVersion` 28** — `c2pa-android`'s floor.
+- **iOS deployment target 16.0** — `c2pa-swift` (see `ios/C2PA.version`) requires it.
+- **Android `minSdkVersion` 28** — `c2pa-android`'s floor. Its AAR also needs
+  `compileSdk` 36 (Expo SDK 57's default).
+- **Exclude `/META-INF/LICENSE.md`** — BouncyCastle 1.85+ ships one in each of
+  bcprov, bcpkix and bcutil, and AGP doesn't drop the duplicate, so the Android
+  build fails without it.
 - **JitPack** — `c2pa-android` (`com.github.contentauth:c2pa-android`) is distributed
   through JitPack, so the Maven repo must be registered.
 
