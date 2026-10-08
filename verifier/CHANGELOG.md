@@ -1,5 +1,13 @@
 # @realreel/verifier
 
+## 0.12.3
+
+### Patch Changes
+
+- [#82](https://github.com/wholeearthlabs/realreel-c2pa/pull/82) [`d5407a2`](https://github.com/wholeearthlabs/realreel-c2pa/commit/d5407a2aa3ca6938eeacefef4e4b43226fc4cfd1) Thanks [@boojamya](https://github.com/boojamya)! - Runtime dependency updates: `pino` 10.3.1 → 10.4.0, `@sentry/node` 10.70.0 → 10.76.2 and `google-auth-library` 11.1.0 → 11.2.0. Transitively, OpenTelemetry `core` / `resources` / `sdk-trace(-base)` 2.10 → 2.12 and `import-in-the-middle` 3.3.3 → 3.5.2; Sentry's `@apm-js-collab` code transformer, `meriyah` and `astring` leave the image.
+
+- [#84](https://github.com/wholeearthlabs/realreel-c2pa/pull/84) [`686bcb2`](https://github.com/wholeearthlabs/realreel-c2pa/commit/686bcb2f4dbde3ac09fa6cc46778936d0386127d) Thanks [@boojamya](https://github.com/boojamya)! - Harden the TSA name lifted into `signature_info.timestamp_authority`. Any `, trust list: <uri>` suffix is now stripped whatever the code; c2pa-rs 0.91 appends one to a trusted time-stamp's explanation, which reaches the name once the verifier's own engine moves to 0.91 ([#77](https://github.com/wholeearthlabs/realreel-c2pa/issues/77)). Control bytes and unpaired surrogates are also removed from the attacker-influenced CN, because postgres jsonb rejects NUL and lone surrogates and the upload's INSERT would fail.
+
 ## 0.12.2
 
 ### Patch Changes
