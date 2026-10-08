@@ -36,11 +36,12 @@ describe("harness inputs", () => {
 
   it("builds the settings through the verifier's own builder, with the two lists pooled and no network", () => {
     const settings = JSON.parse(harnessSettings(TRUST_LISTS.production, TSA_LISTS.production)) as {
-      trust: { trust_anchors: string };
+      trust: { anchors: Array<{ trust_anchors: string }> };
       core: { allowed_network_hosts: string[] };
       verify: Record<string, unknown>;
     };
-    const anchors = pemCertificates(settings.trust.trust_anchors);
+    expect(settings.trust.anchors).toHaveLength(1);
+    const anchors = pemCertificates(settings.trust.anchors[0]!.trust_anchors);
     expect(anchors).toEqual([...pemCertificates(TRUST_LISTS.production), ...pemCertificates(TSA_LISTS.production)]);
     // Byte-identical to what verify.ts hands c2pa-node for the same bundle
     // with network revocation off — the time-stamp-trust flag rides along,
@@ -58,8 +59,8 @@ describe("harness inputs", () => {
   });
 
   it("omits the anchors key when both lists are empty (c2pa-rs rejects an empty anchor string)", () => {
-    const settings = JSON.parse(harnessSettings("", "")) as { trust: Record<string, unknown> };
-    expect("trust_anchors" in settings.trust).toBe(false);
+    const settings = JSON.parse(harnessSettings("", "")) as Record<string, unknown>;
+    expect("trust" in settings).toBe(false);
   });
 
   it("parses the validation time strictly as RFC 3339 with an offset", () => {

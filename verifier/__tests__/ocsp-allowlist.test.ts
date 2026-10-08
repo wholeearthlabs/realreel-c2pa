@@ -46,7 +46,10 @@ describe("c2pa-rs host allow-list (hermetic)", () => {
     expect(store.validation_state).toBe("Trusted");
   });
 
-  it("with network revocation off, no OCSP code appears at all", async () => {
-    expect(ocspCodes(await read(buildVerifierSettings(trustConfig)))).toEqual([]);
+  it("with network revocation off, the only OCSP code is the informational skipped", async () => {
+    // c2pa-rs 0.91 says so explicitly; no fetch-originated answer appears.
+    const store = await read(buildVerifierSettings(trustConfig));
+    expect(ocspCodes(store)).toEqual(["signingCredential.ocsp.skipped"]);
+    expect(codes(store, "informational")).toContain("signingCredential.ocsp.skipped");
   });
 });

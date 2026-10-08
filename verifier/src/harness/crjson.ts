@@ -170,7 +170,7 @@ const ENGINE_VERSION: string = (
 // c2pa-node does not expose the c2pa-rs it embeds; this table is read off
 // c2pa-js's Cargo.lock at each tag. Unknown → null, and the pin test in
 // __tests__/harness/crjson-harness.test.ts fails until the entry is added.
-const ENGINE_C2PA_RS: Record<string, string> = { "0.8.3": "0.90.5", "0.9.1": "0.90.15", "0.9.7": "0.90.22" };
+const ENGINE_C2PA_RS: Record<string, string> = { "0.8.3": "0.90.5", "0.9.1": "0.90.15", "0.9.7": "0.90.22", "0.9.9": "0.91.0" };
 
 export const HARNESS_IDENTITY = { name: HARNESS_NAME, version: HARNESS_VERSION };
 export const ENGINE_IDENTITY = {
@@ -226,8 +226,8 @@ export function harnessSettings(trustListPem: string, tsaTrustListPem: string): 
   // empty anchor STRING ("COSE error parsing certificate") but treats an
   // absent key as "no anchors" — every signer and TSA untrusted, which is the
   // honest verdict for this input. Same behaviour in both engines.
-  const parsed = JSON.parse(settings) as { trust: Record<string, unknown> };
-  delete parsed.trust.trust_anchors;
+  const parsed = JSON.parse(settings) as { trust?: Record<string, unknown> };
+  delete parsed.trust;
   return JSON.stringify(parsed);
 }
 
