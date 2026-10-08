@@ -30,13 +30,13 @@ const responderPem = await Deno.readTextFile(
   new URL("realreel-ocsp-responder-1.pem", dir),
 );
 
-const priv = p256.utils.randomPrivateKey();
+const priv = p256.utils.randomSecretKey();
 const pub = p256.getPublicKey(priv, false); // uncompressed point, like an SPKI's key bits
 const signTbs = async (tbs: Uint8Array): Promise<Uint8Array> => {
   const digest = new Uint8Array(
     await crypto.subtle.digest("SHA-256", toArrayBuffer(tbs)),
   );
-  return p256.sign(digest, priv).toDERRawBytes();
+  return p256.sign(digest, priv, { prehash: false, format: "der" });
 };
 
 const NOW = new Date("2026-07-24T12:00:00Z");

@@ -201,10 +201,10 @@ Deno.test("respond — good / revoked statuses round-trip, signed by the injecte
         toArrayBuffer(basic.tbsResponseData.tbsView),
       ),
     );
-    const sig = p256.Signature.fromDER(blockBytes(basic.signature))
-      .toCompactRawBytes();
+    const sig = p256.Signature.fromBytes(blockBytes(basic.signature), "der")
+      .toBytes("compact");
     assert(
-      p256.verify(sig, digest, testKeyBits, { lowS: false }),
+      p256.verify(sig, digest, testKeyBits, { lowS: false, prehash: false }),
       "signature verifies",
     );
 

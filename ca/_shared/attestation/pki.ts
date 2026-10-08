@@ -91,7 +91,7 @@ function ecdsaFallbackParams(
 
 // Parse an X.509 ECDSA signature (`SEQUENCE { r INTEGER, s INTEGER }`) into a
 // noble Signature, or null if unparseable/out-of-range. Uses the same lenient
-// asn1js parser as the WebCrypto path — noble's strict-DER Signature.fromDER
+// asn1js parser as the WebCrypto path — noble's strict-DER parse
 // would reject BER-ish encodings that natural-pair links accept.
 function ecdsaSigFromBer(curve: any, sigDer: Uint8Array): any | null {
   const asn1 = asn1js.fromBER(
@@ -182,7 +182,11 @@ class EcdsaFallbackCryptoEngine extends pkijs.CryptoEngine {
     try {
       // lowS:false — X.509 signers may emit high-S values, and WebCrypto
       // accepts them; rejecting here would fail valid certificates.
-      return fallback.curve.verify(sig, digest, publicKey, { lowS: false });
+      // prehash:false — `digest` is already hashed with the link's own hash.
+      return fallback.curve.verify(sig.toBytes("compact"), digest, publicKey, {
+        lowS: false,
+        prehash: false,
+      });
     } catch (e) {
       // Inputs are vetted above, so this is an off-curve key or an
       // infrastructure failure (e.g. a noble API change). Log before failing

@@ -602,8 +602,8 @@ export async function selfVerify(
   const point = pointBytesFromSpkiDer(issuerSpkiDer);
   const sigBits = blockBytes(parsed.signatureValue);
   const digest = await sha("SHA-384", approvedTbs);
-  const sig = p384.Signature.fromDER(sigBits).toCompactRawBytes();
-  if (!p384.verify(sig, digest, point, { lowS: false })) {
+  const sig = p384.Signature.fromBytes(sigBits, "der").toBytes("compact");
+  if (!p384.verify(sig, digest, point, { lowS: false, prehash: false })) {
     throw new Error(
       "self-verify FAILED: signature does not verify against the issuer public key",
     );

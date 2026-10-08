@@ -7,10 +7,10 @@
     "exclude": ["**/*.md"]
   },
   "imports": {
-    "pkijs": "npm:pkijs@3.2.4",
-    "asn1js": "npm:asn1js@3.0.5",
-    "@noble/curves/nist.js": "npm:@noble/curves@1.9.7/nist.js",
-    "postgres": "npm:postgres@3.4.7"
+    "pkijs": "npm:pkijs@3.4.1",
+    "asn1js": "npm:asn1js@3.0.10",
+    "@noble/curves/nist.js": "npm:@noble/curves@2.4.0/nist.js",
+    "postgres": "npm:postgres@3.4.9"
   },
   "tasks": {
     "start": "deno run --allow-net --allow-env --allow-read main.ts",

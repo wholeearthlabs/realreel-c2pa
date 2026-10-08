@@ -266,9 +266,11 @@ export async function verifyOcspResponseDer(
   const digest = new Uint8Array(
     await crypto.subtle.digest("SHA-256", toArrayBuffer(tbsData.tbsView)),
   );
-  const sig = p256.Signature.fromDER(blockBytes(basic.signature))
-    .toCompactRawBytes();
-  if (!p256.verify(sig, digest, signerKeyBits, { lowS: false })) {
+  const sig = p256.Signature.fromBytes(blockBytes(basic.signature), "der")
+    .toBytes("compact");
+  if (
+    !p256.verify(sig, digest, signerKeyBits, { lowS: false, prehash: false })
+  ) {
     fail("signature does not verify against the responder public key");
   }
 
