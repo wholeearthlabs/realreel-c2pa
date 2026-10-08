@@ -1,9 +1,9 @@
 {
   "imports": {
-    "pkijs": "npm:pkijs@3.2.4",
-    "asn1js": "npm:asn1js@3.0.5",
-    "cbor-x": "npm:cbor-x@1.5.9",
-    "@noble/curves/nist.js": "npm:@noble/curves@1.9.7/nist.js",
+    "pkijs": "npm:pkijs@3.4.1",
+    "asn1js": "npm:asn1js@3.0.10",
+    "cbor-x": "npm:cbor-x@1.6.6",
+    "@noble/curves/nist.js": "npm:@noble/curves@2.4.0/nist.js",
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2",
     "@sentry/deno": "https://esm.sh/@sentry/deno@8.55.0?bundle",
     "std/http/server.ts": "https://deno.land/std@0.168.0/http/server.ts",

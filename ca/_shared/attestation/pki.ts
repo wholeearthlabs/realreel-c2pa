@@ -91,7 +91,7 @@ function ecdsaFallbackParams(
 
 // Parse an X.509 ECDSA signature (`SEQUENCE { r INTEGER, s INTEGER }`) into a
 // noble Signature, or null if unparseable/out-of-range. Uses the same lenient
-// asn1js parser as the WebCrypto path — noble's strict-DER Signature.fromDER
+// asn1js parser as the WebCrypto path — noble's strict-DER parse
 // would reject BER-ish encodings that natural-pair links accept.
 function ecdsaSigFromBer(curve: any, sigDer: Uint8Array): any | null {
   const asn1 = asn1js.fromBER(
@@ -135,6 +135,11 @@ class EcdsaFallbackCryptoEngine extends pkijs.CryptoEngine {
     signatureAlgorithm: any,
     shaAlgorithm?: string,
   ): Promise<boolean> {
+    // pkijs ≥ 3.4 imports id-RSASSA-PSS-keyed SPKIs, which 3.2.4 refused; keep
+    // refusing them so a pin bump can't widen the key types this boundary
+    // accepts (chain links and CSRs alike).
+    if (publicKeyInfo?.algorithm?.algorithmId === OID_RSA_PSS) return false;
+
     const fallback = ecdsaFallbackParams(
       publicKeyInfo,
       signatureAlgorithm,
@@ -182,11 +187,16 @@ class EcdsaFallbackCryptoEngine extends pkijs.CryptoEngine {
     try {
       // lowS:false — X.509 signers may emit high-S values, and WebCrypto
       // accepts them; rejecting here would fail valid certificates.
-      return fallback.curve.verify(sig, digest, publicKey, { lowS: false });
+      // prehash:false — `digest` is already hashed with the link's own hash.
+      return fallback.curve.verify(sig.toBytes("compact"), digest, publicKey, {
+        lowS: false,
+        prehash: false,
+      });
     } catch (e) {
-      // Inputs are vetted above, so this is an off-curve key or an
-      // infrastructure failure (e.g. a noble API change). Log before failing
-      // closed so an outage can't masquerade as "does not verify".
+      // noble returns false for an off-curve key itself, so only API misuse or
+      // an infrastructure failure (e.g. a noble API change) lands here. Log
+      // before failing closed so an outage can't masquerade as "does not
+      // verify".
       console.warn(
         `[pki] ECDSA fallback verify threw (curve+${fallback.hash}): ${
           (e as Error).message
@@ -210,6 +220,11 @@ class EcdsaFallbackCryptoEngine extends pkijs.CryptoEngine {
 // Fix: patch `process.pid` to a real string key BEFORE calling setEngine, and
 // pre-create the stash slot with a plain mutable object. pkijs then writes
 // `engine` into our pre-populated stash and getEngine() reads it back.
+//
+// Vestigial since pkijs 3.4.1: getEngineGlobalKey() uses process.pid only when
+// it's an integer, else Symbol.for("pkijs.engine"), so the stash is never read
+// (the engine lives on the Symbol slot either way). Kept until removal is
+// verified on the Supabase edge runtime; then delete this block.
 {
   const g = globalThis as Record<string, unknown>;
   const stashKey = "__pkijs_deno_stash";

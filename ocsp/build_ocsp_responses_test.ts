@@ -30,13 +30,13 @@ const responderPem = await Deno.readTextFile(
   new URL("realreel-ocsp-responder-1.pem", dir),
 );
 
-const priv = p256.utils.randomPrivateKey();
+const priv = p256.utils.randomSecretKey();
 const pub = p256.getPublicKey(priv, false); // uncompressed point, like an SPKI's key bits
 const signTbs = async (tbs: Uint8Array): Promise<Uint8Array> => {
   const digest = new Uint8Array(
     await crypto.subtle.digest("SHA-256", toArrayBuffer(tbs)),
   );
-  return p256.sign(digest, priv).toDERRawBytes();
+  return p256.sign(digest, priv, { prehash: false, format: "der" });
 };
 
 const NOW = new Date("2026-07-24T12:00:00Z");
@@ -91,6 +91,31 @@ Deno.test("good responses build and self-verify for both CertID hash algorithms"
       "validity window is 7 days",
     );
   }
+});
+
+Deno.test("a high-S responder signature verifies (KMS doesn't normalize S)", async () => {
+  // noble v2 signs low-S by default, so force the other half: s' = n − s.
+  const signTbsHighS = async (tbs: Uint8Array): Promise<Uint8Array> => {
+    const sig = p256.Signature.fromBytes(await signTbs(tbs), "der");
+    const high = sig.hasHighS()
+      ? sig
+      : new p256.Signature(sig.r, p256.Point.Fn.ORDER - sig.s);
+    assert(high.hasHighS(), "test signature is high-S");
+    return high.toBytes("der");
+  };
+  const der = await buildOcspResponseDer({
+    ...base,
+    hashOid: OID_SHA256,
+    signTbs: signTbsHighS,
+  });
+  await verifyOcspResponseDer(der, {
+    rootPem,
+    icaPem,
+    hashOid: OID_SHA256,
+    status: "good",
+    now: NOW,
+    signerKeyBits: pub,
+  });
 });
 
 Deno.test("verification is pinned to the CertID hash algorithm", async () => {

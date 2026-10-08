@@ -90,6 +90,10 @@ npx wrangler deploy
 `custom_domain = true` provisions DNS + edge TLS for `ocsp.realreel.xyz` on the
 first deploy.
 
+Redeploys: run `deno install` first, every time. wrangler bundles from
+`node_modules`, not the import map, so after a pin change an existing checkout
+would otherwise ship the old package with no error.
+
 ### Cloudflare zone settings (load-bearing)
 
 - **Always Use HTTPS must be OFF for this host.** The AIA URL is `http://` and

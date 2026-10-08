@@ -164,11 +164,18 @@ Deno.test("ECDSA fallback — returns false for a tampered TBS body", async () =
   assertEquals(await verifyLeafAgainstIntermediate(leaf), false);
 });
 
-// Builds a self-signed P-256 cert whose signature uses `hash`, so we can assert
-// which signature algorithms the fallback is willing to verify.
-async function selfSignedCert(hash: string): Promise<pkijs.Certificate> {
+// Builds a self-signed cert (P-256 unless `keyAlg` says otherwise) whose
+// signature uses `hash`, so we can assert which signature algorithms the
+// fallback is willing to verify.
+async function selfSignedCert(
+  hash: string,
+  keyAlg: RsaHashedKeyGenParams | EcKeyGenParams = {
+    name: "ECDSA",
+    namedCurve: "P-256",
+  },
+): Promise<pkijs.Certificate> {
   const keys = await crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
+    keyAlg,
     true,
     ["sign", "verify"],
   ) as CryptoKeyPair;
@@ -261,7 +268,8 @@ Deno.test("ECDSA fallback — accepts BER long-form signature lengths like WebCr
   const sig = leaf.signatureValue.valueBlock.valueHexView;
   assertEquals(sig[0], 0x30);
   // Re-encode the SEQUENCE length in (non-minimal) long form; noble's strict
-  // Signature.fromDER rejects this, asn1js accepts it on both engine paths.
+  // DER parse (Signature.fromBytes(…, "der")) rejects this, asn1js accepts it
+  // on both engine paths.
   const longForm = new Uint8Array([0x30, 0x81, ...sig.slice(1)]);
   await withEdgeRuntimeGap(async () => {
     assertEquals(
@@ -311,6 +319,28 @@ Deno.test("ECDSA fallback — declines a declared RSA-PSS algorithm over an EC k
       "SHA-256",
     )
   );
+});
+
+// pkijs 3.4.1 verifies an id-RSASSA-PSS-keyed SPKI that 3.2.4 refused; the
+// engine keeps refusing it so the pin bump doesn't widen accepted key types.
+Deno.test("pki engine — refuses an id-RSASSA-PSS public key", async () => {
+  const cert = await selfSignedCert("SHA-256", {
+    name: "RSA-PSS",
+    modulusLength: 2048,
+    publicExponent: new Uint8Array([1, 0, 1]),
+    hash: "SHA-256",
+  });
+  // Control: the same RSA-PSS signature under an rsaEncryption SPKI verifies,
+  // so the refusal below is down to the key OID alone.
+  assertEquals(
+    cert.subjectPublicKeyInfo.algorithm.algorithmId,
+    "1.2.840.113549.1.1.1",
+  );
+  assertEquals(await cert.verify(), true);
+  cert.subjectPublicKeyInfo.algorithm = new pkijs.AlgorithmIdentifier({
+    algorithmId: "1.2.840.113549.1.1.10",
+  });
+  assertEquals(await cert.verify(), false);
 });
 
 Deno.test("ECDSA fallback — declines non-OID ECDSA public key parameters", async () => {
