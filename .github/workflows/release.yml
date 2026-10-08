@@ -36,5 +36,5 @@ jobs:
         with:
           # changeset version alone leaves package-lock.json's workspace
           # versions behind; version-packages refreshes them in the same PR.
-          version: npm run version-packages
+          version-script: npm run version-packages
           publish-script: npm run release
