@@ -32,6 +32,7 @@ import org.bouncycastle.openssl.jcajce.JcaPEMWriter
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder
 import org.contentauth.c2pa.Builder
 import org.contentauth.c2pa.BuilderIntent
+import org.contentauth.c2pa.C2PAContext
 import org.contentauth.c2pa.C2PASettings
 import org.contentauth.c2pa.DigitalSourceType
 import org.contentauth.c2pa.FileStream
@@ -454,19 +455,37 @@ class PhotoAttestModule : Module() {
   // swallowing all failures into "" — capture must never fail over an
   // unreadable read-back (see callers). Separate from extractActiveManifestUrn
   // (which throws STAGE1_PARENT_UNREADABLE for the parent-ingredient path).
-  private fun readActiveManifestUrnQuietly(file: File, mime: String): String {
-    var readStream: FileStream? = null
-    var reader: C2PAReader? = null
-    return try {
-      readStream = FileStream(file, FileStream.Mode.READ)
-      reader = C2PAReader.fromStream(mime, readStream)
-      extractActiveManifestUrn(reader.json())
+  private fun readActiveManifestUrnQuietly(file: File, mime: String): String =
+    try {
+      extractActiveManifestUrn(readManifestStoreJson(file, mime))
     } catch (e: Exception) {
       android.util.Log.w("PhotoAttest", "capture manifest URN read-back failed (non-fatal): ${e.message}")
       ""
+    }
+
+  // Read an asset's manifest-store JSON under SIGN_SETTINGS_JSON's verify pins.
+  // Since c2pa-android 0.0.11, Reader.fromStream reads with a default c2pa-rs
+  // context (remote_manifest_fetch ON) and loadSettings no longer reaches it, so
+  // the pins go in through an explicit context: reading a user-chosen parent
+  // must never make the device issue an outbound request.
+  private fun readManifestStoreJson(file: File, mime: String): String {
+    var settings: C2PASettings? = null
+    var context: C2PAContext? = null
+    var stream: FileStream? = null
+    var reader: C2PAReader? = null
+    try {
+      // Two steps so the handle is closable even if the update throws.
+      settings = C2PASettings.create()
+      settings.updateFromString(SIGN_SETTINGS_JSON, "json")
+      context = C2PAContext.fromSettings(settings)
+      stream = FileStream(file, FileStream.Mode.READ)
+      reader = C2PAReader.fromContext(context).withStream(mime, stream)
+      return reader.json()
     } finally {
       try { reader?.close() } catch (_: Exception) {}
-      try { readStream?.close() } catch (_: Exception) {}
+      try { stream?.close() } catch (_: Exception) {}
+      try { context?.close() } catch (_: Exception) {}
+      try { settings?.close() } catch (_: Exception) {}
     }
   }
 
@@ -577,23 +596,14 @@ class PhotoAttestModule : Module() {
 
     // Confirm the source carries a Stage-1 manifest — Update intent needs an
     // existing manifest to make the parent. Same hard-fail class as Stage 2.
-    run {
-      var probeReader: C2PAReader? = null
-      var probeStream: FileStream? = null
-      try {
-        probeStream = FileStream(parentFile, FileStream.Mode.READ)
-        probeReader = C2PAReader.fromStream(mime, probeStream)
-        probeReader.json()
-      } catch (e: Exception) {
-        throw CodedException(
-          "STAGE1_PARENT_UNREADABLE",
-          "Failed to read Stage-1 manifest from $parentMediaPath: ${e.message}",
-          e,
-        )
-      } finally {
-        try { probeReader?.close() } catch (_: Exception) {}
-        try { probeStream?.close() } catch (_: Exception) {}
-      }
+    try {
+      readManifestStoreJson(parentFile, mime)
+    } catch (e: Exception) {
+      throw CodedException(
+        "STAGE1_PARENT_UNREADABLE",
+        "Failed to read Stage-1 manifest from $parentMediaPath: ${e.message}",
+        e,
+      )
     }
 
     val context = appContext.reactContext
@@ -831,21 +841,14 @@ class PhotoAttestModule : Module() {
 
     // Read parent's embedded manifest. Hard-fail if absent/corrupted —
     // Stage 2 without a parent reference would lie about provenance.
-    var parentReader: C2PAReader? = null
-    var parentReadStream: FileStream? = null
     val parentManifestJSON: String = try {
-      parentReadStream = FileStream(parentFile, FileStream.Mode.READ)
-      parentReader = C2PAReader.fromStream(parentMime, parentReadStream)
-      parentReader.json()
+      readManifestStoreJson(parentFile, parentMime)
     } catch (e: Exception) {
       throw CodedException(
         "STAGE1_PARENT_UNREADABLE",
         "failed to read parent manifest from $parentMediaPath: ${e.message}",
         e,
       )
-    } finally {
-      try { parentReader?.close() } catch (_: Exception) {}
-      try { parentReadStream?.close() } catch (_: Exception) {}
     }
 
     // The CAPTURE manifest's urn (walked past any interposed timestamp Update
@@ -1892,23 +1895,25 @@ class PhotoAttestModule : Module() {
     // pool instead of running anchorless and permanently recording
     // signingCredential.untrusted / timeStamp.untrusted for trusted parents
     // (a C2PA generator-conformance failure: the CA and TSA Trust Lists
-    // must be consulted at ingest). Shape mirrors the
-    // verifier's buildVerifierSettings: explicit anchors pool shared by cert
-    // + TSA validation, verify_trust_list off (no implicit list),
+    // must be consulted at ingest). One explicit pool shared by cert + TSA
+    // validation (as the verifier's buildVerifierSettings), with
     // verify_timestamp_trust pinned on. Everything else — verify_after_sign,
     // the remote_manifest_fetch/ocsp_fetch SSRF pins — comes from the base
     // JSON untouched. Null/blank anchors → base returned unchanged. Built
     // via JSONObject so the multi-line PEM is escaped correctly.
+    //
+    // Deliberately the deprecated trust.trust_anchors, not trust.anchors[]:
+    // c2pa-rs 0.91 migrates it into one anchors[] entry (kind manifest, which
+    // also anchors TSA chains) and is the only form it parses at load, so a
+    // pool it can't read throws into the anchorless-with-a-log fallbacks
+    // above. anchors[] entries load unchecked there and would fail later, past
+    // those fallbacks. MIGRATE BEFORE ANY BUMP PAST c2pa-rs 0.91: 0.92 removes
+    // the field and then ignores it, signing anchorless with no error. Steps:
+    // native/README.md "Migrating to c2pa-rs 0.92". Lockstep with iOS.
     fun settingsWithTrustAnchors(baseSettingsJson: String, trustAnchorsPem: String?): String {
       if (trustAnchorsPem.isNullOrBlank()) return baseSettingsJson
       val settings = JSONObject(baseSettingsJson)
-      settings.put(
-        "trust",
-        JSONObject().apply {
-          put("verify_trust_list", false)
-          put("trust_anchors", trustAnchorsPem)
-        },
-      )
+      settings.put("trust", JSONObject().put("trust_anchors", trustAnchorsPem))
       val verify = settings.optJSONObject("verify")
         ?: JSONObject().also { settings.put("verify", it) }
       verify.put("verify_trust", true)

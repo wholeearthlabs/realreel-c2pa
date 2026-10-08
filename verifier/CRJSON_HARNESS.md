@@ -60,7 +60,7 @@ The harness's validator and the verifier's engine must stay on the same c2pa-rs 
 |---|---|---|
 | `@contentauth/c2pa-node` (this verifier's engine) | 0.9.7 | 0.90.22 |
 | `c2patool` (harness crJSON serializer) | 0.27.22 | 0.90.22 |
-| `c2pa-ios` / `c2pa-android` (device gate + signer) | 0.0.9 | 0.79.5 |
+| `c2pa-swift` / `c2pa-android` (device gate + signer) | 0.0.14 | 0.91.2 |
 
 ## Known crJSON deviations of c2patool 0.27.22
 

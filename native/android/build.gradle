@@ -20,19 +20,23 @@ dependencies {
   // android/build.gradle allprojects.repositories. Requires API 28+, which
   // our app sets via expo-build-properties (see app.config.ts).
   // Version pinned here; update in lockstep with C2PA.version on iOS.
-  implementation 'com.github.contentauth:c2pa-android:0.0.9'
+  // 0.0.14 embeds c2pa-rs 0.91.2 and its AAR requires compileSdk >= 36.
+  implementation 'com.github.contentauth:c2pa-android:0.0.14'
 
   // AndroidX ExifInterface — broader EXIF tag coverage than the platform's
   // android.media.ExifInterface (TAG_LENS_MAKE / TAG_LENS_MODEL, plus a
   // version-stable `latLong` getter). Used by signC2PACapture to populate the
   // `stds.exif` C2PA assertion at sign time.
-  implementation 'androidx.exifinterface:exifinterface:1.3.7'
+  implementation 'androidx.exifinterface:exifinterface:1.4.2'
 
   // BouncyCastle — used to build the X.509 cert chain for C2PA signing.
   // bcpkix provides X509v3CertificateBuilder + extension types; bcprov is the
   // transitive provider implementation (ASN.1, OIDs, primitives).
-  implementation 'org.bouncycastle:bcpkix-jdk18on:1.81'
-  implementation 'org.bouncycastle:bcprov-jdk18on:1.81'
+  // 1.85+ ships META-INF/LICENSE.md in bcprov, bcpkix and bcutil, which AGP
+  // doesn't exclude by default: the consuming app must exclude
+  // /META-INF/LICENSE.md (expo-build-properties android.packagingOptions).
+  implementation 'org.bouncycastle:bcpkix-jdk18on:1.86'
+  implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
 
   // Google Play Integrity (Standard requests) — per-capture attestation
   // primitive for Android (sister of iOS App Attest). Standard requests are

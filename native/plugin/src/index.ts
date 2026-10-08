@@ -27,10 +27,13 @@ import * as path from 'path';
 // as stale, not fixed; still unresolved) — exactly what the pod-target-only
 // attachment below avoids — so the plugin remains the reliable path.
 
-const C2PA_REPOSITORY_URL = 'https://github.com/contentauth/c2pa-ios.git';
+// Upstream renamed c2pa-ios → c2pa-swift (same repo; the old URL only
+// redirects). Package and product are still `C2PA`.
+const C2PA_REPOSITORY_URL = 'https://github.com/contentauth/c2pa-swift.git';
 const C2PA_PRODUCT_NAME = 'C2PA';
 const POD_TARGET_NAME = 'PhotoAttest';
-// Sentinel inside the Podfile so re-running prebuild is idempotent.
+// Sentinel inside the Podfile so re-running prebuild is idempotent. Kept at its
+// pre-rename value so an existing Podfile isn't injected twice.
 const C2PA_PODFILE_SENTINEL = '# c2pa-ios-spm-pod-attach';
 
 // Apple's swift-certificates: used by PhotoAttest's cert-generation path
@@ -38,15 +41,15 @@ const C2PA_PODFILE_SENTINEL = '# c2pa-ios-spm-pod-attach';
 // which natively wraps a Secure Enclave SecKey. Pinned here (vs the C2PA.version
 // sentinel) because it updates infrequently and is internal to this plugin.
 //
-// Deliberately an EXACT pin, whereas c2pa-ios requires swift-certificates
-// `.upToNextMajor(from: "1.0.0")`. 1.19.1 is within that range, so SPM unifies
-// on it today and the exact pin is a conservative, reproducible choice. If a
-// future c2pa-ios bump needs a swift-certificates that 1.19.1 can't satisfy,
-// relax this to a range matching upstream rather than letting the two diverge.
+// Deliberately an EXACT pin, whereas c2pa-swift requires swift-certificates
+// `.upToNextMajor(from: "1.19.4")` (0.0.14). 1.21.0 is within that range, so SPM
+// unifies on it and the exact pin is a conservative, reproducible choice. Move
+// it whenever a c2pa-swift bump raises that floor — SPM can't resolve an exact
+// pin below it.
 const SWIFT_CERT_REPOSITORY_URL =
   'https://github.com/apple/swift-certificates.git';
 const SWIFT_CERT_PRODUCT_NAME = 'X509';
-const SWIFT_CERT_VERSION = '1.19.1';
+const SWIFT_CERT_VERSION = '1.21.0';
 const SWIFT_CERT_PODFILE_SENTINEL = '# swift-certificates-spm-pod-attach';
 
 // The c2pa-ios version is the single source of truth shipped with this package

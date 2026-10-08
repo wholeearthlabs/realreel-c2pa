@@ -40,7 +40,7 @@ Add the config plugin and the build settings to your app config:
 export default {
   // ...
   plugins: [
-    // (1) Wires the iOS Swift Package deps (c2pa-ios `C2PA` + swift-certificates
+    // (1) Wires the iOS Swift Package deps (c2pa-swift `C2PA` + swift-certificates
     //     `X509`) into the Podfile on every prebuild. Required for iOS to build.
     "@realreel/photo-attest",
 
@@ -48,10 +48,11 @@ export default {
     [
       "expo-build-properties",
       {
-        ios: { deploymentTarget: "16.0" },          // c2pa-ios requires iOS 16+
+        ios: { deploymentTarget: "16.0" },          // c2pa-swift requires iOS 16+
         android: {
           minSdkVersion: 28,                          // c2pa-android requires API 28+
-          extraMavenRepos: ["https://www.jitpack.io"] // c2pa-android is on JitPack
+          extraMavenRepos: ["https://www.jitpack.io"], // c2pa-android is on JitPack
+          packagingOptions: { exclude: ["/META-INF/LICENSE.md"] } // BouncyCastle 1.85+
         }
       }
     ]
@@ -66,8 +67,12 @@ Then regenerate native projects: `npx expo prebuild --clean`.
 The C2PA native libraries impose real constraints, and we keep them explicit so you
 stay in control of your app's min versions and repositories:
 
-- **iOS deployment target 16.0** — `c2pa-ios` (see `ios/C2PA.version`) requires it.
-- **Android `minSdkVersion` 28** — `c2pa-android`'s floor.
+- **iOS deployment target 16.0** — `c2pa-swift` (see `ios/C2PA.version`) requires it.
+- **Android `minSdkVersion` 28** — `c2pa-android`'s floor. Its AAR also needs
+  `compileSdk` 36 (Expo SDK 57's default).
+- **Exclude `/META-INF/LICENSE.md`** — BouncyCastle 1.85+ ships one in each of
+  bcprov, bcpkix and bcutil, and AGP doesn't drop the duplicate, so the Android
+  build fails without it.
 - **JitPack** — `c2pa-android` (`com.github.contentauth:c2pa-android`) is distributed
   through JitPack, so the Maven repo must be registered.
 
@@ -78,9 +83,78 @@ target as well). See `plugin/src/index.ts` and `ios/PhotoAttest.podspec` for the
 
 ## Updating the C2PA version
 
-The pinned `c2pa-ios` version is the single source of truth in `ios/C2PA.version`; the
-config plugin reads it at prebuild time. `c2pa-android` is pinned in
-`android/build.gradle`. Keep the two in lockstep.
+The pinned `c2pa-swift` (formerly `c2pa-ios`) version is the single source of truth in
+`ios/C2PA.version`; the config plugin reads it at prebuild time. `c2pa-android` is
+pinned in `android/build.gradle`. Keep the two in lockstep.
+
+The plugin's exact swift-certificates pin (`SWIFT_CERT_VERSION`) must satisfy the new
+c2pa-swift's `Package.swift` floor, or SPM resolution fails. An existing `ios/` keeps
+the old injected Podfile snippet, so regenerate with `npx expo prebuild --clean`.
+
+Check which c2pa-rs each release embeds before bumping: c2pa-swift's
+`Configurations/Base.xcconfig` (`C2PA_VERSION`) and c2pa-android's
+`library/gradle.properties` (`c2paVersion`). 0.0.14 is c2pa-rs 0.91.2 on both.
+
+### Migrating to c2pa-rs 0.92 (required before any bump past 0.91)
+
+c2pa-rs 0.92 (scheduled mid-November 2026) removes two things this module still
+uses, and neither removal fails loudly. Do both, in lockstep, on the bump that crosses
+0.92.
+
+#### Trust anchors → `trust.anchors[]`
+
+`settingsWithTrustAnchors` (both platforms) writes the trust pool as the deprecated
+`trust.trust_anchors`. **c2pa-rs 0.92 (scheduled mid-November 2026) removes that
+field, and unknown settings keys are ignored** — so bumping onto 0.92 without this
+migration signs anchorless with no error, and every recorded parent validation reads
+`untrusted`.
+
+Why it isn't migrated yet: on 0.91 the legacy field is the only form parsed when
+settings load (`merge_legacy_trust_anchors` in c2pa-rs `sdk/src/settings/mod.rs`),
+so a pool the engine can't read throws into the anchorless-with-a-log fallback.
+`trust.anchors[]` entries are merged in unchecked and would fail later, past it.
+
+When a c2pa-swift / c2pa-android release moves to c2pa-rs ≥ 0.92:
+
+1. Confirm the new engine parses `trust.anchors[]` at load (`with_string` /
+   `from_string` → the anchors get `test_load_trust` / `validate()`). If it still
+   doesn't, keep the bad-pool fallback honest another way before migrating, e.g.
+   parse the pool natively first.
+2. Switch both platforms, in lockstep, to the shape 0.91 derives from the legacy field:
+
+   ```json
+   "trust": { "anchors": [ { "trust_kind": "manifest", "trust_uri": "system_anchors", "trust_anchors": "<PEM pool>" } ] }
+   ```
+
+   Keep one `manifest` entry for the whole pool: the TSA check pools anchors of
+   every kind, but OCSP responder chaining reads `manifest` only.
+3. Device-test both platforms: a Stage-2 upload's recorded ingredient shows
+   `signingCredential.trusted` and `timeStamp.trusted` (`untrusted` means the anchors
+   didn't load), and a dev build fed a truncated PEM as `trustAnchorsPem` still signs
+   and logs `trust-anchor settings load failed`.
+4. Update this section, both `settingsWithTrustAnchors` comments, and the verifier's
+   `buildVerifierSettings`, which the native shape mirrors.
+
+#### Thread-local settings → explicit contexts
+
+0.92 also removes `c2pa_load_settings` (`Signer.loadSettings` / `C2PASigner.loadSettings`)
+and `c2pa_builder_from_json` (iOS's context-less `Builder(manifestJSON:)`). c2pa-swift
+0.0.14 already moved its context-less `Reader` onto c2pa-rs **defaults** rather than
+failing, which is why every read here now passes an explicit context. Expect the same
+of a context-less `Builder`, which would sign silently with no
+`created_assertion_labels`, no auto-timestamp or thumbnail pins, and no trust pool.
+
+1. iOS: build every `Builder` from a context carrying the path's settings JSON
+   (`SIGN_SETTINGS_JSON` / `UPDATE_MANIFEST_SETTINGS_JSON`, plus the trust pool),
+   as Android already does, then delete the `Signer.loadSettings` calls and their
+   defers. This also ends the thread-local merge workarounds: the explicit
+   `enabled` pins and the lingering-anchor caveat in `settingsWithTrustAnchors`.
+2. Android: delete the remaining `C2PASigner.loadSettings` calls. Every Reader and
+   Builder is context-based already, so they're inert today.
+3. The consuming app: any module of its own that calls the context-less `Reader`
+   needs the same explicit context.
+4. Device-test thumbnails, auto-timestamping on drains, and `created_assertions` on
+   both platforms, not just trust.
 
 ## API
 
