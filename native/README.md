@@ -78,9 +78,13 @@ target as well). See `plugin/src/index.ts` and `ios/PhotoAttest.podspec` for the
 
 ## Updating the C2PA version
 
-The pinned `c2pa-ios` version is the single source of truth in `ios/C2PA.version`; the
-config plugin reads it at prebuild time. `c2pa-android` is pinned in
-`android/build.gradle`. Keep the two in lockstep.
+The pinned `c2pa-swift` (formerly `c2pa-ios`) version is the single source of truth in
+`ios/C2PA.version`; the config plugin reads it at prebuild time. `c2pa-android` is
+pinned in `android/build.gradle`. Keep the two in lockstep.
+
+The plugin's exact swift-certificates pin (`SWIFT_CERT_VERSION`) must satisfy the new
+c2pa-swift's `Package.swift` floor, or SPM resolution fails. An existing `ios/` keeps
+the old injected Podfile snippet, so regenerate with `npx expo prebuild --clean`.
 
 ## API
 

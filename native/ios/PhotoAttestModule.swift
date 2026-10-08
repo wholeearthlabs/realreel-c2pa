@@ -739,14 +739,19 @@ public class PhotoAttestModule: Module {
 
   // Inject the client trust pool into a base settings JSON so the recorded
   // parent-ingredient validation sees the real CA + TSA anchors. Mirror of
-  // Android's settingsWithTrustAnchors — the canonical rationale and the
-  // settings-shape notes live there. Nil/blank anchors → base unchanged.
+  // Android's settingsWithTrustAnchors — the canonical rationale lives there.
+  // Nil/blank anchors → base unchanged.
+  //
+  // Shape: one `trust.anchors[]` entry of kind `manifest` — exactly what
+  // c2pa-rs 0.91 derives from the deprecated `trust.trust_anchors`, which 0.92
+  // removes (and serde would then drop it silently). The TSA check pools
+  // anchors of every kind; OCSP responder chaining reads `manifest` only.
   //
   // iOS-specific: settings apply process-wide (c2pa_load_settings) with merge
-  // semantics, so `trust.trust_anchors` lingers after an anchored sign —
-  // harmless, because every sign path leads with a loadSettings that sets
-  // verify_trust explicitly (the same invariant the auto_timestamp_assertion
-  // comment above establishes).
+  // semantics, so the anchors linger after an anchored sign — harmless,
+  // because every sign path leads with a loadSettings that sets verify_trust
+  // explicitly (the same invariant the auto_timestamp_assertion comment above
+  // establishes).
   private static func settingsWithTrustAnchors(
     _ baseSettingsJson: String,
     trustAnchorsPem: String?
@@ -767,8 +772,9 @@ public class PhotoAttestModule: Module {
       )
     }
     settings["trust"] = [
-      "verify_trust_list": false,
-      "trust_anchors": pem,
+      "anchors": [
+        ["trust_kind": "manifest", "trust_uri": "system_anchors", "trust_anchors": pem],
+      ],
     ] as [String: Any]
     var verify = settings["verify"] as? [String: Any] ?? [:]
     verify["verify_trust"] = true
@@ -782,6 +788,14 @@ public class PhotoAttestModule: Module {
       )
     }
     return json
+  }
+
+  // c2pa-swift's context-less Reader(format:stream:) reads under a fresh
+  // default context — c2pa-rs defaults (remote_manifest_fetch on), not the
+  // loadSettings state. Every Reader here passes this one instead, so probing
+  // a user-chosen file never goes to the network.
+  private static func readerContext() throws -> C2PAContext {
+    try C2PAContext(settings: C2PASettings(json: SIGN_SETTINGS_JSON))
   }
 
   // Single-pass capture signing: build the capture manifest and sign it once
@@ -890,7 +904,7 @@ public class PhotoAttestModule: Module {
     var manifestId = ""
     do {
       let readStream = try Stream(readFrom: destURL)
-      let reader = try Reader(format: format.mime, stream: readStream)
+      let reader = try Reader(context: readerContext(), format: format.mime, stream: readStream)
       manifestId = try extractActiveManifestUrn(reader.json())
     } catch {
       NSLog("[PhotoAttest] capture manifest URN read-back failed (non-fatal): \(error.localizedDescription)")
@@ -1042,7 +1056,9 @@ public class PhotoAttestModule: Module {
     let parentManifestJSON: String
     do {
       let parentReadStream = try Stream(readFrom: parentURL)
-      let parentReader = try Reader(format: parentFormat.mime, stream: parentReadStream)
+      let parentReader = try Reader(
+        context: readerContext(), format: parentFormat.mime, stream: parentReadStream
+      )
       parentManifestJSON = try parentReader.json()
     } catch {
       throw PhotoAttestError(
@@ -1102,9 +1118,9 @@ public class PhotoAttestModule: Module {
       // c2pa build rejects, a cert in the OTA-updatable pool its PEM reader
       // chokes on): degrade to the anchorless base settings instead of
       // surfacing C2PA_SIGN_FAILED for every Stage-2 sign. The defer restores
-      // the base afterwards so verify_trust never lingers on for the Reader
-      // calls of a later sign (anchors themselves may persist — merge
-      // semantics — but are inert under verify_trust:false).
+      // the base afterwards so verify_trust never lingers on for a later sign
+      // (anchors themselves may persist — merge semantics — but are inert
+      // under verify_trust:false).
       do {
         try Signer.loadSettings(
           settingsWithTrustAnchors(SIGN_SETTINGS_JSON, trustAnchorsPem: trustAnchorsPem),
@@ -1237,7 +1253,7 @@ public class PhotoAttestModule: Module {
     // manifest is the same hard-fail class as Stage 2's STAGE1_PARENT_UNREADABLE.
     do {
       let probeStream = try Stream(readFrom: parentURL)
-      let probeReader = try Reader(format: format.mime, stream: probeStream)
+      let probeReader = try Reader(context: readerContext(), format: format.mime, stream: probeStream)
       _ = try probeReader.json()
     } catch {
       throw PhotoAttestError(
@@ -1344,7 +1360,7 @@ public class PhotoAttestModule: Module {
     var manifestId = ""
     do {
       let readStream = try Stream(readFrom: URL(fileURLWithPath: destPath))
-      let reader = try Reader(format: format.mime, stream: readStream)
+      let reader = try Reader(context: readerContext(), format: format.mime, stream: readStream)
       manifestId = try extractActiveManifestUrn(reader.json())
     } catch {
       NSLog("[PhotoAttest] Update-Manifest URN read-back failed (non-fatal): \(error.localizedDescription)")
