@@ -22,6 +22,13 @@ release output. Know which one you're cutting.
    npx changeset   # pick the package(s) + semver bump + changelog line
    ```
 
+   Dependency bumps follow the same rule by what they move: a **runtime**
+   dependency needs a changeset (one per batch, committed on the Dependabot branch
+   before the squash-merge, is the convention); a **devDependency**-only bump needs
+   none, since the verifier image installs with `--omit=dev` and the published
+   build output doesn't change, unless the tool change alters what ships (the
+   TypeScript 7 bump, which changed trust-core's emit config, carried one).
+
 2. Merge to `main`. [`release.yml`](.github/workflows/release.yml) opens (or
    updates) a single "Version Packages" PR that applies the pending bumps and
    changelogs. Every later change that lands on `main` with its own changeset
