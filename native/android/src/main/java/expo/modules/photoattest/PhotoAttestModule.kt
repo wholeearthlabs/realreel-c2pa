@@ -1893,30 +1893,25 @@ class PhotoAttestModule : Module() {
     // pool instead of running anchorless and permanently recording
     // signingCredential.untrusted / timeStamp.untrusted for trusted parents
     // (a C2PA generator-conformance failure: the CA and TSA Trust Lists
-    // must be consulted at ingest). Shape mirrors the
-    // verifier's buildVerifierSettings: explicit anchors pool shared by cert
-    // + TSA validation, verify_trust_list off (no implicit list),
+    // must be consulted at ingest). One explicit pool shared by cert + TSA
+    // validation (as the verifier's buildVerifierSettings), with
     // verify_timestamp_trust pinned on. Everything else — verify_after_sign,
     // the remote_manifest_fetch/ocsp_fetch SSRF pins — comes from the base
     // JSON untouched. Null/blank anchors → base returned unchanged. Built
     // via JSONObject so the multi-line PEM is escaped correctly.
     //
-    // c2pa-rs 0.91 deprecates trust.trust_anchors: it still migrates it into
-    // one trust.anchors[] entry (kind manifest, which also anchors TSA chains)
-    // and still throws on a bad pool, so the fallbacks above keep working. The
-    // field is removed in 0.92 and would then be silently ignored (signs
-    // anchorless), so move to trust.anchors[] before any c2pa-android bump past
-    // c2pa-rs 0.91. verify_trust_list is a no-op since 0.91.
+    // Deliberately the deprecated trust.trust_anchors, not trust.anchors[]:
+    // c2pa-rs 0.91 migrates it into one anchors[] entry (kind manifest, which
+    // also anchors TSA chains) and is the only form it parses at load, so a
+    // pool it can't read throws into the anchorless-with-a-log fallbacks
+    // above. anchors[] entries load unchecked there and would fail later, past
+    // those fallbacks. MIGRATE BEFORE ANY BUMP PAST c2pa-rs 0.91: 0.92 removes
+    // the field and then ignores it, signing anchorless with no error. Steps:
+    // native/README.md "Migrating to trust.anchors[]". Lockstep with iOS.
     fun settingsWithTrustAnchors(baseSettingsJson: String, trustAnchorsPem: String?): String {
       if (trustAnchorsPem.isNullOrBlank()) return baseSettingsJson
       val settings = JSONObject(baseSettingsJson)
-      settings.put(
-        "trust",
-        JSONObject().apply {
-          put("verify_trust_list", false)
-          put("trust_anchors", trustAnchorsPem)
-        },
-      )
+      settings.put("trust", JSONObject().put("trust_anchors", trustAnchorsPem))
       val verify = settings.optJSONObject("verify")
         ?: JSONObject().also { settings.put("verify", it) }
       verify.put("verify_trust", true)

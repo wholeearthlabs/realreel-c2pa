@@ -739,13 +739,11 @@ public class PhotoAttestModule: Module {
 
   // Inject the client trust pool into a base settings JSON so the recorded
   // parent-ingredient validation sees the real CA + TSA anchors. Mirror of
-  // Android's settingsWithTrustAnchors — the canonical rationale lives there.
+  // Android's settingsWithTrustAnchors — the canonical rationale lives there,
+  // including why this is the deprecated `trust.trust_anchors` and not
+  // `trust.anchors[]`. MIGRATE BEFORE ANY BUMP PAST c2pa-rs 0.91 (0.92 drops
+  // the field silently): native/README.md "Migrating to trust.anchors[]".
   // Nil/blank anchors → base unchanged.
-  //
-  // Shape: one `trust.anchors[]` entry of kind `manifest` — exactly what
-  // c2pa-rs 0.91 derives from the deprecated `trust.trust_anchors`, which 0.92
-  // removes (and serde would then drop it silently). The TSA check pools
-  // anchors of every kind; OCSP responder chaining reads `manifest` only.
   //
   // iOS-specific: settings apply process-wide (c2pa_load_settings) with merge
   // semantics, so the anchors linger after an anchored sign — harmless,
@@ -771,11 +769,7 @@ public class PhotoAttestModule: Module {
         message: "base c2pa settings JSON is not an object"
       )
     }
-    settings["trust"] = [
-      "anchors": [
-        ["trust_kind": "manifest", "trust_uri": "system_anchors", "trust_anchors": pem],
-      ],
-    ] as [String: Any]
+    settings["trust"] = ["trust_anchors": pem]
     var verify = settings["verify"] as? [String: Any] ?? [:]
     verify["verify_trust"] = true
     verify["verify_timestamp_trust"] = true

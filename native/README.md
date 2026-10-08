@@ -91,6 +91,44 @@ The plugin's exact swift-certificates pin (`SWIFT_CERT_VERSION`) must satisfy th
 c2pa-swift's `Package.swift` floor, or SPM resolution fails. An existing `ios/` keeps
 the old injected Podfile snippet, so regenerate with `npx expo prebuild --clean`.
 
+Check which c2pa-rs each release embeds before bumping: c2pa-swift's
+`Configurations/Base.xcconfig` (`C2PA_VERSION`) and c2pa-android's
+`library/gradle.properties` (`c2paVersion`). 0.0.14 is c2pa-rs 0.91.2 on both.
+
+### Migrating to `trust.anchors[]` (required before any bump past c2pa-rs 0.91)
+
+`settingsWithTrustAnchors` (both platforms) writes the trust pool as the deprecated
+`trust.trust_anchors`. **c2pa-rs 0.92 (scheduled mid-November 2026) removes that
+field, and unknown settings keys are ignored** — so bumping onto 0.92 without this
+migration signs anchorless with no error, and every recorded parent validation reads
+`untrusted`.
+
+Why it isn't migrated yet: on 0.91 the legacy field is the only form parsed when
+settings load (`merge_legacy_trust_anchors` in c2pa-rs `sdk/src/settings/mod.rs`),
+so a pool the engine can't read throws into the anchorless-with-a-log fallback.
+`trust.anchors[]` entries are merged in unchecked and would fail later, past it.
+
+When a c2pa-swift / c2pa-android release moves to c2pa-rs ≥ 0.92:
+
+1. Confirm the new engine parses `trust.anchors[]` at load (`with_string` /
+   `from_string` → the anchors get `test_load_trust` / `validate()`). If it still
+   doesn't, keep the bad-pool fallback honest another way before migrating, e.g.
+   parse the pool natively first.
+2. Switch both platforms, in lockstep, to the shape 0.91 derives from the legacy field:
+
+   ```json
+   "trust": { "anchors": [ { "trust_kind": "manifest", "trust_uri": "system_anchors", "trust_anchors": "<PEM pool>" } ] }
+   ```
+
+   Keep one `manifest` entry for the whole pool: the TSA check pools anchors of
+   every kind, but OCSP responder chaining reads `manifest` only.
+3. Device-test both platforms: a Stage-2 upload's recorded ingredient shows
+   `signingCredential.trusted` and `timeStamp.trusted` (`untrusted` means the anchors
+   didn't load), and a dev build fed a truncated PEM as `trustAnchorsPem` still signs
+   and logs `trust-anchor settings load failed`.
+4. Update this section, both `settingsWithTrustAnchors` comments, and the verifier's
+   `buildVerifierSettings`, which the native shape mirrors.
+
 ## API
 
 The TypeScript surface (fully typed in `build/index.d.ts`) exposes key lifecycle and
