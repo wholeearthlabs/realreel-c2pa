@@ -34,4 +34,7 @@ jobs:
       - name: Create "Version Packages" PR or publish
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2
         with:
+          # changeset version alone leaves package-lock.json's workspace
+          # versions behind; version-packages refreshes them in the same PR.
+          version: npm run version-packages
           publish-script: npm run release
