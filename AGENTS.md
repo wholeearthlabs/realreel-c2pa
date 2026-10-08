@@ -84,7 +84,12 @@ npx changeset                       # pick the package(s) + semver bump + change
 That drives version + changelog for all three. The two public packages publish
 to npm on the "Version Packages" merge; the verifier is versioned but not
 published — it ships as a container cut by a manual `verifier-v<semver>` tag.
-`ca/` isn't a workspace and needs no changeset. Details in `RELEASING.md`.
+`ca/` isn't a workspace and needs no changeset. Neither does a change that only
+touches **devDependencies** (most Dependabot bumps): the verifier image installs
+with `--omit=dev` and the published packages' build output is unchanged — unless
+the tool change alters what ships (e.g. a compiler bump that changes emitted
+output). A **runtime** dependency bump does need one; one changeset per batch is
+fine. Details in `RELEASING.md`.
 
 ## Don't
 

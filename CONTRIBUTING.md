@@ -31,5 +31,8 @@ workspace is, plus per-workspace build and test instructions.
   changeset: run `npx changeset`, pick the package(s) and bump, and commit the
   generated `.changeset/*.md`. This drives each package's version + changelog;
   the verifier's is maintained but never published (it ships as a container —
-  see [`RELEASING.md`](RELEASING.md)). `ca/` isn't a workspace and needs none.
+  see [`RELEASING.md`](RELEASING.md)). `ca/` isn't a workspace and needs none,
+  and neither does a devDependency-only change, unless it alters what ships
+  (e.g. a compiler bump that changes emitted output). Runtime dependency bumps
+  do need one.
   
