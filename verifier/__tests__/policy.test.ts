@@ -1242,12 +1242,8 @@ describe("Policy — Stage 1 hard binding (recorded sign-time verdict)", () => {
   });
 
   it("rejects a wrap-mode Pixel VIDEO with a recorded bmff mismatch — enforcement is unconditional", async () => {
-    // ⚠️ KNOWN CONSEQUENCE, deliberately accepted: released mobile SDKs
-    // predate c2pa-rs #2434 and record this same false mismatch for every
-    // GENUINE Pixel video, so wrap-mode Pixel videos — genuine or tampered
-    // — are rejected until the SDK bump. Acceptance restores itself once
-    // bumped SDKs record clean verdicts (the clean-wrap test above is that
-    // contract); nothing to flip.
+    // Pre-0.91 c2pa-rs signers record this for genuine Pixel videos too; no
+    // exemption.
     const store = makeRealReelStore({
       stage1: { ...PIXEL_STAGE1, bindingLabel: "c2pa.hash.bmff.v3" },
       stage2: { recordedBinding: "mismatch" },

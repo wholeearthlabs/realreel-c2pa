@@ -229,11 +229,9 @@ Stage 2 records the resize / compress / rotate applied at upload.
   failure, a missing positive match, or an absent record). What rests on
   app-integrity attestation is the honesty of that record plus the declared
   action list — a genuine build records truthfully; a forged record needs a
-  forged build, which cannot mint a valid attestation envelope. Known
-  limitation, deliberately accepted: pre-#2434 mobile c2pa SDKs record a
-  FALSE bmff mismatch for genuine Pixel videos, so wrap-mode Pixel videos —
-  genuine or tampered — are rejected until the SDK bump; acceptance restores
-  itself when the bumped SDKs record clean verdicts (no flag involved).
+  forged build, which cannot mint a valid attestation envelope. Wrapping a
+  Pixel video needs a c2pa-rs 0.91+ signer (photo-attest >= 0.8.0): older
+  engines record a false bmff mismatch for it, which the gate rejects.
 - **Platform asymmetry.** Android upload integrity uses a hardware-backed device
   verdict (STRONG); iOS attests app-binary integrity but has no equivalent
   device-state verdict.

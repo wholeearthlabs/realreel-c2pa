@@ -24,18 +24,10 @@ import type {
   ValidationStatusEntryShape,
 } from "../shapes/manifest.js";
 
-// ⚠️ KNOWN LIMITATION (accepted; enforcement stays unconditional): released
-// c2pa mobile SDKs (c2pa-ios ≤ 0.0.12, c2pa-android ≤ 0.0.10) predate
-// c2pa-rs PR #2434 ("Support Xpath indices", 2026-08-09) and compute a FALSE
-// `assertion.bmffHash.mismatch` for Google Pixel videos, whose
-// `c2pa.hash.bmff.v3` exclusions use an indexed xpath (`/moov[1]/trak[3]`)
-// pre-#2434 engines silently fail to resolve. So wrap-mode Pixel VIDEOS —
-// genuine and tampered alike — are rejected until photo-attest and the app's
-// reader bump to an SDK containing the fix: content we cannot verify is
-// content we do not accept. Acceptance then restores itself (clean recorded
-// verdicts simply pass; nothing to flip). RealReel's own BMFF captures use
-// c2pa-rs's default non-indexed exclusions and verify correctly today;
-// photos are unaffected entirely.
+// Google Pixel videos' `c2pa.hash.bmff.v3` exclusions use indexed xpaths
+// (`/moov[1]/trak[3]`), which c2pa-rs resolves only from 0.91 (#2434). Older
+// engines record a false `assertion.bmffHash.mismatch` for them, and this
+// policy rejects it like any other. photo-attest >= 0.8.0 is on 0.91.
 
 /** validation-code prefixes that speak to a hard binding (any family we
  * could ever meet; boxes/collection included defensively). */
