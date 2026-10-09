@@ -1151,10 +1151,11 @@ class PhotoAttestModule : Module() {
   // Update Manifest sits between Stage 2 and the capture.
   //
   // Other entries are copied through with their `parameters` and, when JS
-  // supplied one, `digitalSourceType` (the Program requires it on
-  // c2pa.orientation / c2pa.trimmed; JS knows the parent capture's source
-  // type). The assertion is stamped `allActionsIncluded: true` — the JS list
-  // is a signed claim of completeness (see the JS `Stage2Action` docs).
+  // supplied them, `description` and `digitalSourceType` (the Program requires
+  // the latter on c2pa.orientation / c2pa.trimmed; JS knows the parent
+  // capture's source type). The assertion is stamped
+  // `allActionsIncluded: true` — the JS list is a signed claim of
+  // completeness (see the JS `Stage2Action` docs).
   private fun buildUploadManifestJSON(
     transformedFile: File,
     transformedMime: String,
@@ -1202,8 +1203,8 @@ class PhotoAttestModule : Module() {
         actionsArray.put(JSONObject().apply {
           put("action", actionName)
           if (params != null) put("parameters", JSONObject(params))
-          (entry["digitalSourceType"] as? String)?.takeIf { it.isNotEmpty() }?.let {
-            put("digitalSourceType", it)
+          for (key in listOf("description", "digitalSourceType")) {
+            (entry[key] as? String)?.takeIf { it.isNotEmpty() }?.let { put(key, it) }
           }
         })
       }

@@ -87,6 +87,14 @@ describe("buildContentIdentity", () => {
     expect(a).toBe("urn:c2pa:CAP");
   });
 
+  it("photo: a mirrored re-upload collides with the unmirrored one (a mirror is not new content)", () => {
+    const original = buildContentIdentity(capture("urn:c2pa:CAP"), PHOTO_UPLOAD);
+    const mirrored = buildContentIdentity(capture("urn:c2pa:CAP"), upload([{ action: "c2pa.orientation", parameters: { "org.realreel.flip": "horizontal" } }]));
+    const rotatedThenMirrored = buildContentIdentity(capture("urn:c2pa:CAP"), upload([{ action: "c2pa.orientation", parameters: { "org.realreel.angle": 90, "org.realreel.flip": "horizontal" } }]));
+    expect(mirrored).toBe(original);
+    expect(rotatedThenMirrored).toBe(original);
+  });
+
   it("different captures → different identity (no false dedup)", () => {
     expect(buildContentIdentity(capture("urn:c2pa:A"), PHOTO_UPLOAD)).not.toBe(
       buildContentIdentity(capture("urn:c2pa:B"), PHOTO_UPLOAD),
