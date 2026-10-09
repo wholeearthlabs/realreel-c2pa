@@ -311,11 +311,12 @@ export const DIGITAL_SOURCE_TYPE_DIGITAL_CAPTURE =
 /**
  * `c2pa.orientation` parameters. `org.realreel.angle` is a clockwise rotation
  * and applies first; `org.realreel.flip` then mirrors the rotated result
- * across its vertical axis. At least one is present.
+ * across its vertical axis. At least one is present. The flip-only variant
+ * declares the angle as `never` so either variant can be read for it.
  */
 export type OrientationParameters =
   | { 'org.realreel.angle': 90 | 180 | 270; 'org.realreel.flip'?: 'horizontal' }
-  | { 'org.realreel.flip': 'horizontal' };
+  | { 'org.realreel.angle'?: never; 'org.realreel.flip': 'horizontal' };
 
 /**
  * Discriminated union of allowed Stage-2 action codes (for `signC2PAUpload`).

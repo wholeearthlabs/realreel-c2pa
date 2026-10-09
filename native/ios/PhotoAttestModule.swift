@@ -1769,11 +1769,8 @@ public class PhotoAttestModule: Module {
       } else {
         var entryOut: [String: Any] = ["action": actionName]
         if let p = params { entryOut["parameters"] = p }
-        if let description = entry["description"] as? String, !description.isEmpty {
-          entryOut["description"] = description
-        }
-        if let dst = entry["digitalSourceType"] as? String, !dst.isEmpty {
-          entryOut["digitalSourceType"] = dst
+        for key in ["description", "digitalSourceType"] {
+          if let value = entry[key] as? String, !value.isEmpty { entryOut[key] = value }
         }
         actionsArray.append(entryOut)
       }

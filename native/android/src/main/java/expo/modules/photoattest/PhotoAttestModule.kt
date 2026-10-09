@@ -1203,11 +1203,8 @@ class PhotoAttestModule : Module() {
         actionsArray.put(JSONObject().apply {
           put("action", actionName)
           if (params != null) put("parameters", JSONObject(params))
-          (entry["description"] as? String)?.takeIf { it.isNotEmpty() }?.let {
-            put("description", it)
-          }
-          (entry["digitalSourceType"] as? String)?.takeIf { it.isNotEmpty() }?.let {
-            put("digitalSourceType", it)
+          for (key in listOf("description", "digitalSourceType")) {
+            (entry[key] as? String)?.takeIf { it.isNotEmpty() }?.let { put(key, it) }
           }
         })
       }

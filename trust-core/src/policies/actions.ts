@@ -71,8 +71,8 @@ export const TRANSITIONAL_RETIRED_UPLOAD_ACTIONS: ReadonlySet<string> = new Set(
  */
 export const REALREEL_UPLOAD_ALLOWED_ACTIONS: ReadonlySet<string> = new Set([
   "c2pa.opened", //               auto-injected by c2pa-rs for BuilderIntent.Edit
-  "c2pa.orientation", //          user-requested rotation and/or horizontal mirror (was
-  //                              `c2pa.rotated` pre-spec-2.4 — never a pre-defined action)
+  "c2pa.orientation", //          user-requested rotation correction (was `c2pa.rotated`
+  //                              pre-spec-2.4 — never a pre-defined action)
   "c2pa.resized.proportional", // downscale, aspect preserved (photo: 1080px wide;
   //                              video: 1080px tall when the source is taller; was
   //                              bare `c2pa.resized` pre-spec-2.4)
