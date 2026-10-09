@@ -309,6 +309,15 @@ export const DIGITAL_SOURCE_TYPE_DIGITAL_CAPTURE =
   'http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture' as const;
 
 /**
+ * `c2pa.orientation` parameters. `org.realreel.angle` is a clockwise rotation
+ * and applies first; `org.realreel.flip` then mirrors the rotated result
+ * across its vertical axis. At least one is present.
+ */
+export type OrientationParameters =
+  | { 'org.realreel.angle': 90 | 180 | 270; 'org.realreel.flip'?: 'horizontal' }
+  | { 'org.realreel.flip': 'horizontal' };
+
+/**
  * Discriminated union of allowed Stage-2 action codes (for `signC2PAUpload`).
  *
  * Each entry maps to one C2PA action emitted in the `c2pa.actions.v2`
@@ -350,14 +359,18 @@ export const DIGITAL_SOURCE_TYPE_DIGITAL_CAPTURE =
  */
 export type Stage2Action =
   /**
-   * User-requested rotation correction (spec 2.4 Table 8: "Changes to the
-   * direction and position of content"). Emitted as `c2pa.rotated` before
-   * photo-attest 0.6.0, which is not a pre-defined action in any spec version.
+   * User-requested rotation and/or horizontal mirror (spec 2.4 Table 8:
+   * "Changes to the direction and position of content"). Emitted as
+   * `c2pa.rotated` before photo-attest 0.6.0, which is not a pre-defined
+   * action in any spec version. One action carries both transforms because
+   * §18.15.1 leaves the actions array unordered (see OrientationParameters);
+   * `description` (§18.15.4.1) goes at the action's top level.
    */
   | {
       action: 'c2pa.orientation';
       digitalSourceType: DigitalSourceTypeUri;
-      parameters: { 'org.realreel.angle': 90 | 180 | 270 };
+      description?: string;
+      parameters: OrientationParameters;
     }
   /**
    * Downscale, aspect ratio preserved (spec 2.4's non-editorial refinement of
