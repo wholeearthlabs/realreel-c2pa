@@ -50,7 +50,6 @@ import {
   ALLOWED_UPLOAD_MIME_TYPES,
   type LocationLevel,
 } from "@realreel/c2pa-trust-core";
-import { Sentry } from "./observability.js";
 
 export interface VerifyArgs {
   assetBytes: Buffer;
@@ -361,19 +360,8 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
   const derived = await deriveMetadata({ assetBytes, mimeType: normalizedMime, active });
 
   // Location-privacy backstop (see location-privacy.ts): reject a declared-level
-  // violation (non-precise upload carrying GPS) or a file-byte GPS leak; signal
-  // the lesser reverse case without rejecting.
-  const { displayLeak } = enforceLocationPrivacy(derived, declaredLocation);
-  if (displayLeak) {
-    try {
-      Sentry.captureMessage("location_display_leak", {
-        level: "warning",
-        tags: { error_code: "LOCATION_DISPLAY_LEAK" },
-      });
-    } catch {
-      // Telemetry is best-effort — never break the verify path.
-    }
-  }
+  // violation (non-precise upload carrying GPS) or a file-byte GPS leak.
+  enforceLocationPrivacy(derived, declaredLocation);
 
   return { sanitizedManifest: sanitized, derived, contentHash };
 }
