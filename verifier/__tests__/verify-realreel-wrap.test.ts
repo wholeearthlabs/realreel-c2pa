@@ -368,7 +368,7 @@ describe.skipIf(!fixtureExists)(
     });
 
     it("rejects VERIFIER_UNAVAILABLE (category ocsp) when the responder is off the allow-list", async () => {
-      expect(trustConfig.ocspHosts).toEqual(["http://c2pa-ocsp.pki.goog"]);
+      expect(trustConfig.ocspHosts).toContain("http://c2pa-ocsp.pki.goog");
       await expect(
         verify({
           assetBytes: wrapBytes,

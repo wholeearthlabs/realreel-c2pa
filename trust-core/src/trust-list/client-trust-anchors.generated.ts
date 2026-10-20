@@ -8,6 +8,7 @@
 //   - verifier/trust-sources/realreel/realreel-c2pa-root.pem (realreel)
 //   - verifier/trust-sources/realreel-legacy/root.pem (realreel-legacy)
 //   - verifier/trust-sources/pixel/root.pem (pixel)
+//   - verifier/trust-sources/proofmode/root.pem (proofmode)
 //   - verifier/trust-sources/c2pa-tsa/c2pa-tsa-trust-list.pem (c2pa-tsa-list)
 // Excluded (client_bundle: false — verifier-private, see the YAML entry):
 //   - verifier/trust-sources/c2pa-tsa-fallback/fallback-tsa-roots.pem (c2pa-tsa-fallback)
@@ -69,6 +70,26 @@ HSMEGDAWgBScXNiJU0PnWtWB2wPeGX8EKiotqjAdBgNVHQ4EFgQUnFzYiVND51rV
 gdsD3hl/BCoqLaowCgYIKoZIzj0EAwMDaQAwZgIxAIyVEe5bdUMkk6BthEWy9QSE
 Mb74BOyK8/8pgMX0NPwLlo1ikLNY78ov+k21vZrEZQIxANQ91muDXgPjAMAkzAlK
 i32Z9VBB37ynTveKVC7ofTW0ZFfIIYYpWUR1+C4m2yRkOQ==
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIDOTCCAr6gAwIBAgIUbXqcPd1r9yQm/fznG9RlSWyXiwswCgYIKoZIzj0EAwMw
+gagxCzAJBgNVBAYTAlVTMREwDwYDVQQIDAhOZXcgWW9yazERMA8GA1UEBwwITmV3
+IFlvcmsxEzARBgNVBAoMClRydWZvIEluYy4xFDASBgNVBAsMC0NBIERpdmlzaW9u
+MRowGAYJKoZIhvcNAQkBFgtjYUB0cnVmby5haTEsMCoGA1UEAwwjVHJ1Zm8gQzJQ
+QSBSb290IENBICgyMDI1LCBFQ0MgUDM4NCkwHhcNMjUxMjMwMTkwNTAzWhcNNDUx
+MjI1MTkwNTAzWjCBqDELMAkGA1UEBhMCVVMxETAPBgNVBAgMCE5ldyBZb3JrMREw
+DwYDVQQHDAhOZXcgWW9yazETMBEGA1UECgwKVHJ1Zm8gSW5jLjEUMBIGA1UECwwL
+Q0EgRGl2aXNpb24xGjAYBgkqhkiG9w0BCQEWC2NhQHRydWZvLmFpMSwwKgYDVQQD
+DCNUcnVmbyBDMlBBIFJvb3QgQ0EgKDIwMjUsIEVDQyBQMzg0KTB2MBAGByqGSM49
+AgEGBSuBBAAiA2IABAp0qnhIwMtN6LeGdBVtHLPn85ecetr/lqcXFk8ypK9ukJzU
+8LLv55Kh/MYTgEnuIKEOPhDxLDRdahc0mAjRnql4kLk395abw9WZjrBPek3qjv0q
+ITR8VPYFABuZ5FRKx6OBpjCBozAdBgNVHQ4EFgQUA9Vfr36D5QQdWYAnSjT/Rf3r
+SXgwHwYDVR0jBBgwFoAUA9Vfr36D5QQdWYAnSjT/Rf3rSXgwEgYDVR0TAQH/BAgw
+BgEB/wIBAjAOBgNVHQ8BAf8EBAMCAQYwPQYDVR0gBDYwNDAyBgorBgEEAYPoPAEB
+MCQwIgYIKwYBBQUHAgEWFmh0dHBzOi8vdHJ1Zm8uYWkvY3BjcHMwCgYIKoZIzj0E
+AwMDaQAwZgIxAMUeYWZyxS2maiVkNETL29RAuLn/gHYTkt97l6evXwHLN46v28mI
+39BIf6slyWnrCwIxAPRs/FJ+DoA0d/PCkrF946S+pG7vRqLnjB9OhMdmrMPvzaqx
+KQYOBVx7SE4Kz48W8A==
 -----END CERTIFICATE-----
 Subject	CN=Google C2PA Core Time-Stamping ICA G3, O=Google LLC, C=US
 -----BEGIN CERTIFICATE-----

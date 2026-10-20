@@ -376,11 +376,14 @@ sources:
     );
   });
 
-  it("the production trust list declares Google's responder for Pixel and nothing for RealReel", async () => {
+  it("the production trust list declares Google's responder for Pixel, Trufo's for ProofMode, and nothing for RealReel", async () => {
     const config = await loadTrustConfig(resolve(VERIFIER_ROOT, "trust-sources.yaml"));
-    expect(config.ocspHosts).toEqual(["http://c2pa-ocsp.pki.goog"]);
+    expect(config.ocspHosts).toEqual(["http://c2pa-ocsp.pki.goog", "https://ocsp.trufo.ai"]);
     expect(config.sources.find((s) => s.id === "pixel")!.revocation).toEqual({
       ocsp_hosts: ["http://c2pa-ocsp.pki.goog"],
+    });
+    expect(config.sources.find((s) => s.id === "proofmode")!.revocation).toEqual({
+      ocsp_hosts: ["https://ocsp.trufo.ai"],
     });
     for (const s of config.sources.filter((s) => s.verification_profile === "realreel")) {
       expect(s.revocation, s.id).toBeUndefined();

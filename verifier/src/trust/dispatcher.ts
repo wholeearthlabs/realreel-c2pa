@@ -23,7 +23,7 @@
 // shared with the React Native client preflight gate (findTrustedIssuer),
 // guaranteeing both validators agree on what counts as a trusted issuer.
 
-import { TRUSTED_ISSUERS } from "@realreel/c2pa-trust-core";
+import { TRUSTED_ISSUERS, matchesCommonName } from "@realreel/c2pa-trust-core";
 import type {
   RevocationConfig,
   TrustConfig,
@@ -33,7 +33,7 @@ import type {
 /**
  * Resolve a signature's issuer + common_name to a trust-source id, or
  * null if no trusted issuer's `issuerMatch` is a substring of
- * `signatureIssuer` (AND, when defined, its `commonNameMatch` equals
+ * `signatureIssuer` (AND, when defined, its `commonNameMatch` admits
  * `signatureCommonName`) AND the corresponding source is loaded (i.e.,
  * its `root_cert` file exists on disk and produced a non-skipped
  * TrustSource at startup).
@@ -52,7 +52,7 @@ import type {
  *   chain-validation level — this is purely for profile dispatch.
  * @param signatureCommonName  The leaf cert's subject CN as surfaced by
  *   c2pa-node (signature_info.common_name). Consulted only by entries
- *   whose `commonNameMatch` is set (today: Pixel pins "Pixel Camera");
+ *   whose `commonNameMatch` is set (today: Pixel and ProofMode);
  *   ignored by entries without a pin. Pass null / undefined when
  *   absent.
  */
@@ -65,13 +65,9 @@ export function identifyTrustSource(
   for (const entry of TRUSTED_ISSUERS) {
     if (!trustConfig.loadedIds.has(entry.id)) continue;
     if (!signatureIssuer.includes(entry.issuerMatch)) continue;
-    // Tightening pin: when an entry specifies commonNameMatch, require
-    // exact equality with the leaf's surfaced common_name. Mirrors
-    // findTrustedIssuer in @realreel/c2pa-trust-core so the client gate
-    // and the server-side dispatcher route on identical criteria.
-    if (entry.commonNameMatch !== undefined && signatureCommonName !== entry.commonNameMatch) {
-      continue;
-    }
+    // Tightening pin: the same check the client gate's findTrustedIssuer
+    // applies, so both route on identical criteria.
+    if (!matchesCommonName(entry, signatureCommonName)) continue;
     return entry.id;
   }
   return null;

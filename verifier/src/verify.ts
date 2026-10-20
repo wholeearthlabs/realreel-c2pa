@@ -385,7 +385,7 @@ function readActiveIssuer(store: ManifestStoreShape): string | null {
 }
 
 // Resolve the active manifest's signature_info.common_name. Pinned by
-// entries in TRUSTED_ISSUERS whose commonNameMatch is set (today: Pixel).
+// entries in TRUSTED_ISSUERS whose commonNameMatch is set (today: Pixel and ProofMode).
 // May legitimately be absent on a manifest — identifyTrustSource treats
 // null and undefined identically for the equality check.
 function readActiveCommonName(store: ManifestStoreShape): string | null {

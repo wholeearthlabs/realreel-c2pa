@@ -118,7 +118,7 @@ export interface Config {
   attestationRequired: boolean;
 
   /** Network revocation for the trust sources that declare `revocation` in
-   *  trust-sources.yaml (today: Pixel). When true, c2pa-rs fetches OCSP
+   *  trust-sources.yaml (today: Pixel and ProofMode). When true, c2pa-rs fetches OCSP
    *  status from those responders — the only hosts it may contact — and a
    *  capture from a `reject` source needs a `notRevoked` answer. Production
    *  must set NETWORK_REVOCATION to "true" or "false" explicitly; elsewhere

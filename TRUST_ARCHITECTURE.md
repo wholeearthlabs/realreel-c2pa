@@ -105,7 +105,7 @@ re-bind content; it proves **build integrity and nonce freshness** — that the
 signer is an unmodified app build answering a fresh server challenge.
 
 This applies to every upload — a RealReel-native capture or a third-party trusted
-camera (today: Pixel) alike — so the original capture always rides along as the
+camera (today: Pixel and ProofMode) alike — so the original capture always rides along as the
 trusted Stage 1 parent while Stage 2 records what changed.
 
 The verifier then:
@@ -174,12 +174,15 @@ own in-app C2PA camera. The verifier isn't RealReel-only by design, though: trus
 is keyed off **root certificates**, so any camera that captures genuine C2PA
 content can be trusted by adding its root to the trust list.
 
-Today the list has two sources, distinguished by who signed the **Stage 1**
+Today the list has three sources, distinguished by who signed the **Stage 1**
 capture:
 
 - **RealReel native** — Stage 1 signed by the RealReel CA.
 - **Google Pixel** — Stage 1 signed by Google's C2PA Content Credentials root,
   trusted as a wrapped Stage 1 parent.
+- **ProofMode** — Stage 1 signed by ProofMode's remote signing service (one
+  Trufo-issued leaf per platform), trusted as a wrapped Stage 1 parent. Every
+  install shares its platform's leaf, so revocation can't target one device.
 
 As more cameras ship native C2PA, their roots can be added the same way — a root
 PEM, a dispatcher entry, and a verification policy (see

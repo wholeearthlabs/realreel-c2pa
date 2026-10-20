@@ -143,6 +143,31 @@ describe("identifyTrustSource — routing", () => {
     ).toBeNull();
   });
 
+  it("routes ProofMode leaves under either pinned app CN to 'proofmode'", () => {
+    for (const cn of ["Proofmode for iOS", "Proofmode for Android"]) {
+      expect(
+        identifyTrustSource(
+          "Proofmode Reality Systems LLC",
+          cn,
+          configWithLoaded("realreel", "pixel", "proofmode"),
+        ),
+      ).toBe("proofmode");
+    }
+  });
+
+  it("rejects a ProofMode leaf outside the pinned app CNs", () => {
+    // Same gate as the client's findTrustedIssuer (shared matchesCommonName).
+    for (const cn of ["Proofmode Desktop", null, undefined]) {
+      expect(
+        identifyTrustSource(
+          "Proofmode Reality Systems LLC",
+          cn,
+          configWithLoaded("realreel", "pixel", "proofmode"),
+        ),
+      ).toBeNull();
+    }
+  });
+
   it("returns null when no TRUSTED_ISSUERS entry matches the issuer string", () => {
     expect(
       identifyTrustSource(

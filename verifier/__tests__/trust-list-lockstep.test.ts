@@ -62,7 +62,8 @@ const NON_SIGNER_TRUST_DIRS = new Set<string>([
 /** Parse a PEM file and extract the subject's CN attribute. Node's
  * X509Certificate.subject is a DN string like
  * `C=US\nO=Google LLC\nCN=Google C2PA Root CA G3`. We pull the CN line
- * with a deliberate regex rather than relying on field order. */
+ * with a deliberate regex rather than relying on field order, then undo
+ * Node's DN escaping (Trufo's CN contains a comma: `2025\, ECC`). */
 function readSubjectCn(pemPath: string): string {
   const pem = readFileSync(pemPath, "utf-8");
   const cert = new X509Certificate(pem);
@@ -70,7 +71,7 @@ function readSubjectCn(pemPath: string): string {
   if (!match) {
     throw new Error(`PEM at ${pemPath} has no CN in subject: ${cert.subject}`);
   }
-  return match[1]!.trim();
+  return match[1]!.trim().replace(/\\(.)/g, "$1");
 }
 
 describe("trust list lockstep (shared metadata ↔ verifier PEMs)", () => {
