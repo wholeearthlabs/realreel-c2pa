@@ -2,7 +2,7 @@
 // server.ts AFTER auth + SSRF + If-Match guards have passed.
 //
 //   1. Hand the asset bytes to c2pa-node's Reader.fromAsset() with our
-//      curated trust_anchors bundle (verify_trust_list: false).
+//      curated trust anchor bundle as the only anchor set.
 //   2. Reader returns null if no C2PA provenance is embedded → reject
 //      as MANIFEST_MALFORMED.
 //   2b. Refuse generative-AI provenance declared on the active manifest or

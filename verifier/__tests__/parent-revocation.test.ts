@@ -103,7 +103,7 @@ describe("enforceParentRevocationStatus", () => {
     expect(err?.category).toBe("ocsp");
   });
 
-  it("a notRevoked outside the success bucket is not evidence (a stapled response files as informational)", () => {
+  it("a notRevoked outside the success bucket is not evidence", () => {
     for (const bucket of ["informational", "failure"] as const) {
       const s = store([delta(CAPTURE_URI, { [bucket]: [NOT_REVOKED] })]);
       const err = thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL));

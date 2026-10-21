@@ -26,6 +26,8 @@ const OCSP_NOT_REVOKED = "signingCredential.ocsp.notRevoked";
 // The `url` c2pa-rs gives the entries it logs while checking a fetched
 // response. A stapled response files its notRevoked under the signature URI.
 const OCSP_FETCHED_RESPONSE_URL = "OCSP_RESPONSE";
+const isFetchedNotRevoked = (e: { code: string; url?: string | null }): boolean =>
+  e.code === OCSP_NOT_REVOKED && e.url === OCSP_FETCHED_RESPONSE_URL;
 
 /**
  * Map a c2pa-rs validation_status array to our VerifyError taxonomy.
@@ -219,18 +221,11 @@ export function enforceParentRevocationStatus(
   const seen: string[] = [];
   for (const delta of deltas) {
     const buckets = delta.validationDeltas ?? {};
-    if (
-      (buckets.success ?? []).some(
-        (e) => e.code === OCSP_NOT_REVOKED && e.url === OCSP_FETCHED_RESPONSE_URL,
-      )
-    ) {
-      return;
-    }
+    if ((buckets.success ?? []).some(isFetchedNotRevoked)) return;
     for (const bucket of ["success", "informational", "failure"] as const) {
       for (const e of buckets[bucket] ?? []) {
         if (typeof e.code === "string" && e.code.startsWith(OCSP_CODE_PREFIX)) {
-          const unfetched =
-            e.code === OCSP_NOT_REVOKED && e.url !== OCSP_FETCHED_RESPONSE_URL;
+          const unfetched = e.code === OCSP_NOT_REVOKED && !isFetchedNotRevoked(e);
           seen.push(`${bucket}:${e.code}${unfetched ? " (not fetched)" : ""}`);
         }
       }

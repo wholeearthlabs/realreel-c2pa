@@ -19,7 +19,7 @@ import { VerifyError, VerifyErrorCode } from "../src/errors.js";
 /** Run the classifier; return the thrown VerifyError's code, or null if it
  *  accepted (didn't throw). Asserts the throw is a VerifyError. */
 function codeThrownBy(
-  status: Array<{ code: string; explanation?: string | null }>,
+  status: Parameters<typeof classifyStrictValidationStatus>[0],
 ): VerifyErrorCode | null {
   try {
     classifyStrictValidationStatus(status);

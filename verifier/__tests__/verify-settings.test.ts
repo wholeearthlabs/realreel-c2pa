@@ -66,9 +66,8 @@ describe("verifier c2pa settings", () => {
   });
 
   it("pins the trust block: our bundle as the one anchor set, nothing else", () => {
-    // c2pa-rs 0.91 shape. A dropped or mis-kinded entry fails closed (every
-    // manifest reads signingCredential.untrusted); manifest kind is also the
-    // set c2pa-rs chains an OCSP responder's certificate to.
+    // c2pa-rs 0.91 shape. A dropped entry fails closed: every manifest reads
+    // signingCredential.untrusted.
     const settings = parse(buildVerifierSettings(NO_HOSTS));
     expect(settings.trust).toEqual({
       anchors: [
