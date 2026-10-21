@@ -2,8 +2,8 @@
 // declared level). Two layers compose (see location-privacy.ts):
 //   - the declared-level check (a non-precise level forbids GPS in either
 //     artifact), and
-//   - the bytes-vs-assertion spine (arg-independent: Direction-1 reject,
-//     Direction-2 signal).
+//   - the bytes-vs-assertion spine (arg-independent: bytes carrying GPS the
+//     assertion lacks is a reject; the reverse passes).
 // The byte-probe that produces bytesHadGps is pinned against real fixtures in
 // derive-metadata.test.ts.
 
@@ -46,26 +46,21 @@ function expectViolation(derived: DerivedMetadata, declared: LocationLevel) {
 
 describe("enforceLocationPrivacy — precise: bytes-vs-assertion spine (arg-independent)", () => {
   it("passes when neither side carries GPS", () => {
-    expect(enforceLocationPrivacy(make(NEITHER), "precise")).toEqual({
-      displayLeak: false,
-    });
+    expect(() => enforceLocationPrivacy(make(NEITHER), "precise")).not.toThrow();
   });
 
   it("passes when both sides carry GPS (precise, working)", () => {
-    expect(enforceLocationPrivacy(make(BOTH), "precise")).toEqual({
-      displayLeak: false,
-    });
+    expect(() => enforceLocationPrivacy(make(BOTH), "precise")).not.toThrow();
   });
 
-  it("REJECTS (Direction 1) when bytes carry GPS the assertion lacks — the durable file leak", () => {
+  it("REJECTS when bytes carry GPS the assertion lacks — the durable file leak", () => {
     expectViolation(make(BYTES_ONLY), "precise");
   });
 
-  it("SIGNALS, not rejects (Direction 2) when the assertion carries GPS the bytes lack", () => {
-    // Display leak OR a legit precise upload whose EXIF dropped — never a reject.
-    expect(enforceLocationPrivacy(make(ASSERTION_ONLY), "precise")).toEqual({
-      displayLeak: true,
-    });
+  it("passes when the assertion carries GPS the bytes lack", () => {
+    // Coordinates from the capture's signed metadata rather than its bytes, or
+    // an EXIF round-trip that dropped: only what the user chose is published.
+    expect(() => enforceLocationPrivacy(make(ASSERTION_ONLY), "precise")).not.toThrow();
   });
 });
 
@@ -75,19 +70,16 @@ describe("enforceLocationPrivacy — non-precise declared level forbids GPS in e
   for (const declared of ["none", "general"] as const) {
     describe(`declared = ${declared}`, () => {
       it("passes when neither side carries GPS (working strip)", () => {
-        expect(enforceLocationPrivacy(make(NEITHER), declared)).toEqual({
-          displayLeak: false,
-        });
+        expect(() => enforceLocationPrivacy(make(NEITHER), declared)).not.toThrow();
       });
 
       it("REJECTS when bytes carry GPS (strip failed — durable file leak)", () => {
         expectViolation(make(BYTES_ONLY), declared);
       });
 
-      it("REJECTS when the assertion carries GPS — closes the spine's Direction-2 signal-only blind spot", () => {
-        // The spine alone can only SIGNAL this (precise EXIF-drop is
-        // indistinguishable). A non-precise declared level resolves the
-        // ambiguity → it's an unambiguous manifest leak, so hard reject.
+      it("REJECTS when the assertion carries GPS — the manifest leak the spine passes", () => {
+        // The spine passes this (on a precise upload it is legitimate). A
+        // non-precise declared level makes it an unambiguous leak, so reject.
         expectViolation(make(ASSERTION_ONLY), declared);
       });
 

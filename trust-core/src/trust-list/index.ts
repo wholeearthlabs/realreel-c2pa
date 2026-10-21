@@ -1,6 +1,7 @@
 export {
   TRUSTED_ISSUERS,
   findTrustedIssuer,
+  matchesCommonName,
   type TrustedIssuer,
 } from "./trusted-issuers.js";
 // CLIENT_TRUST_ANCHORS_PEM is deliberately NOT re-exported here: the 27 KB

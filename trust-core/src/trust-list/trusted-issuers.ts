@@ -62,8 +62,10 @@ export interface TrustedIssuer {
    * second program with the same common_name (in which case we revisit
    * the discriminator).
    *
+   * A list admits any of several CNs (ProofMode: one per platform).
+   *
    * Undefined entries (e.g. RealReel) match on issuerMatch alone. */
-  commonNameMatch?: string;
+  commonNameMatch?: string | readonly string[];
 
   /** Subject CN of the root PEM that anchors this issuer's cert chain.
    * Documented here so the metadata stays auditable from the shared
@@ -79,9 +81,10 @@ export interface TrustedIssuer {
  * first-match, and `realreel` must precede `realreel-legacy` (see that
  * entry's comment).
  *
- * RealReel (our own captures) + Google Pixel (Pixel 8 and later, stock
- * Camera app with Content Credentials). Add Sony, Leica, Nikon, etc. as
- * their published roots are verified against real fixtures.
+ * RealReel (our own captures), Google Pixel (Pixel 8 and later, stock
+ * Camera app with Content Credentials) and ProofMode (its iOS and Android
+ * camera apps). Add Sony, Leica, Nikon, etc. as their published roots are
+ * verified against real fixtures.
  */
 export const TRUSTED_ISSUERS: ReadonlyArray<TrustedIssuer> = [
   {
@@ -131,7 +134,32 @@ export const TRUSTED_ISSUERS: ReadonlyArray<TrustedIssuer> = [
     commonNameMatch: "Pixel Camera",
     rootCommonName: "Google C2PA Root CA G3",
   },
+  {
+    id: "proofmode",
+    displayName: "ProofMode",
+    // Pinned 2026-10-19 against real iOS and Android captures. Trufo issues
+    // to many organisations, so the O scopes the match to ProofMode and the
+    // CN list to its two camera apps.
+    issuerMatch: "Proofmode Reality Systems LLC",
+    commonNameMatch: ["Proofmode for iOS", "Proofmode for Android"],
+    rootCommonName: "Trufo C2PA Root CA (2025, ECC P384)",
+  },
 ];
+
+/**
+ * True when `commonName` satisfies `entry`'s CN pin (always, if unpinned).
+ * Shared by findTrustedIssuer and the verifier's dispatcher so both admit
+ * the same leaves.
+ */
+export function matchesCommonName(
+  entry: TrustedIssuer,
+  commonName: string | null | undefined,
+): boolean {
+  const pin = entry.commonNameMatch;
+  if (pin === undefined) return true;
+  if (typeof commonName !== "string") return false;
+  return typeof pin === "string" ? commonName === pin : pin.includes(commonName);
+}
 
 /**
  * Look up a trusted issuer by a manifest's `signature_info.issuer`
@@ -163,8 +191,7 @@ export function findTrustedIssuer(manifest: ManifestShape): TrustedIssuer | null
       // without a commonNameMatch (e.g. RealReel) accept any common_name
       // value (including missing) and route on issuerMatch alone — see
       // the field's JSDoc for the rationale.
-      if (entry.commonNameMatch === undefined) return true;
-      return commonName === entry.commonNameMatch;
+      return matchesCommonName(entry, commonName);
     }) ?? null
   );
 }

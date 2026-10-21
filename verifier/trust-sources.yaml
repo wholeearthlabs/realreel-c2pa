@@ -53,7 +53,7 @@
 # repository.
 
 # Trusted C2PA content sources — the cameras whose captures the verifier accepts.
-# Today: RealReel + Google Pixel. Most phones don't sign with C2PA yet; as more
+# Today: RealReel, Google Pixel and ProofMode. Most phones don't sign with C2PA yet; as more
 # cameras ship native C2PA, add their root here (see "To add a source" above).
 sources:
   # The `issuerMatch` substring used by identifyTrustSource() no longer
@@ -111,6 +111,24 @@ sources:
     verification_profile: wrap_parent_only
     revocation:
       ocsp_hosts: ["http://c2pa-ocsp.pki.goog"]
+
+  - id: proofmode
+    name: ProofMode
+    description: |
+      Content captured with ProofMode's iOS and Android camera apps.
+      Single-stage capture manifest, signed remotely by ProofMode's
+      ProofSign service with one Trufo-issued leaf per platform. Revocation
+      is Trufo's: the verifier asks ocsp.trufo.ai about the leaf for every
+      wrapped ProofMode capture.
+    # Root cert is "Trufo C2PA Root CA (2025, ECC P384)" (CN), extracted
+    # cert #9 from the official C2PA Trust List at
+    # https://github.com/c2pa-org/conformance-public/blob/main/trust-list/C2PA-TRUST-LIST.pem
+    # (downloaded 2026-10-20). It also ships in the TSA list below; the
+    # duplicate anchor is harmless. Valid through 2045.
+    root_cert: trust-sources/proofmode/root.pem
+    verification_profile: wrap_parent_only
+    revocation:
+      ocsp_hosts: ["https://ocsp.trufo.ai"]
 
 # Time-Stamp Authority (TSA) roots — distinct from `sources` above.
 #

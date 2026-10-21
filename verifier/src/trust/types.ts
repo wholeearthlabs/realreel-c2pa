@@ -14,7 +14,7 @@
 //                         The only profile the verifier dispatches at
 //                         ingestion (see verify.ts force-wrap gate).
 //   "wrap_parent_only"  — trusted ONLY as a Stage 1 parent inside a
-//                         RealReel-wrapped upload (today: Pixel). Its
+//                         RealReel-wrapped upload (today: Pixel and ProofMode). Its
 //                         root sits in the c2pa-node trust bundle so
 //                         parent-chain validation succeeds, but a raw
 //                         single-stage upload chained to this root is

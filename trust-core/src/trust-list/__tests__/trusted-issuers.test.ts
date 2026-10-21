@@ -14,7 +14,11 @@
 
 import { describe, it, expect } from "vitest";
 
-import { TRUSTED_ISSUERS, findTrustedIssuer } from "../trusted-issuers.js";
+import {
+  TRUSTED_ISSUERS,
+  findTrustedIssuer,
+  matchesCommonName,
+} from "../trusted-issuers.js";
 import type { ManifestShape } from "../../shapes/manifest.js";
 
 describe("TRUSTED_ISSUERS list invariants", () => {
@@ -26,6 +30,7 @@ describe("TRUSTED_ISSUERS list invariants", () => {
     expect(ids).toContain("realreel");
     expect(ids).toContain("realreel-legacy");
     expect(ids).toContain("pixel");
+    expect(ids).toContain("proofmode");
   });
 
   it("ids are unique", () => {
@@ -62,6 +67,41 @@ describe("TRUSTED_ISSUERS list invariants", () => {
       expect(entry.issuerMatch).toBeTruthy();
       expect(entry.rootCommonName).toBeTruthy();
     }
+  });
+
+  it("every commonNameMatch list is non-empty and holds non-empty names", () => {
+    // An empty list would admit nothing — a silently dead entry.
+    for (const entry of TRUSTED_ISSUERS) {
+      const pin = entry.commonNameMatch;
+      if (pin === undefined || typeof pin === "string") continue;
+      expect(pin.length, entry.id).toBeGreaterThan(0);
+      for (const name of pin) expect(name, entry.id).toBeTruthy();
+    }
+  });
+});
+
+describe("matchesCommonName", () => {
+  const unpinned = { id: "a", displayName: "A", issuerMatch: "A", rootCommonName: "A" };
+
+  it("admits any common_name, including none, for an unpinned entry", () => {
+    expect(matchesCommonName(unpinned, "anything")).toBe(true);
+    expect(matchesCommonName(unpinned, undefined)).toBe(true);
+    expect(matchesCommonName(unpinned, null)).toBe(true);
+  });
+
+  it("requires exact equality with a single pinned name", () => {
+    const entry = { ...unpinned, commonNameMatch: "Cam" };
+    expect(matchesCommonName(entry, "Cam")).toBe(true);
+    expect(matchesCommonName(entry, "Cam 2")).toBe(false);
+    expect(matchesCommonName(entry, undefined)).toBe(false);
+  });
+
+  it("requires exact equality with one name of a pinned list", () => {
+    const entry = { ...unpinned, commonNameMatch: ["Cam iOS", "Cam Android"] };
+    expect(matchesCommonName(entry, "Cam iOS")).toBe(true);
+    expect(matchesCommonName(entry, "Cam Android")).toBe(true);
+    expect(matchesCommonName(entry, "Cam")).toBe(false);
+    expect(matchesCommonName(entry, null)).toBe(false);
   });
 });
 
@@ -121,6 +161,42 @@ describe("findTrustedIssuer", () => {
     expect(findTrustedIssuer(manifestWithIssuer("Google LLC"))).toBeNull();
     expect(
       findTrustedIssuer(manifestWithIssuer("Google LLC", "Workspace Export")),
+    ).toBeNull();
+  });
+
+  it("matches ProofMode under either per-platform app CN", () => {
+    for (const cn of ["Proofmode for iOS", "Proofmode for Android"]) {
+      expect(
+        findTrustedIssuer(manifestWithIssuer("Proofmode Reality Systems LLC", cn))?.id,
+      ).toBe("proofmode");
+    }
+  });
+
+  it("rejects a ProofMode leaf outside the pinned app CNs", () => {
+    // Trufo is multi-tenant: the O alone must not admit any other product
+    // ProofMode might get a certificate for, nor a leaf with no CN.
+    expect(
+      findTrustedIssuer(manifestWithIssuer("Proofmode Reality Systems LLC")),
+    ).toBeNull();
+    expect(
+      findTrustedIssuer(
+        manifestWithIssuer("Proofmode Reality Systems LLC", "Proofmode Desktop"),
+      ),
+    ).toBeNull();
+    // CN equality is exact — no substring or case folding.
+    expect(
+      findTrustedIssuer(
+        manifestWithIssuer("Proofmode Reality Systems LLC", "proofmode for ios"),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects ProofMode's self-signed local signer", () => {
+    // It never chains to a pooled root anyway; routing must not admit it either.
+    expect(
+      findTrustedIssuer(
+        manifestWithIssuer("Proofmode App Self-Signed", "Proofmode C2PA Hardware Key"),
+      ),
     ).toBeNull();
   });
 

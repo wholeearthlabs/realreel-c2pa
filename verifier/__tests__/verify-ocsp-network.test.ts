@@ -48,7 +48,7 @@ const STAGE2_USER = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 
 describe.skipIf(!NETWORK)("Pixel parent OCSP (network)", () => {
   it("c2pa-rs reports notRevoked for the Pixel capture under its ingredient assertion", async () => {
-    expect(trustConfig.ocspHosts).toEqual(["http://c2pa-ocsp.pki.goog"]);
+    expect(trustConfig.ocspHosts).toContain("http://c2pa-ocsp.pki.goog");
     const reader = await Reader.fromAsset(
       { buffer: wrapBytes, mimeType: "image/jpeg" },
       buildVerifierSettings(trustConfig, true),
