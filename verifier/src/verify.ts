@@ -137,10 +137,7 @@ export function buildVerifierSettings(
   networkRevocation = false,
 ): string {
   const settings: VerifierSettings = {
-    ...createTrustSettings({
-      verifyTrustList: false,
-      trustAnchors: trust.trustAnchorsBundle,
-    }),
+    ...createTrustSettings({ trustAnchors: trust.trustAnchorsBundle }),
     core: { allowedNetworkHosts: [...trust.ocspHosts] },
     verify: {
       verifyTimestampTrust: true,

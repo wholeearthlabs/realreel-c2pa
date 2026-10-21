@@ -59,16 +59,16 @@ ENV TRUST_SOURCES_PATH=/app/trust-sources.yaml
 # verifier/src/harness/ plus the two tools it drives: c2patool (pin + checksum
 # mirror .github/workflows/ci.yml) and libfaketime. It carries the same built
 # verifier + c2pa-node the service deploys, but on a newer Debian: c2patool
-# publishes only a glibc build for Linux and it needs 2.38 (bookworm has 2.36).
+# publishes only a glibc build for Linux and it needs 2.39 (bookworm has 2.36).
 # `docker build -f verifier/Dockerfile --target crjson-harness .` — usage in
 # verifier/CRJSON_HARNESS.md.
 FROM --platform=linux/amd64 node:24-trixie-slim AS crjson-harness
-ARG C2PATOOL_VERSION=0.27.22
-ARG C2PATOOL_SHA256=6f138ad53da1a62f1cd6ee71c60727efa27d13b811f4c0ea8c2a8528968b358b
+ARG C2PATOOL_VERSION=0.28.2
+ARG C2PATOOL_SHA256=ff9f05d0f985a77995ec18956671f331d619c804e033c9929972a8d4f479e93a
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl faketime \
   && curl -fsSL -o /tmp/c2patool.tar.gz \
-       "https://github.com/contentauth/c2pa-rs/releases/download/c2patool-v${C2PATOOL_VERSION}/c2patool-v${C2PATOOL_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+       "https://github.com/contentauth/c2patool/releases/download/v${C2PATOOL_VERSION}/v${C2PATOOL_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
   && echo "${C2PATOOL_SHA256}  /tmp/c2patool.tar.gz" | sha256sum -c - \
   && tar -xzf /tmp/c2patool.tar.gz -C /tmp \
   && install -m 0755 /tmp/c2patool/c2patool /usr/local/bin/c2patool \

@@ -5,7 +5,7 @@
   },
   "jsonGenerator": {
     "name": "c2pa-rs",
-    "version": "0.90.22"
+    "version": "0.91.2"
   },
   "manifests": [
     {
@@ -263,7 +263,13 @@
           "ingredientAssertionURI": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.assertions/c2pa.ingredient.v3",
           "validationDeltas": {
             "failure": [],
-            "informational": [],
+            "informational": [
+              {
+                "code": "signingCredential.ocsp.skipped",
+                "explanation": "OCSP fetching skipped",
+                "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
+              }
+            ],
             "success": [
               {
                 "code": "ingredient.manifest.validated",
@@ -272,13 +278,15 @@
               },
               {
                 "code": "timeStamp.trusted",
-                "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+                "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1, trust list: manifest_system_anchors",
                 "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
               }
             ]
           }
         }
       ],
+      "isCompressedManifest": false,
+      "isUpdateManifest": false,
       "label": "urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6",
       "signature": {
         "algorithm": "es256",
@@ -321,7 +329,13 @@
       },
       "validationResults": {
         "failure": [],
-        "informational": [],
+        "informational": [
+          {
+            "code": "signingCredential.ocsp.skipped",
+            "explanation": "OCSP fetching skipped",
+            "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.signature"
+          }
+        ],
         "specVersion": "2.3.0",
         "success": [
           {
@@ -331,12 +345,12 @@
           },
           {
             "code": "timeStamp.trusted",
-            "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+            "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1, trust list: manifest_system_anchors",
             "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.signature"
           },
           {
             "code": "signingCredential.trusted",
-            "explanation": "signing certificate trusted, found in System trust anchors",
+            "explanation": "signing certificate trusted, found in [manifest_system_anchors] trust anchors",
             "url": "self#jumbf=/c2pa/urn:c2pa:aacb3a03-81eb-4c02-8604-9ccfbf582dc6/c2pa.signature"
           },
           {
@@ -6519,6 +6533,7 @@
         "dc:title": "realreel-20260820-150536.jpg",
         "gathered_assertions": [],
         "instanceID": "xmp:iid:7dbee46f-adae-47b9-9497-efb5bca4275e",
+        "redacted_assertions": [],
         "signature": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
       },
       "ingredientDeltas": [
@@ -6531,12 +6546,19 @@
                 "code": "ingredient.claimSignature.validated",
                 "explanation": "ingredient claimSignature validated",
                 "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257"
+              },
+              {
+                "code": "signingCredential.ocsp.skipped",
+                "explanation": "OCSP fetching skipped",
+                "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.signature"
               }
             ],
             "success": []
           }
         }
       ],
+      "isCompressedManifest": false,
+      "isUpdateManifest": true,
       "label": "urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc",
       "signature": {
         "algorithm": "es256",
@@ -6579,7 +6601,13 @@
       },
       "validationResults": {
         "failure": [],
-        "informational": [],
+        "informational": [
+          {
+            "code": "signingCredential.ocsp.skipped",
+            "explanation": "OCSP fetching skipped",
+            "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
+          }
+        ],
         "specVersion": "2.3.0",
         "success": [
           {
@@ -6589,7 +6617,7 @@
           },
           {
             "code": "timeStamp.trusted",
-            "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
+            "explanation": "timestamp cert trusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1, trust list: manifest_system_anchors",
             "url": "self#jumbf=/c2pa/urn:c2pa:ac37cc8c-5ed5-4f90-b785-f857f5ec64bc/c2pa.signature"
           }
         ],
@@ -6666,8 +6694,11 @@
         "dc:title": "realreel-20260820-145533.jpg",
         "gathered_assertions": [],
         "instanceID": "xmp:iid:bebd00db-70c8-4198-9b7e-8743fcbb263f",
+        "redacted_assertions": [],
         "signature": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.signature"
       },
+      "isCompressedManifest": false,
+      "isUpdateManifest": false,
       "label": "urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257",
       "signature": {
         "algorithm": "es256",
@@ -6695,6 +6726,11 @@
             "code": "ingredient.claimSignature.validated",
             "explanation": "ingredient claimSignature validated",
             "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257"
+          },
+          {
+            "code": "signingCredential.ocsp.skipped",
+            "explanation": "OCSP fetching skipped",
+            "url": "self#jumbf=/c2pa/urn:c2pa:1105e66a-4a68-4370-850c-6364f2a71257/c2pa.signature"
           }
         ],
         "specVersion": "2.3.0",

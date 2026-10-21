@@ -47,6 +47,23 @@ describe("classifyStrictValidationStatus", () => {
     );
   });
 
+  it("maps untrusted followed by expired for the same signature → CERT_EXPIRED (c2pa-rs 0.91 order)", () => {
+    const sig = "self#jumbf=/c2pa/urn:c2pa:a/c2pa.signature";
+    expect(
+      codeThrownBy([
+        { code: "signingCredential.untrusted", url: sig },
+        { code: "signingCredential.expired", url: sig },
+      ]),
+    ).toBe(VerifyErrorCode.CERT_EXPIRED);
+    // An expiry on a different signature doesn't explain the untrusted one.
+    expect(
+      codeThrownBy([
+        { code: "signingCredential.untrusted", url: sig },
+        { code: "signingCredential.expired", url: "self#jumbf=/c2pa/urn:c2pa:b/c2pa.signature" },
+      ]),
+    ).toBe(VerifyErrorCode.UNTRUSTED_ISSUER);
+  });
+
   it("maps signingCredential.ocsp.revoked → UNTRUSTED_ISSUER, never KEY_REVOKED", () => {
     // KEY_REVOKED makes the app discard the uploader's own key; a revoked
     // wrap-mode parent is another camera's certificate.

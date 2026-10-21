@@ -6,7 +6,7 @@
 
 import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { Ajv2020 } from "ajv/dist/2020.js";
+import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
 import addFormatsCjs from "ajv-formats";
 import { loadTrustConfig } from "../../src/trust/loader.js";
 import { probeHarnessEnvironment } from "../../src/harness/crjson.js";
@@ -85,11 +85,22 @@ const ajv = new Ajv2020({ strict: false, allErrors: true });
 addFormatsCjs.default(ajv);
 const validateSchema = ajv.compile(schema);
 
+// c2pa-rs 0.91 emits two per-manifest booleans from the crJSON schema after
+// 2.4 (c2pa-rs #2185), whose manifest object is closed. Only these two are
+// excused; see CRJSON_HARNESS.md "Known crJSON deviations".
+const NEXT_SCHEMA_MANIFEST_FIELDS = new Set(["isUpdateManifest", "isCompressedManifest"]);
+const isExcused = (e: ErrorObject): boolean =>
+  e.keyword === "additionalProperties" &&
+  /^\/manifests\/\d+$/.test(e.instancePath) &&
+  NEXT_SCHEMA_MANIFEST_FIELDS.has((e.params as { additionalProperty: string }).additionalProperty);
+
 /** Ajv errors for a document against the crJSON 2.4 schema; [] when valid. */
 export function schemaErrors(doc: unknown): string[] {
   return validateSchema(doc)
     ? []
-    : (validateSchema.errors ?? []).map((e) => `${e.instancePath || "/"} ${e.message ?? ""} ${JSON.stringify(e.params)}`);
+    : (validateSchema.errors ?? [])
+        .filter((e) => !isExcused(e))
+        .map((e) => `${e.instancePath || "/"} ${e.message ?? ""} ${JSON.stringify(e.params)}`);
 }
 
 // ── Instants ────────────────────────────────────────────────────────────────

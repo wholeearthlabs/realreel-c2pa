@@ -23,6 +23,9 @@ export {
 
 const OCSP_CODE_PREFIX = "signingCredential.ocsp.";
 const OCSP_NOT_REVOKED = "signingCredential.ocsp.notRevoked";
+// The `url` c2pa-rs gives the entries it logs while checking a fetched
+// response. A stapled response files its notRevoked under the signature URI.
+const OCSP_FETCHED_RESPONSE_URL = "OCSP_RESPONSE";
 
 /**
  * Map a c2pa-rs validation_status array to our VerifyError taxonomy.
@@ -34,13 +37,16 @@ const OCSP_NOT_REVOKED = "signingCredential.ocsp.notRevoked";
  *                                   code makes the app discard the uploader's
  *                                   own key, and a revoked wrap-mode parent
  *                                   is another camera's certificate)
- *   - signingCredential.expired   → CERT_EXPIRED
+ *   - signingCredential.expired   → CERT_EXPIRED, also when the first entry is
+ *                                   untrusted for the same signature: c2pa-rs
+ *                                   0.91 checks the chain's validity in its
+ *                                   trust check, which it logs first
  *   - signingCredential.untrusted → UNTRUSTED_ISSUER
  *   - claimSignature.* / *.mismatch / *.invalid → SIGNATURE_INVALID
  *   - manifest.* + everything else → MANIFEST_MALFORMED
  */
 export function classifyStrictValidationStatus(
-  status: Array<{ code: string; explanation?: string | null }>,
+  status: Array<{ code: string; explanation?: string | null; url?: string | null }>,
 ): void {
   // INVARIANT (pinned by classify-validation-status.test.ts): this throws on
   // ANY non-empty validation status. Apart from revocation, only status[0]
@@ -63,6 +69,15 @@ export function classifyStrictValidationStatus(
     throw new VerifyError(VerifyErrorCode.CERT_EXPIRED, detail);
   }
   if (v.code.startsWith("signingCredential.untrusted")) {
+    const expired = status.find(
+      (s) => s.code.startsWith("signingCredential.expired") && s.url === v.url,
+    );
+    if (expired) {
+      throw new VerifyError(
+        VerifyErrorCode.CERT_EXPIRED,
+        expired.explanation ?? expired.code,
+      );
+    }
     throw new VerifyError(VerifyErrorCode.UNTRUSTED_ISSUER, detail);
   }
   if (
@@ -182,12 +197,12 @@ export function enforceParentTrustSource(
  * assertion that references it (`validation_results.ingredientDeltas[]`,
  * keyed by assertion URI), so the capture's rows are found by URI rather
  * than by position, and the active manifest's own OCSP codes are never
- * consulted. Only the `success` bucket counts: a live fetch files
- * `notRevoked` there, while a response stapled into the COSE unprotected
+ * consulted. Only a fetched answer counts: `notRevoked` in the `success`
+ * bucket with the fetch's `url`. A response stapled into the COSE unprotected
  * header — writable by whoever assembles the upload, and it suppresses the
- * fetch — files as `informational`. A missing answer is
- * VERIFIER_UNAVAILABLE, retryable; a `revoked` answer is already rejected by
- * classifyStrictValidationStatus.
+ * fetch — also files `notRevoked` as `success` since c2pa-rs 0.91, but under
+ * the signature URI. A missing answer is VERIFIER_UNAVAILABLE, retryable; a
+ * `revoked` answer is already rejected by classifyStrictValidationStatus.
  */
 export function enforceParentRevocationStatus(
   store: ManifestStoreShape,
@@ -204,13 +219,19 @@ export function enforceParentRevocationStatus(
   const seen: string[] = [];
   for (const delta of deltas) {
     const buckets = delta.validationDeltas ?? {};
-    if ((buckets.success ?? []).some((e) => e.code === OCSP_NOT_REVOKED)) {
+    if (
+      (buckets.success ?? []).some(
+        (e) => e.code === OCSP_NOT_REVOKED && e.url === OCSP_FETCHED_RESPONSE_URL,
+      )
+    ) {
       return;
     }
     for (const bucket of ["success", "informational", "failure"] as const) {
       for (const e of buckets[bucket] ?? []) {
         if (typeof e.code === "string" && e.code.startsWith(OCSP_CODE_PREFIX)) {
-          seen.push(`${bucket}:${e.code}`);
+          const unfetched =
+            e.code === OCSP_NOT_REVOKED && e.url !== OCSP_FETCHED_RESPONSE_URL;
+          seen.push(`${bucket}:${e.code}${unfetched ? " (not fetched)" : ""}`);
         }
       }
     }

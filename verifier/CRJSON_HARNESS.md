@@ -58,15 +58,15 @@ The harness's validator and the verifier's engine must stay on the same c2pa-rs 
 
 | Component | Version | c2pa-rs |
 |---|---|---|
-| `@contentauth/c2pa-node` (this verifier's engine) | 0.9.7 | 0.90.22 |
-| `c2patool` (harness crJSON serializer) | 0.27.22 | 0.90.22 |
+| `@contentauth/c2pa-node` (this verifier's engine) | 0.9.10 | 0.91.3 |
+| `c2patool` (harness crJSON serializer) | 0.28.2 | 0.91.2 |
 | `c2pa-swift` / `c2pa-android` (device gate + signer) | 0.0.14 | 0.91.2 |
 
-## Known crJSON deviations of c2patool 0.27.22
+## Known crJSON deviations of c2patool 0.28.2
 
 None of these touch the status codes:
 
-- `redacted_assertions` is omitted from a v2 claim when empty (spec §3.5.1 wants `[]`; fixed on c2pa-rs main).
+- Each manifest carries `isUpdateManifest` and `isCompressedManifest`, required by the crJSON schema that follows 2.4 (c2pa-rs #2185) but not allowed by 2.4's closed manifest object. The schema tests excuse exactly these two properties.
 - Serialization fails outright on an ingredient assertion that breaks the CDDL co-presence rule (spec §3.6.1 wants `{}` for that assertion).
 - The `c2pa.time-stamp` DER token is emitted as an integer array rather than a `b64'` string (spec §3.6.3 Table 1 — visible in the `realreel-drained@baseline` golden).
 
