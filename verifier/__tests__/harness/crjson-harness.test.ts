@@ -36,11 +36,12 @@ describe("harness inputs", () => {
 
   it("builds the settings through the verifier's own builder, with the two lists pooled and no network", () => {
     const settings = JSON.parse(harnessSettings(TRUST_LISTS.production, TSA_LISTS.production)) as {
-      trust: { trust_anchors: string };
+      trust: { anchors: Array<{ trust_anchors: string }> };
       core: { allowed_network_hosts: string[] };
       verify: Record<string, unknown>;
     };
-    const anchors = pemCertificates(settings.trust.trust_anchors);
+    expect(settings.trust.anchors).toHaveLength(1);
+    const anchors = pemCertificates(settings.trust.anchors[0]!.trust_anchors);
     expect(anchors).toEqual([...pemCertificates(TRUST_LISTS.production), ...pemCertificates(TSA_LISTS.production)]);
     // Byte-identical to what verify.ts hands c2pa-node for the same bundle
     // with network revocation off — the time-stamp-trust flag rides along,
@@ -58,8 +59,8 @@ describe("harness inputs", () => {
   });
 
   it("omits the anchors key when both lists are empty (c2pa-rs rejects an empty anchor string)", () => {
-    const settings = JSON.parse(harnessSettings("", "")) as { trust: Record<string, unknown> };
-    expect("trust_anchors" in settings.trust).toBe(false);
+    const settings = JSON.parse(harnessSettings("", "")) as Record<string, unknown>;
+    expect("trust" in settings).toBe(false);
   });
 
   it("parses the validation time strictly as RFC 3339 with an offset", () => {
@@ -171,9 +172,9 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     // Bump these together with ci.yml, the Dockerfile stage and the README
     // table; the cross-check only means "same engine" while the minor matches.
     const run = runCrjsonHarness({ assetPath: fixture(V2), ...production, validationTime: AT.baseline });
-    expect(run.record.validator.c2patool).toBe("c2patool 0.27.22");
-    expect(run.record.validator.c2paRs).toBe("0.90.22");
-    expect(ENGINE_IDENTITY).toEqual({ package: "@contentauth/c2pa-node", version: "0.9.7", c2paRs: "0.90.22" });
+    expect(run.record.validator.c2patool).toBe("c2patool 0.28.2");
+    expect(run.record.validator.c2paRs).toBe("0.91.2");
+    expect(ENGINE_IDENTITY).toEqual({ package: "@contentauth/c2pa-node", version: "0.9.10", c2paRs: "0.91.3" });
     expect(run.record.validator.c2paRs!.split(".").slice(0, 2)).toEqual(ENGINE_IDENTITY.c2paRs!.split(".").slice(0, 2));
     // c2pa-rs's own statement of the spec it validated against (a constant in
     // its crJSON serializer) — not ours to rewrite; noticed here if it moves.
@@ -188,12 +189,14 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
   });
 
   it("validation time reaches the validator: an untimestamped leaf expires when the clock passes notAfter", () => {
-    // v2-hierarchy-signed.jpg: no time-stamp, leaf notAfter 2026-10-25.
+    // v2-hierarchy-signed.jpg: no time-stamp, leaf notAfter 2026-10-25. The
+    // chain check also requires every certificate to be valid at signing
+    // time (the clock, untimestamped), so an expired leaf reads untrusted too.
     const inputs = { assetPath: fixture(V2), trustListPem: TRUST_LISTS.v2TestRoot, tsaTrustListPem: TSA_LISTS.production };
     const now = runCrjsonHarness({ ...inputs, validationTime: AT.baseline });
     const later = runCrjsonHarness({ ...inputs, validationTime: AT.future });
     expect(codes(now.crjson, "failure")).toEqual([]);
-    expect(codes(later.crjson, "failure")).toEqual(["signingCredential.expired"]);
+    expect(codes(later.crjson, "failure")).toEqual(["signingCredential.untrusted", "signingCredential.expired"]);
     expect(later.crjson.manifests[0].validationResults.validationTime).toBe("2031-01-01T00:00:00+00:00");
     // …and the deployed engine moved with it.
     expect(later.record.engineAgreement.agree).toBe(true);
@@ -221,12 +224,15 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     // TSA ICAs and is on the official C2PA TSA Trust List; c2pa-rs keeps one
     // anchor pool (trust/types.ts "RESIDUAL"). So dropping the Pixel root
     // from the C2PA list changes nothing while the TSA list carries it; only
-    // dropping both sends the wrapped parent to the clock — past its leaf's
-    // notAfter (2026-05-06), hence expired + untrusted. The policy layer,
-    // not the engine, scopes anchor roles; this pins the raw engine. The
-    // wrapped parent's trust shows only in its FAILURE codes: c2patool emits
-    // no per-manifest positive signingCredential code for an ingredient, so
-    // "anchored" is the empty failure list the no-anchor variant contrasts.
+    // dropping both leaves the wrapped parent untrusted. Its leaf is past
+    // notAfter (2026-05-06) on the clock, but the Stage-2 ingredient recorded
+    // claimSignature.insideValidity for it, and c2pa-rs drops a live expiry so
+    // attested; untrusted alone leaves the store Valid, not Invalid. The
+    // policy layer, not the engine, scopes anchor roles; this pins the raw
+    // engine. The wrapped parent's trust shows only in its FAILURE codes:
+    // c2patool emits no per-manifest positive signingCredential code for an
+    // ingredient, so "anchored" is the empty failure list the no-anchor
+    // variant contrasts.
     const wrap = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), ...production, validationTime: AT.baseline });
     const noPixelRoot = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), trustListPem: TRUST_LISTS.productionWithoutPixel, tsaTrustListPem: TSA_LISTS.production, validationTime: AT.baseline });
     const noPixelNoTsa = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), trustListPem: TRUST_LISTS.productionWithoutPixel, tsaTrustListPem: TSA_LISTS.empty, validationTime: AT.baseline });
@@ -235,8 +241,8 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
       expect(codes(run.crjson, "failure", 1)).toEqual([]);
     }
     expect(codes(noPixelNoTsa.crjson, "failure")).toEqual([]); // RealReel active: own root, still listed
-    expect(codes(noPixelNoTsa.crjson, "failure", 1)).toEqual(["signingCredential.expired", "signingCredential.untrusted"]);
-    expect(noPixelNoTsa.record.engineVerdict?.validationState).toBe("Invalid");
+    expect(codes(noPixelNoTsa.crjson, "failure", 1)).toEqual(["signingCredential.untrusted"]);
+    expect(noPixelNoTsa.record.engineVerdict?.validationState).toBe("Valid");
     expect(noPixelNoTsa.record.engineAgreement.agree).toBe(true);
   });
 
@@ -268,7 +274,7 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     expect(run.record.engineAgreement.agree).toBe(true);
   });
 
-  it("KNOWN LIMITATION (c2pa-rs ≤ 0.90.22): the crJSON serializer aborts on an ingredient v3 that breaks the CDDL co-presence rule", () => {
+  it("KNOWN LIMITATION (c2pa-rs ≤ 0.91.2): the crJSON serializer aborts on an ingredient v3 that breaks the CDDL co-presence rule", () => {
     // pixel-edited.jpg's ingredient has activeManifest without
     // validationResults; c2pa-rs's Ingredient serializer Errs and crjson.rs
     // propagates it, so c2patool exits instead of emitting `{}` for that

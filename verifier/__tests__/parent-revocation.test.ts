@@ -4,11 +4,12 @@
 // codes under the ingredient assertion that references it, so the capture's
 // row is found by ingredientAssertionURI — never by position — and the active
 // manifest's own OCSP codes (always `inaccessible`: RealReel's responder is
-// off the allow-list) are ignored. Only the `success` bucket is evidence: a
-// stapled response, which anyone assembling the upload can write into the
-// COSE unprotected header, files `notRevoked` as `informational`. The `url`
-// of the notRevoked / revoked / unknown entries is the literal
-// "OCSP_RESPONSE"; `inaccessible` carries the signature URI.
+// off the allow-list) are ignored. Only a fetched answer is evidence: the
+// `url` of a fetch's notRevoked / revoked / unknown entries is the literal
+// "OCSP_RESPONSE", filed as `success` for notRevoked. A stapled response,
+// which anyone assembling the upload can write into the COSE unprotected
+// header, files `notRevoked` under the signature URI (as `informational` up
+// to c2pa-rs 0.90, `success` since 0.91); so does `inaccessible`.
 
 import { describe, it, expect } from "vitest";
 
@@ -102,13 +103,33 @@ describe("enforceParentRevocationStatus", () => {
     expect(err?.category).toBe("ocsp");
   });
 
-  it("a notRevoked outside the success bucket is not evidence (a stapled response files as informational)", () => {
+  it("a notRevoked outside the success bucket is not evidence", () => {
     for (const bucket of ["informational", "failure"] as const) {
       const s = store([delta(CAPTURE_URI, { [bucket]: [NOT_REVOKED] })]);
       const err = thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL));
       expect(err?.code, bucket).toBe(VerifyErrorCode.VERIFIER_UNAVAILABLE);
       expect(err?.detail, bucket).toContain(`${bucket}:${NOT_REVOKED}`);
     }
+  });
+
+  it("a stapled notRevoked in the success bucket is not evidence (c2pa-rs 0.91 files it there, under the signature URI)", () => {
+    const s = store([
+      {
+        ingredientAssertionURI: CAPTURE_URI,
+        validationDeltas: {
+          success: [
+            {
+              code: NOT_REVOKED,
+              explanation: "signing cert not revoked: 1234",
+              url: `self#jumbf=/c2pa/${CAPTURE}/c2pa.signature`,
+            },
+          ],
+        },
+      },
+    ]);
+    const err = thrownBy(() => enforceParentRevocationStatus(s, capture(s), PIXEL));
+    expect(err?.code).toBe(VerifyErrorCode.VERIFIER_UNAVAILABLE);
+    expect(err?.detail).toContain(`success:${NOT_REVOKED} (not fetched)`);
   });
 
   it("rejects when no OCSP code reached the capture at all", () => {

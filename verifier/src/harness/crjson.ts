@@ -170,7 +170,7 @@ const ENGINE_VERSION: string = (
 // c2pa-node does not expose the c2pa-rs it embeds; this table is read off
 // c2pa-js's Cargo.lock at each tag. Unknown → null, and the pin test in
 // __tests__/harness/crjson-harness.test.ts fails until the entry is added.
-const ENGINE_C2PA_RS: Record<string, string> = { "0.8.3": "0.90.5", "0.9.1": "0.90.15", "0.9.7": "0.90.22" };
+const ENGINE_C2PA_RS: Record<string, string> = { "0.8.3": "0.90.5", "0.9.1": "0.90.15", "0.9.7": "0.90.22", "0.9.10": "0.91.3" };
 
 export const HARNESS_IDENTITY = { name: HARNESS_NAME, version: HARNESS_VERSION };
 export const ENGINE_IDENTITY = {
@@ -217,18 +217,14 @@ export function pemCertificates(bundle: string): string[] {
  *  and TSA certificates (EKU-discriminated), so the two lists are concatenated
  *  — the same pooling trust/loader.ts does for trust-sources.yaml. No network:
  *  the host allow-list is empty and OCSP fetch stays off, which keeps the
- *  output a function of its inputs. */
+ *  output a function of its inputs. Two empty lists leave the trust block out,
+ *  so nothing is trusted. */
 export function harnessSettings(trustListPem: string, tsaTrustListPem: string): string {
   const anchors = [...pemCertificates(trustListPem), ...pemCertificates(tsaTrustListPem)];
-  const settings = buildVerifierSettings({ trustAnchorsBundle: anchors.join("\n") + "\n", ocspHosts: [] });
-  if (anchors.length > 0) return settings;
-  // Two empty lists = nothing trusted. c2pa-rs refuses to configure from an
-  // empty anchor STRING ("COSE error parsing certificate") but treats an
-  // absent key as "no anchors" — every signer and TSA untrusted, which is the
-  // honest verdict for this input. Same behaviour in both engines.
-  const parsed = JSON.parse(settings) as { trust: Record<string, unknown> };
-  delete parsed.trust.trust_anchors;
-  return JSON.stringify(parsed);
+  return buildVerifierSettings({
+    trustAnchorsBundle: anchors.length > 0 ? anchors.join("\n") + "\n" : "",
+    ocspHosts: [],
+  });
 }
 
 // c2patool infers the asset type from the extension; c2pa-node needs it

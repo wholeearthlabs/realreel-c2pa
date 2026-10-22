@@ -5,8 +5,11 @@
 //
 // Fixtures (throwaway hierarchies, plain gradient base), each a capture
 // wrapped by a Stage-2 sign whose pool anchors only the capture and upload
-// roots:
-//   parent-gate-aged.jpg       capture leaf valid only in a past window; the
+// roots, unless noted:
+//   parent-gate-stale-bundle.jpg  valid capture; the Stage-2 pool lacks the
+//                              capture root, so it recorded it untrusted.
+//   parent-gate-aged.jpg       capture leaf valid only in a past window, under
+//                              a timestamp the verifier doesn't trust; the
 //                              Stage-2 signer recorded it untrusted + expired.
 //   parent-gate-untrusted.jpg  capture under an unanchored CA; recorded
 //                              untrusted.
@@ -35,6 +38,7 @@ import type { ManifestStoreShape } from "@realreel/c2pa-trust-core";
 
 const fixturesDir = resolve(import.meta.dirname, "fixtures");
 const fixture = (name: string) => resolve(fixturesDir, `parent-gate-${name}.jpg`);
+const staleBundle = fixture("stale-bundle");
 const aged = fixture("aged");
 const untrusted = fixture("untrusted");
 const drained = fixture("drained");
@@ -42,7 +46,7 @@ const drainedMisfiled = fixture("drained-misfiled");
 
 // LFS-pulled fixtures may be absent (pointer-only checkout) — skip then.
 const fixturesExist = await Promise.all(
-  [aged, untrusted, drained, drainedMisfiled].map((f) => access(f)),
+  [staleBundle, aged, untrusted, drained, drainedMisfiled].map((f) => access(f)),
 )
   .then(() => true)
   .catch(() => false);
@@ -101,13 +105,22 @@ describe.skipIf(!fixturesExist)("parent gate — recorded ingredient results (re
   }
 
   it("accepts a parent the verifier trusts despite its record", async () => {
+    const store = await read(staleBundle);
+    expect(recordedFailures(store)).toEqual(["signingCredential.untrusted"]);
+    expect(() => classifyStrictValidationStatus(store.validation_status ?? [])).not.toThrow();
+    expect(() => enforceRecordedIngredientResults(store)).not.toThrow();
+  });
+
+  it("rejects an expired parent no trusted timestamp covers", async () => {
     const store = await read(aged);
     expect(recordedFailures(store)).toEqual([
       "signingCredential.untrusted",
       "signingCredential.expired",
     ]);
     expect(() => classifyStrictValidationStatus(store.validation_status ?? [])).not.toThrow();
-    expect(() => enforceRecordedIngredientResults(store)).not.toThrow();
+    expect(() => enforceRecordedIngredientResults(store)).toThrow(
+      expect.objectContaining({ code: VerifyErrorCode.CERT_EXPIRED }),
+    );
   });
 
   it("rejects an untrusted parent the engine left out of validation_status", async () => {

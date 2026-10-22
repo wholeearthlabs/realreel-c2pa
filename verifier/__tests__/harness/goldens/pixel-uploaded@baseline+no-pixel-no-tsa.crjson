@@ -5,7 +5,7 @@
   },
   "jsonGenerator": {
     "name": "c2pa-rs",
-    "version": "0.90.22"
+    "version": "0.91.2"
   },
   "manifests": [
     {
@@ -260,6 +260,7 @@
         "dc:title": "realreel-20260821-112251.jpg",
         "gathered_assertions": [],
         "instanceID": "xmp:iid:54cbcdbc-05f9-4194-b929-0c744882d598",
+        "redacted_assertions": [],
         "signature": "self#jumbf=/c2pa/urn:c2pa:7474d336-4691-464e-9517-7e506f44175d/c2pa.signature"
       },
       "ingredientDeltas": [
@@ -268,17 +269,17 @@
           "validationDeltas": {
             "failure": [
               {
-                "code": "signingCredential.expired",
-                "explanation": "certificate expired",
-                "url": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
-              },
-              {
                 "code": "signingCredential.untrusted",
                 "explanation": "signing certificate untrusted",
                 "url": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
               }
             ],
             "informational": [
+              {
+                "code": "signingCredential.ocsp.skipped",
+                "explanation": "OCSP fetching skipped",
+                "url": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
+              },
               {
                 "code": "timeStamp.untrusted",
                 "explanation": "timestamp cert untrusted: Google Pixel Time Stamping Authority",
@@ -295,6 +296,8 @@
           }
         }
       ],
+      "isCompressedManifest": false,
+      "isUpdateManifest": false,
       "label": "urn:c2pa:7474d336-4691-464e-9517-7e506f44175d",
       "signature": {
         "algorithm": "es256",
@@ -339,6 +342,11 @@
         "failure": [],
         "informational": [
           {
+            "code": "signingCredential.ocsp.skipped",
+            "explanation": "OCSP fetching skipped",
+            "url": "self#jumbf=/c2pa/urn:c2pa:7474d336-4691-464e-9517-7e506f44175d/c2pa.signature"
+          },
+          {
             "code": "timeStamp.untrusted",
             "explanation": "timestamp cert untrusted: DigiCert SHA256 RSA4096 Timestamp Responder 2025 1",
             "url": "self#jumbf=/c2pa/urn:c2pa:7474d336-4691-464e-9517-7e506f44175d/c2pa.signature"
@@ -353,7 +361,7 @@
           },
           {
             "code": "signingCredential.trusted",
-            "explanation": "signing certificate trusted, found in System trust anchors",
+            "explanation": "signing certificate trusted, found in [manifest_system_anchors] trust anchors",
             "url": "self#jumbf=/c2pa/urn:c2pa:7474d336-4691-464e-9517-7e506f44175d/c2pa.signature"
           },
           {
@@ -604,8 +612,11 @@
         ],
         "gathered_assertions": [],
         "instanceID": "f8028135-57e0-0b91-c931-457594f26ab7",
+        "redacted_assertions": [],
         "signature": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
       },
+      "isCompressedManifest": false,
+      "isUpdateManifest": false,
       "label": "urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8",
       "signature": {
         "algorithm": "es256",
@@ -650,17 +661,17 @@
       "validationResults": {
         "failure": [
           {
-            "code": "signingCredential.expired",
-            "explanation": "certificate expired",
-            "url": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
-          },
-          {
             "code": "signingCredential.untrusted",
             "explanation": "signing certificate untrusted",
             "url": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
           }
         ],
         "informational": [
+          {
+            "code": "signingCredential.ocsp.skipped",
+            "explanation": "OCSP fetching skipped",
+            "url": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
+          },
           {
             "code": "timeStamp.untrusted",
             "explanation": "timestamp cert untrusted: Google Pixel Time Stamping Authority",

@@ -5,7 +5,7 @@
   },
   "jsonGenerator": {
     "name": "c2pa-rs",
-    "version": "0.90.22"
+    "version": "0.91.2"
   },
   "manifests": [
     {
@@ -84,6 +84,7 @@
           }
         ],
         "instanceID": "xmp:iid:0c66afb4-fc7c-44c6-9fd5-23a52d282de5",
+        "redacted_assertions": [],
         "signature": "self#jumbf=/c2pa/urn:c2pa:83e6f941-0bd8-457c-a460-9ab7705e0a75/c2pa.signature"
       },
       "ingredientDeltas": [
@@ -102,6 +103,8 @@
           }
         }
       ],
+      "isCompressedManifest": false,
+      "isUpdateManifest": false,
       "label": "urn:c2pa:83e6f941-0bd8-457c-a460-9ab7705e0a75",
       "signature": {
         "algorithm": "es256",
@@ -131,7 +134,13 @@
             "url": "self#jumbf=/c2pa/urn:c2pa:83e6f941-0bd8-457c-a460-9ab7705e0a75/c2pa.signature"
           }
         ],
-        "informational": [],
+        "informational": [
+          {
+            "code": "signingCredential.ocsp.skipped",
+            "explanation": "OCSP fetching skipped",
+            "url": "self#jumbf=/c2pa/urn:c2pa:83e6f941-0bd8-457c-a460-9ab7705e0a75/c2pa.signature"
+          }
+        ],
         "specVersion": "2.3.0",
         "success": [
           {

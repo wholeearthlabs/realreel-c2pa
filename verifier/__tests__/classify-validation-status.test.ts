@@ -19,7 +19,7 @@ import { VerifyError, VerifyErrorCode } from "../src/errors.js";
 /** Run the classifier; return the thrown VerifyError's code, or null if it
  *  accepted (didn't throw). Asserts the throw is a VerifyError. */
 function codeThrownBy(
-  status: Array<{ code: string; explanation?: string | null }>,
+  status: Parameters<typeof classifyStrictValidationStatus>[0],
 ): VerifyErrorCode | null {
   try {
     classifyStrictValidationStatus(status);
@@ -45,6 +45,23 @@ describe("classifyStrictValidationStatus", () => {
     expect(codeThrownBy([{ code: "signingCredential.untrusted" }])).toBe(
       VerifyErrorCode.UNTRUSTED_ISSUER,
     );
+  });
+
+  it("maps untrusted followed by expired for the same signature → CERT_EXPIRED (c2pa-rs 0.91 order)", () => {
+    const sig = "self#jumbf=/c2pa/urn:c2pa:a/c2pa.signature";
+    expect(
+      codeThrownBy([
+        { code: "signingCredential.untrusted", url: sig },
+        { code: "signingCredential.expired", url: sig },
+      ]),
+    ).toBe(VerifyErrorCode.CERT_EXPIRED);
+    // An expiry on a different signature doesn't explain the untrusted one.
+    expect(
+      codeThrownBy([
+        { code: "signingCredential.untrusted", url: sig },
+        { code: "signingCredential.expired", url: "self#jumbf=/c2pa/urn:c2pa:b/c2pa.signature" },
+      ]),
+    ).toBe(VerifyErrorCode.UNTRUSTED_ISSUER);
   });
 
   it("maps signingCredential.ocsp.revoked → UNTRUSTED_ISSUER, never KEY_REVOKED", () => {

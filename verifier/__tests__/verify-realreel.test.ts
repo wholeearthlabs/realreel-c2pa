@@ -489,10 +489,7 @@ describe("verify() — TSA-trust state surfaces in top-level validation_results"
 
     async function timestampCodes(bundle: string) {
       const settings = settingsToJson({
-        ...createTrustSettings({
-          verifyTrustList: false,
-          trustAnchors: bundle,
-        }),
+        ...createTrustSettings({ trustAnchors: bundle }),
         verify: { verifyTimestampTrust: true },
       });
       const reader = await Reader.fromAsset(

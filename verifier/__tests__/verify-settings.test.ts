@@ -65,11 +65,18 @@ describe("verifier c2pa settings", () => {
     expect(parse(buildVerifierSettings(NO_HOSTS)).verify.verify_timestamp_trust).toBe(true);
   });
 
-  it("pins the trust block: our anchors, not the system trust list", () => {
-    // The camelCase->snake_case conversion must hold or the anchors get dropped
-    // (every manifest would then report signingCredential.untrusted).
+  it("pins the trust block: our bundle as the one anchor set, nothing else", () => {
+    // c2pa-rs 0.91 shape. A dropped entry fails closed: every manifest reads
+    // signingCredential.untrusted.
     const settings = parse(buildVerifierSettings(NO_HOSTS));
-    expect(settings.trust.trust_anchors).toContain("BEGIN CERTIFICATE");
-    expect(settings.trust.verify_trust_list).toBe(false);
+    expect(settings.trust).toEqual({
+      anchors: [
+        {
+          trust_anchors: NO_HOSTS.trustAnchorsBundle,
+          trust_uri: "manifest_system_anchors",
+          trust_kind: "manifest",
+        },
+      ],
+    });
   });
 });

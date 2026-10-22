@@ -139,7 +139,7 @@ sources:
 # @realreel/c2pa-trust-core.
 #
 # The loader concatenates these PEMs into the SAME `trustAnchorsBundle`
-# that c2pa-node's settings.trust.trust_anchors consumes. c2pa-rs uses
+# that becomes c2pa-node's single settings.trust.anchors[] entry. c2pa-rs uses
 # one trust pool for both signing-cert and TSA validation, so this is
 # the correct destination.
 #

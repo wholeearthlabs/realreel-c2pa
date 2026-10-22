@@ -5,7 +5,7 @@
   },
   "jsonGenerator": {
     "name": "c2pa-rs",
-    "version": "0.90.22"
+    "version": "0.91.2"
   },
   "manifests": [
     {
@@ -197,8 +197,11 @@
         ],
         "gathered_assertions": [],
         "instanceID": "f8028135-57e0-0b91-c931-457594f26ab7",
+        "redacted_assertions": [],
         "signature": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
       },
+      "isCompressedManifest": false,
+      "isUpdateManifest": false,
       "label": "urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8",
       "signature": {
         "algorithm": "es256",
@@ -244,6 +247,11 @@
         "failure": [],
         "informational": [
           {
+            "code": "signingCredential.ocsp.skipped",
+            "explanation": "OCSP fetching skipped",
+            "url": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
+          },
+          {
             "code": "assertion.dataHash.additionalExclusionsPresent",
             "explanation": "extra data hash exclusions found",
             "url": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.assertions/c2pa.hash.data"
@@ -258,12 +266,12 @@
           },
           {
             "code": "timeStamp.trusted",
-            "explanation": "timestamp cert trusted: Google Pixel Time Stamping Authority",
+            "explanation": "timestamp cert trusted: Google Pixel Time Stamping Authority, trust list: manifest_system_anchors",
             "url": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
           },
           {
             "code": "signingCredential.trusted",
-            "explanation": "signing certificate trusted, found in System trust anchors",
+            "explanation": "signing certificate trusted, found in [manifest_system_anchors] trust anchors",
             "url": "self#jumbf=/c2pa/urn:c2pa:b2ad897a-a5da-64f3-3d57-40286fa013d8/c2pa.signature"
           },
           {
