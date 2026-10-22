@@ -62,6 +62,8 @@ The harness's validator and the verifier's engine must stay on the same c2pa-rs 
 | `c2patool` (harness crJSON serializer) | 0.28.2 | 0.91.2 |
 | `c2pa-swift` / `c2pa-android` (device gate + signer) | 0.0.14 | 0.91.2 |
 
+An engine bump also runs the opt-in live OCSP suite (`OCSP_NETWORK_TESTS=1 npx vitest run verify-ocsp-network`) and rechecks `sdk/src/crypto/cose/ocsp.rs` at the new c2pa-rs tag: the parent revocation gate counts a `notRevoked` only under the `url` `OCSP_RESPONSE`, which c2pa-rs gives a fetched answer and not a stapled one.
+
 ## Known crJSON deviations of c2patool 0.28.2
 
 None of these touch the status codes:
