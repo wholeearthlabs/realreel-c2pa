@@ -5,6 +5,8 @@
 import {
   findDisallowedActions,
   findRecordedBindingViolation,
+  findUnverifiedRecordedFailures,
+  getIngredientAssertionUri,
   isTimestampUpdateManifest,
   requireFreshCapture,
   resolveParentOfIngredient,
@@ -157,9 +159,8 @@ export function enforceFreshCaptureStage1(manifest: ManifestShape): void {
  * cert chaining to ANY pooled anchor — including the general-purpose TSA
  * roots (see trust/types.ts) — would qualify as a "trusted camera" parent.
  *
- * Interposed timestamp Update Manifests are deliberately not run through
- * this: they are device-signed timestamp carriers, chain-validated by
- * c2pa-rs and constrained to add nothing but a timestamp.
+ * Interposed timestamp Update Manifests get their own, stricter check
+ * (RealReel sources only): see enforceUpdateManifestSigner.
  */
 export function enforceParentTrustSource(
   capture: ManifestShape,
@@ -249,14 +250,9 @@ function captureIngredientAssertionUris(
   if (typeof capture.label !== "string") return uris;
   for (const [holderLabel, manifest] of Object.entries(store.manifests ?? {})) {
     for (const ingredient of manifest.ingredients ?? []) {
-      if (
-        ingredient.active_manifest === capture.label &&
-        typeof ingredient.label === "string"
-      ) {
-        uris.add(
-          `self#jumbf=/c2pa/${holderLabel}/c2pa.assertions/${ingredient.label}`,
-        );
-      }
+      if (ingredient.active_manifest !== capture.label) continue;
+      const uri = getIngredientAssertionUri(holderLabel, ingredient.label);
+      if (uri !== null) uris.add(uri);
     }
   }
   return uris;
@@ -290,6 +286,20 @@ export function enforceParentBinding(
   }
 }
 
+/**
+ * Reject a recorded ingredient failure that c2pa-rs left out of
+ * `validation_status`, classified as it would be live. See trust-core
+ * policies/recorded-results.ts.
+ */
+export function enforceRecordedIngredientResults(
+  store: ManifestStoreShape,
+): void {
+  // The recorded explanation is uploader-authored; the code alone is the detail.
+  classifyStrictValidationStatus(
+    findUnverifiedRecordedFailures(store).map((e) => ({ code: e.code, url: e.url })),
+  );
+}
+
 // Interposed timestamp Update Manifest walk-through.
 //
 // An offline capture that's later timestamped (the app's offline-timestamp drain) gets an Update
@@ -306,10 +316,13 @@ export function enforceParentBinding(
 //
 // Security: the interposition can only ADD a timestamp, never an edit. Each
 // Update Manifest is gated to carry NO editorial action and exactly one
-// parentOf ingredient; the capture beneath still faces the full fresh-capture +
-// action-allowlist + revocation-denylist gates. Revocation is covered without a
-// separate lookup here: the TSA queue is device-local, so the draining key IS
-// the capturing key that the Stage-1 denylist already checks. If a future
+// parentOf ingredient, and must be signed under a RealReel source: it carries
+// the capture's recorded report, which the parent gates read, so only the
+// draining app may write it. The capture beneath still faces the full
+// fresh-capture + action-allowlist + revocation-denylist gates. Revocation is
+// covered without a separate lookup here: the TSA queue is device-local, so
+// the draining key IS the capturing key that the Stage-1 denylist already
+// checks. If a future
 // design ever let a queue entry drain on a DIFFERENT device than it was
 // captured on, add a denylist lookup on each interposed Update Manifest's
 // cert_serial here.
@@ -345,13 +358,14 @@ const MAX_UPDATE_MANIFEST_DEPTH = 4;
  * the Stage-1 gates). When the immediate parent is already a fresh capture
  * (today's common, never-offline path), returns it unchanged.
  *
- * Throws VerifyError if an Update Manifest carries a disallowed action, its
- * parent ingredient is malformed/dangling, or the chain exceeds
- * MAX_UPDATE_MANIFEST_DEPTH.
+ * Throws VerifyError if an Update Manifest carries a disallowed action, isn't
+ * signed under a RealReel source, its parent ingredient is malformed/dangling,
+ * or the chain exceeds MAX_UPDATE_MANIFEST_DEPTH.
  */
 export function resolveCaptureThroughUpdateManifests(
   store: ManifestStoreShape,
   immediateParent: ManifestShape,
+  resolveTrustSource: TrustSourceResolver,
 ): ManifestShape {
   let current = immediateParent;
   let depth = 0;
@@ -363,9 +377,27 @@ export function resolveCaptureThroughUpdateManifests(
       );
     }
     enforceUpdateManifestActions(current);
+    enforceUpdateManifestSigner(current, resolveTrustSource);
     current = enforceUpdateManifestParent(store, current);
   }
   return current;
+}
+
+function enforceUpdateManifestSigner(
+  updateManifest: ManifestShape,
+  resolveTrustSource: TrustSourceResolver,
+): void {
+  const issuer = updateManifest.signature_info?.issuer;
+  const source =
+    typeof issuer === "string"
+      ? resolveTrustSource(issuer, updateManifest.signature_info?.common_name)
+      : null;
+  if (source?.profile !== "realreel") {
+    throw new VerifyError(
+      VerifyErrorCode.UNTRUSTED_ISSUER,
+      "interposed timestamp Update Manifest is not signed under a RealReel trust source",
+    );
+  }
 }
 
 /** The Update Manifest's lone parentOf ingredient. Mirrors enforceStage2Parent's
