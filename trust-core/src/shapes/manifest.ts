@@ -57,6 +57,16 @@ export interface ValidationResultsBucketsShape {
   failure?: ValidationStatusEntryShape[];
 }
 
+/** Claim-v2 validation results (C2PA §15.2.1): the validated manifest's
+ * buckets plus one delta per ingredient it references. */
+export interface ValidationResultsShape {
+  activeManifest?: ValidationResultsBucketsShape;
+  ingredientDeltas?: Array<{
+    ingredientAssertionURI?: string;
+    validationDeltas?: ValidationResultsBucketsShape;
+  }>;
+}
+
 /** Ingredient entries. The active_manifest field is a LABEL string pointing
  * into store.manifests, NOT a manifest object.
  *
@@ -85,13 +95,14 @@ export interface IngredientShape {
   /** The SIGN-TIME validation report recorded into the `c2pa.ingredient.v3`
    * assertion when the ingredient was added (C2PA §19.3). Once upload
    * transforms replace the parent's bytes, this is the ONLY artifact that
-   * carries the parent's hard-binding verdict — later validators can't
-   * recompute it and do NOT re-surface these entries into store-level
-   * validation_status, so the verifier's parent-binding gate
-   * (policies/binding.ts) reads them here explicitly. */
-  validation_results?: {
-    activeManifest?: ValidationResultsBucketsShape;
-  };
+   * carries the parent's hard-binding verdict, so the verifier's
+   * parent-binding gate (policies/binding.ts) reads it here. c2pa-rs also
+   * reconciles its own ingredient findings against it — see
+   * policies/recorded-results.ts. */
+  validation_results?: ValidationResultsShape;
+  /** The pre-v3 ingredient report, which c2pa-rs reads when
+   * `validation_results` is absent. */
+  validation_status?: ValidationStatusEntryShape[];
 }
 
 /** A single manifest within store.manifests[label]. */
@@ -119,16 +130,10 @@ export interface ManifestStoreShape {
   /** "Trusted" | "Valid" | "Invalid" — display summary; consumers gate on
    * validation_status / validation_results instead. */
   validation_state?: string;
-  /** Claim-v2 per-manifest report (C2PA §15.2.1): active manifest's three
-   * buckets + per-ingredient deltas the validator computed itself (parent
-   * cert trust etc. — never the parent's hard binding). */
-  validation_results?: {
-    activeManifest?: ValidationResultsBucketsShape;
-    ingredientDeltas?: Array<{
-      ingredientAssertionURI?: string;
-      validationDeltas?: ValidationResultsBucketsShape;
-    }>;
-  };
+  /** The validator's own report: active manifest's three buckets +
+   * per-ingredient deltas it computed itself (parent cert trust etc. — never
+   * the parent's hard binding). */
+  validation_results?: ValidationResultsShape;
 }
 
 /**
@@ -144,4 +149,16 @@ export function getActiveManifest(
   const label = store.active_manifest;
   if (typeof label !== "string") return undefined;
   return store.manifests?.[label];
+}
+
+/** The `ingredientAssertionURI` c2pa-rs files an ingredient's validation
+ * under (see IngredientShape.label), or null without both labels. */
+export function getIngredientAssertionUri(
+  holderLabel: string | undefined,
+  ingredientLabel: string | undefined,
+): string | null {
+  if (typeof holderLabel !== "string" || typeof ingredientLabel !== "string") {
+    return null;
+  }
+  return `self#jumbf=/c2pa/${holderLabel}/c2pa.assertions/${ingredientLabel}`;
 }

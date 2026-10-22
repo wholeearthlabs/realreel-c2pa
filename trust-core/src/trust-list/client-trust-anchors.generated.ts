@@ -27,10 +27,9 @@
  * verification agree on every root the client asserts trust for.
  *
  * Local-dev caveat: dev builds sign under the throwaway `realreel-ca-dev`
- * hierarchy, deliberately NOT in this published bundle — a dev RealReel
- * parent records untrusted at ingest. Cosmetic and dev-only: the verifier
- * re-validates chains itself and treats recorded ingredient results as
- * advisory.
+ * hierarchy, deliberately NOT in this published bundle, so a dev RealReel
+ * parent records untrusted at ingest. Dev-only and harmless: the dev
+ * verifier anchors that hierarchy, so its own validation clears it.
  */
 export const CLIENT_TRUST_ANCHORS_PEM: string = `-----BEGIN CERTIFICATE-----
 MIICPzCCAcWgAwIBAgIUK7g4QvDKVbdq1t88l76ZMwiegK0wCgYIKoZIzj0EAwMw
