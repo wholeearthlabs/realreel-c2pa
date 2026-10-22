@@ -1275,8 +1275,12 @@ describe("Policy — recorded ingredient results", () => {
 
   /** The clean native store with `codes` as the parent's recorded failures;
    *  `liveTrusted` adds the verifier's own trust in the parent. */
-  function recording(codes: string[], liveTrusted = false): ManifestStoreShape {
-    const store = makeRealReelStore({}) as ManifestStoreShape;
+  function recording(
+    codes: string[],
+    liveTrusted = false,
+    stage1?: { issuer: string; commonName: string },
+  ): ManifestStoreShape {
+    const store = makeRealReelStore(stage1 ? { stage1 } : {}) as ManifestStoreShape;
     const ingredient = store.manifests!["urn:test:stage2"]!.ingredients![0]!;
     ingredient.label = ING_LABEL;
     ingredient.validation_results!.activeManifest!.failure = codes.map((code) => ({
@@ -1311,6 +1315,18 @@ describe("Policy — recorded ingredient results", () => {
     const store = recording(["signingCredential.untrusted", "signingCredential.expired"], true);
     const result = await verifyRealReel(store, "realreel", resolveSource);
     expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("rejects a recorded revocation on a trusted wrap parent before the online re-check", async () => {
+    const readWithOcsp = vi.fn();
+    const store = recording(["signingCredential.ocsp.revoked"], true, {
+      issuer: "C=US, O=Google LLC",
+      commonName: "Pixel Camera",
+    });
+    await expect(
+      verifyRealReel(store, "realreel", resolveSource, undefined, false, undefined, undefined, readWithOcsp),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.UNTRUSTED_ISSUER, category: "ocsp" });
+    expect(readWithOcsp).not.toHaveBeenCalled();
   });
 
   it("reads the Update Manifest's record of the capture on a drained chain", async () => {
