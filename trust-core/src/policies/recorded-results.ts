@@ -19,9 +19,11 @@ import {
 } from "../shapes/manifest.js";
 import { isBindingCode } from "./binding.js";
 
-// The codes c2pa-rs `log_kind` classes as success or informational; it classes
-// every other code as a failure whatever bucket a report files it in, so the
-// code is judged here and the bucket ignored.
+// The codes c2pa-rs `log_kind` classes as success or informational in any
+// engine the phone or verifier runs; it classes every other code as a failure
+// whatever bucket a report files it in, so the code is judged here and the
+// bucket ignored. A code listed here never matches a live failure, so listing
+// one a given engine doesn't know is safe.
 const NON_FAILURE_CODES: ReadonlySet<string> = new Set([
   "claimSignature.validated",
   "claimSignature.insideValidity",
@@ -49,6 +51,12 @@ const NON_FAILURE_CODES: ReadonlySet<string> = new Set([
   "timeOfSigning.insideValidity",
   "ingredient.unknownProvenance",
   "assertion.dataHash.additionalExclusionsPresent",
+  "assertion.bmffHash.additionalExclusionsPresent",
+  "assertion.boxesHash.additionalExclusionsPresent",
+  "signingCredential.ocsp.unknown",
+  "cawg.x509.credential.trusted",
+  "cawg.x509.signature.validated",
+  "cawg.ica.untrusted_issuer",
 ]);
 
 const SIGNING_CREDENTIAL_TRUSTED = "signingCredential.trusted";
@@ -68,22 +76,20 @@ function bucketEntries(
   ];
 }
 
-/** Ingredient assertion URIs whose parent the verifier's own validation
+/** Per ingredient assertion URI, the urls the verifier's own validation
  *  reports as `signingCredential.trusted`. */
-function trustedParentUris(store: ManifestStoreShape): Set<string> {
-  const uris = new Set<string>();
+function liveTrustedUrls(store: ManifestStoreShape): Map<string, string[]> {
+  const out = new Map<string, string[]>();
   for (const delta of store.validation_results?.ingredientDeltas ?? []) {
     const uri = delta?.ingredientAssertionURI;
-    if (
-      typeof uri === "string" &&
-      (delta.validationDeltas?.success ?? []).some(
-        (e) => e?.code === SIGNING_CREDENTIAL_TRUSTED,
-      )
-    ) {
-      uris.add(uri);
+    if (typeof uri !== "string") continue;
+    for (const e of delta.validationDeltas?.success ?? []) {
+      if (e?.code === SIGNING_CREDENTIAL_TRUSTED && typeof e.url === "string") {
+        out.set(uri, [...(out.get(uri) ?? []), e.url]);
+      }
     }
   }
-  return uris;
+  return out;
 }
 
 /**
@@ -96,16 +102,20 @@ function trustedParentUris(store: ManifestStoreShape): Set<string> {
 export function findUnverifiedRecordedFailures(
   store: ManifestStoreShape,
 ): ValidationStatusEntryShape[] {
-  const trusted = trustedParentUris(store);
+  const liveTrusted = liveTrustedUrls(store);
   const out: ValidationStatusEntryShape[] = [];
   for (const [holderLabel, manifest] of Object.entries(store.manifests ?? {})) {
     for (const ingredient of manifest.ingredients ?? []) {
       const uri = getIngredientAssertionUri(holderLabel, ingredient.label);
-      const trustedParentUrl =
-        uri !== null &&
-        trusted.has(uri) &&
+      const parentUrl =
         typeof ingredient.active_manifest === "string"
           ? `self#jumbf=/c2pa/${ingredient.active_manifest}/`
+          : null;
+      const trustedParentUrl =
+        parentUrl !== null &&
+        uri !== null &&
+        (liveTrusted.get(uri) ?? []).some((u) => u.startsWith(parentUrl))
+          ? parentUrl
           : null;
       const results = ingredient.validation_results;
       const entries = results

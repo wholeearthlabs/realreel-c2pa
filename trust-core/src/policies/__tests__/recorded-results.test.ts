@@ -20,6 +20,7 @@ function store(opts: {
   recorded?: ValidationResultsShape;
   legacyStatus?: { code: string }[];
   liveTrusted?: boolean;
+  liveTrustedUrl?: string;
   ingredientLabel?: string;
 }): ManifestStoreShape {
   return {
@@ -44,7 +45,7 @@ function store(opts: {
         {
           ingredientAssertionURI: ING_URI,
           validationDeltas: opts.liveTrusted
-            ? { success: e("signingCredential.trusted") }
+            ? { success: [{ code: "signingCredential.trusted", url: opts.liveTrustedUrl ?? SIG }] }
             : {},
         },
       ],
@@ -90,6 +91,14 @@ describe("findUnverifiedRecordedFailures", () => {
     expect(codes(store({ recorded, liveTrusted: true }))).toEqual([
       "signingCredential.ocsp.revoked",
       "signingCredential.invalid",
+    ]);
+  });
+
+  it("takes trust credit only from a live trusted for the parent itself", () => {
+    const recorded = { activeManifest: { failure: e("signingCredential.untrusted") } };
+    const other = "self#jumbf=/c2pa/urn:c2pa:other/c2pa.signature";
+    expect(codes(store({ recorded, liveTrusted: true, liveTrustedUrl: other }))).toEqual([
+      "signingCredential.untrusted",
     ]);
   });
 

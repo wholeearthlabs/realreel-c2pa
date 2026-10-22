@@ -566,9 +566,9 @@ export interface SignC2PAUploadOptions {
    * rejects `PARENT_BINDING_FAILED` on a recorded binding failure or an
    * absent record, because this sign-time record is the only artifact
    * carrying the parent-bytes verdict once upload transforms discard the
-   * original. It rejects any other recorded failure too, except a
-   * `signingCredential.*` one on a parent its own pool trusts. The sign
-   * itself still never throws on it.
+   * original. It rejects any other recorded failure too, except a parent's
+   * own `signingCredential.untrusted` or `.expired` when the verifier's pool
+   * trusts that parent. The sign itself still never throws on it.
    *
    * Pass it consistently (always or never within a process): iOS applies
    * settings process-globally with merge semantics, so anchors from an

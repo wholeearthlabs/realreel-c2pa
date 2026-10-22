@@ -142,9 +142,8 @@ export function enforceFreshCaptureStage1(manifest: ManifestShape): void {
  * cert chaining to ANY pooled anchor — including the general-purpose TSA
  * roots (see trust/types.ts) — would qualify as a "trusted camera" parent.
  *
- * Interposed timestamp Update Manifests are deliberately not run through
- * this: they are device-signed timestamp carriers, chain-validated by
- * c2pa-rs and constrained to add nothing but a timestamp.
+ * Interposed timestamp Update Manifests get their own, stricter check
+ * (RealReel sources only): see enforceUpdateManifestSigner.
  */
 export function enforceParentTrustSource(
   capture: ManifestShape,
