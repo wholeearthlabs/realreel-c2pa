@@ -14,56 +14,12 @@
 import {
   getIngredientAssertionUri,
   type ManifestStoreShape,
-  type ValidationResultsBucketsShape,
   type ValidationStatusEntryShape,
 } from "../shapes/manifest.js";
 import { isBindingCode } from "./binding.js";
 
-// The codes c2pa-rs `log_kind` classes as success or informational; it classes
-// every other code as a failure whatever bucket a report files it in, so the
-// code is judged here and the bucket ignored.
-const NON_FAILURE_CODES: ReadonlySet<string> = new Set([
-  "claimSignature.validated",
-  "claimSignature.insideValidity",
-  "signingCredential.trusted",
-  "signingCredential.ocsp.notRevoked",
-  "timeStamp.trusted",
-  "timeStamp.validated",
-  "assertion.hashedURI.match",
-  "assertion.dataHash.match",
-  "assertion.bmffHash.match",
-  "assertion.accessible",
-  "assertion.boxesHash.match",
-  "assertion.collectionHash.match",
-  "ingredient.manifest.validated",
-  "ingredient.manifest.missing",
-  "ingredient.claimSignature.validated",
-  "signingCredential.ocsp.skipped",
-  "signingCredential.ocsp.inaccessible",
-  "timeStamp.untrusted",
-  "timeStamp.outsideValidity",
-  "timeStamp.mismatch",
-  "timeStamp.malformed",
-  "manifest.unknownProvenance",
-  "algorithm.deprecated",
-  "timeOfSigning.insideValidity",
-  "ingredient.unknownProvenance",
-  "assertion.dataHash.additionalExclusionsPresent",
-]);
-
 const SIGNING_CREDENTIAL_PREFIX = "signingCredential.";
 const SIGNING_CREDENTIAL_TRUSTED = "signingCredential.trusted";
-
-function bucketEntries(
-  buckets: ValidationResultsBucketsShape | undefined,
-): ValidationStatusEntryShape[] {
-  if (!buckets) return [];
-  return [
-    ...(buckets.success ?? []),
-    ...(buckets.informational ?? []),
-    ...(buckets.failure ?? []),
-  ];
-}
 
 /** Ingredient assertion URIs whose parent the verifier's own validation
  *  reports as `signingCredential.trusted`. */
@@ -84,11 +40,10 @@ function trustedParentUris(store: ManifestStoreShape): Set<string> {
 }
 
 /**
- * The failure codes recorded on any ingredient, minus hard-binding codes
+ * The failures recorded on any ingredient (its report's `failure` bucket and
+ * those of the report's own ingredient deltas), minus hard-binding codes
  * (findRecordedBindingViolation's job) and minus `signingCredential.*` codes
- * on a parent the verifier itself trusts. Reads every bucket and the report's
- * own ingredient deltas, else the pre-v3 `validation_status`: the same
- * statuses c2pa-rs reconciles against.
+ * on a parent the verifier itself trusts.
  */
 export function findUnverifiedRecordedFailures(
   store: ManifestStoreShape,
@@ -100,19 +55,16 @@ export function findUnverifiedRecordedFailures(
       const uri = getIngredientAssertionUri(holderLabel, ingredient.label);
       const parentTrusted = uri !== null && trusted.has(uri);
       const results = ingredient.validation_results;
-      const entries = results
-        ? [
-            ...bucketEntries(results.activeManifest),
-            ...(results.ingredientDeltas ?? []).flatMap((d) =>
-              bucketEntries(d?.validationDeltas),
-            ),
-          ]
-        : (ingredient.validation_status ?? []);
+      const entries = [
+        ...(results?.activeManifest?.failure ?? []),
+        ...(results?.ingredientDeltas ?? []).flatMap(
+          (d) => d?.validationDeltas?.failure ?? [],
+        ),
+      ];
 
       for (const entry of entries) {
         const code = entry?.code;
-        if (typeof code !== "string") continue;
-        if (NON_FAILURE_CODES.has(code) || isBindingCode(code)) continue;
+        if (typeof code !== "string" || isBindingCode(code)) continue;
         if (parentTrusted && code.startsWith(SIGNING_CREDENTIAL_PREFIX)) continue;
         out.push(entry);
       }

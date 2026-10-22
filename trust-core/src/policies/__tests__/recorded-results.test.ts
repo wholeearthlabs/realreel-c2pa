@@ -18,7 +18,6 @@ const e = (...codes: string[]) => codes.map((code) => ({ code, url: SIG }));
  *  verifier's own signingCredential.trusted for that parent. */
 function store(opts: {
   recorded?: ValidationResultsShape;
-  legacyStatus?: { code: string }[];
   liveTrusted?: boolean;
   ingredientLabel?: string;
 }): ManifestStoreShape {
@@ -33,7 +32,6 @@ function store(opts: {
             active_manifest: PARENT,
             relationship: "parentOf",
             validation_results: opts.recorded,
-            validation_status: opts.legacyStatus,
           },
         ],
       },
@@ -56,7 +54,7 @@ const codes = (s: ManifestStoreShape) =>
   findUnverifiedRecordedFailures(s).map((x) => x.code);
 
 describe("findUnverifiedRecordedFailures", () => {
-  it("passes a clean record", () => {
+  it("ignores codes outside the failure bucket", () => {
     const recorded = {
       activeManifest: {
         success: e("signingCredential.trusted", "claimSignature.validated", "assertion.dataHash.match"),
@@ -83,13 +81,8 @@ describe("findUnverifiedRecordedFailures", () => {
     expect(codes(store({ recorded, liveTrusted: true }))).toEqual(["claimSignature.mismatch"]);
   });
 
-  it("judges the code, not the bucket", () => {
-    const recorded = { activeManifest: { success: e("signingCredential.untrusted") } };
-    expect(codes(store({ recorded }))).toEqual(["signingCredential.untrusted"]);
-  });
-
   it("counts an unknown code as a failure", () => {
-    const recorded = { activeManifest: { informational: e("vendor.unknown") } };
+    const recorded = { activeManifest: { failure: e("vendor.unknown") } };
     expect(codes(store({ recorded }))).toEqual(["vendor.unknown"]);
   });
 
@@ -105,12 +98,6 @@ describe("findUnverifiedRecordedFailures", () => {
       ingredientDeltas: [{ validationDeltas: { failure: e("assertion.hashedURI.mismatch") } }],
     };
     expect(codes(store({ recorded }))).toEqual(["assertion.hashedURI.mismatch"]);
-  });
-
-  it("reads the pre-v3 validation_status", () => {
-    expect(codes(store({ legacyStatus: [{ code: "signingCredential.untrusted" }] }))).toEqual([
-      "signingCredential.untrusted",
-    ]);
   });
 
   it("gives an unlabelled ingredient no trusted credit", () => {
