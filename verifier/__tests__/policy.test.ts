@@ -44,6 +44,7 @@ import { loadTrustConfig } from "../src/trust/loader.js";
 import { makeTrustSourceResolver } from "../src/trust/dispatcher.js";
 import { lookupSigningKeyRevocation } from "../src/db.js";
 import { VerifyErrorCode } from "../src/errors.js";
+import type { ManifestStoreShape } from "../src/c2pa-shape.js";
 
 const trustSourcesPath = resolve(import.meta.dirname, "../trust-sources.yaml");
 const trustConfig = await loadTrustConfig(trustSourcesPath);
@@ -164,13 +165,12 @@ function recordedResultsFor(
         validation_results: {
           activeManifest: {
             success: [
+              { code: "signingCredential.trusted" },
               { code: "claimSignature.validated" },
               { code: matchCode },
             ],
             informational: [],
-            // Real recorded reports from anchorless photo-attest builds carry
-            // cert-trust failures; the binding gate must ignore them.
-            failure: [{ code: "signingCredential.untrusted" }],
+            failure: [],
           },
         },
       };
@@ -1251,5 +1251,60 @@ describe("Policy — Stage 1 hard binding (recorded sign-time verdict)", () => {
     await expect(
       verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({ code: VerifyErrorCode.PARENT_BINDING_FAILED });
+  });
+});
+
+describe("Policy — recorded ingredient results", () => {
+  const ING_LABEL = "c2pa.ingredient.v3";
+  const ING_URI = `self#jumbf=/c2pa/urn:test:stage2/c2pa.assertions/${ING_LABEL}`;
+  const CAPTURE_SIGNATURE = "self#jumbf=/c2pa/urn:test:stage1/c2pa.signature";
+
+  /** The clean native store with `codes` as the parent's recorded failures;
+   *  `liveTrusted` adds the verifier's own trust in the parent. */
+  function recording(codes: string[], liveTrusted = false): ManifestStoreShape {
+    const store = makeRealReelStore({}) as ManifestStoreShape;
+    const ingredient = store.manifests!["urn:test:stage2"]!.ingredients![0]!;
+    ingredient.label = ING_LABEL;
+    ingredient.validation_results!.activeManifest!.failure = codes.map((code) => ({
+      code,
+      url: CAPTURE_SIGNATURE,
+      explanation: "uploader-authored text",
+    }));
+    if (liveTrusted) {
+      store.validation_results = {
+        ingredientDeltas: [
+          {
+            ingredientAssertionURI: ING_URI,
+            validationDeltas: { success: [{ code: "signingCredential.trusted", url: CAPTURE_SIGNATURE }] },
+          },
+        ],
+      };
+    }
+    return store;
+  }
+
+  it("rejects a recorded untrusted the verifier doesn't clear, without echoing its explanation", async () => {
+    await expect(
+      verifyRealReel(recording(["signingCredential.untrusted"]), "realreel", resolveSource),
+    ).rejects.toMatchObject({
+      code: VerifyErrorCode.UNTRUSTED_ISSUER,
+      detail: expect.not.stringContaining("uploader-authored"),
+    });
+  });
+
+  it("accepts it when the verifier trusts the parent", async () => {
+    stubBothKeysValid();
+    const store = recording(["signingCredential.untrusted", "signingCredential.expired"], true);
+    const result = await verifyRealReel(store, "realreel", resolveSource);
+    expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("reads the Update Manifest's record of the capture on a drained chain", async () => {
+    const store = makeDrainedStore() as ManifestStoreShape;
+    store.manifests!["urn:test:update"]!.ingredients![0]!.validation_results!.activeManifest!.failure =
+      [{ code: "signingCredential.untrusted", url: CAPTURE_SIGNATURE }];
+    await expect(
+      verifyRealReel(store, "realreel", resolveSource),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.UNTRUSTED_ISSUER });
   });
 });

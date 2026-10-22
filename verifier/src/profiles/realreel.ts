@@ -13,8 +13,9 @@
 //
 // By the time this runs, c2pa-node has parsed the manifest store, validated
 // each signature, walked each cert chain to a trust anchor in
-// trust-sources.yaml, and reported any tamper / validation issues in
-// validation_status[].
+// trust-sources.yaml, and reported validation issues in validation_status[]
+// — except an ingredient finding a recorded ingredient report already
+// lists, which enforceRecordedIngredientResults judges instead.
 //
 // Trust in the capture is enrollment-only: it rests on the Stage-1 cert
 // chaining to a trusted root (the RealReel CA, or a trusted vendor like
@@ -54,6 +55,7 @@ import {
   enforceParentBinding,
   enforceParentRevocationStatus,
   enforceParentTrustSource,
+  enforceRecordedIngredientResults,
   enforceStage2Parent,
   resolveCaptureThroughUpdateManifests,
   CAPTURE_ALLOWED_ACTIONS,
@@ -183,6 +185,9 @@ export async function verifyRealReel(
   // nowhere else — see trust-core policies/binding.ts, including the known
   // Pixel-video limitation.
   enforceParentBinding(store, capture);
+
+  // Recorded ingredient failures c2pa-rs left out of validation_status.
+  enforceRecordedIngredientResults(store);
 
   // Stage 2 (active) actions must be a subset of the upload-stage allowlist
   // (compression, rotation, EXIF re-injection). All structural checks run

@@ -5,6 +5,8 @@
 import {
   findDisallowedActions,
   findRecordedBindingViolation,
+  findUnverifiedRecordedFailures,
+  getIngredientAssertionUri,
   isTimestampUpdateManifest,
   requireFreshCapture,
   resolveParentOfIngredient,
@@ -233,14 +235,9 @@ function captureIngredientAssertionUris(
   if (typeof capture.label !== "string") return uris;
   for (const [holderLabel, manifest] of Object.entries(store.manifests ?? {})) {
     for (const ingredient of manifest.ingredients ?? []) {
-      if (
-        ingredient.active_manifest === capture.label &&
-        typeof ingredient.label === "string"
-      ) {
-        uris.add(
-          `self#jumbf=/c2pa/${holderLabel}/c2pa.assertions/${ingredient.label}`,
-        );
-      }
+      if (ingredient.active_manifest !== capture.label) continue;
+      const uri = getIngredientAssertionUri(holderLabel, ingredient.label);
+      if (uri !== null) uris.add(uri);
     }
   }
   return uris;
@@ -272,6 +269,20 @@ export function enforceParentBinding(
       `Stage 1 hard binding not verified clean at sign time (${violation.reason}): ${violation.detail}`,
     );
   }
+}
+
+/**
+ * Reject a recorded ingredient failure that c2pa-rs left out of
+ * `validation_status`, classified as it would be live. See trust-core
+ * policies/recorded-results.ts.
+ */
+export function enforceRecordedIngredientResults(
+  store: ManifestStoreShape,
+): void {
+  // The recorded explanation is uploader-authored; the code alone is the detail.
+  classifyStrictValidationStatus(
+    findUnverifiedRecordedFailures(store).map((e) => ({ code: e.code, url: e.url })),
+  );
 }
 
 // Interposed timestamp Update Manifest walk-through.

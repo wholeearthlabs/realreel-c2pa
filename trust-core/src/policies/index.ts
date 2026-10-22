@@ -41,6 +41,8 @@ export {
   type RecordedBindingViolation,
 } from "./binding.js";
 
+export { findUnverifiedRecordedFailures } from "./recorded-results.js";
+
 export { ALLOWED_UPLOAD_MIME_TYPES } from "./media-types.js";
 
 export {
