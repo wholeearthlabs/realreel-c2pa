@@ -1888,6 +1888,12 @@ class PhotoAttestModule : Module() {
     // requires it to match the CPL record. Lockstep with iOS.
     const val C2PA_SPEC_VERSION = "2.4.0"
 
+    // c2pa-rs's built-in list of accepted signing-cert EKUs, which it clears
+    // when it loads trust settings and reloads only from trust_config.
+    // Lockstep with iOS and the verifier (verifier/__tests__/signing-ekus.test.ts).
+    const val C2PA_SIGNING_EKU_OIDS =
+      "1.3.6.1.5.5.7.3.4\n1.3.6.1.5.5.7.3.36\n1.3.6.1.5.5.7.3.8\n1.3.6.1.5.5.7.3.9\n1.3.6.1.4.1.311.76.59.1.9\n1.3.6.1.4.1.62558.2.1\n"
+
     // Inject the client trust pool (trust-core's CLIENT_TRUST_ANCHORS_PEM,
     // passed from JS) into a base settings JSON. With anchors present, the
     // parent-ingredient validation c2pa-rs runs during the sign — whose
@@ -1914,7 +1920,12 @@ class PhotoAttestModule : Module() {
     fun settingsWithTrustAnchors(baseSettingsJson: String, trustAnchorsPem: String?): String {
       if (trustAnchorsPem.isNullOrBlank()) return baseSettingsJson
       val settings = JSONObject(baseSettingsJson)
-      settings.put("trust", JSONObject().put("trust_anchors", trustAnchorsPem))
+      settings.put(
+        "trust",
+        JSONObject()
+          .put("trust_anchors", trustAnchorsPem)
+          .put("trust_config", C2PA_SIGNING_EKU_OIDS),
+      )
       val verify = settings.optJSONObject("verify")
         ?: JSONObject().also { settings.put("verify", it) }
       verify.put("verify_trust", true)

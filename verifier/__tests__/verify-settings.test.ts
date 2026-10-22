@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { buildVerifierSettings, fetchesOcsp } from "../src/verify.js";
+import { buildVerifierSettings, C2PA_SIGNING_EKU_OIDS, fetchesOcsp } from "../src/verify.js";
 import type { TrustConfig } from "../src/trust/types.js";
 
 const NO_HOSTS: TrustConfig = {
@@ -65,9 +65,10 @@ describe("verifier c2pa settings", () => {
     expect(parse(buildVerifierSettings(NO_HOSTS)).verify.verify_timestamp_trust).toBe(true);
   });
 
-  it("pins the trust block: our bundle as the one anchor set, nothing else", () => {
+  it("pins the trust block: our bundle as the one anchor set, plus the EKU list", () => {
     // c2pa-rs 0.91 shape. A dropped entry fails closed: every manifest reads
-    // signingCredential.untrusted.
+    // signingCredential.untrusted (anchors) or .invalid (EKU list).
+    const ekus = `${C2PA_SIGNING_EKU_OIDS.join("\n")}\n`;
     const settings = parse(buildVerifierSettings(NO_HOSTS));
     expect(settings.trust).toEqual({
       anchors: [
@@ -75,8 +76,10 @@ describe("verifier c2pa settings", () => {
           trust_anchors: NO_HOSTS.trustAnchorsBundle,
           trust_uri: "manifest_system_anchors",
           trust_kind: "manifest",
+          trust_config: ekus,
         },
       ],
+      trust_config: ekus,
     });
   });
 });

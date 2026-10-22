@@ -59,8 +59,8 @@ describe("harness inputs", () => {
   });
 
   it("omits the anchors key when both lists are empty (c2pa-rs rejects an empty anchor string)", () => {
-    const settings = JSON.parse(harnessSettings("", "")) as Record<string, unknown>;
-    expect("trust" in settings).toBe(false);
+    const settings = JSON.parse(harnessSettings("", "")) as { trust?: object };
+    expect(settings.trust).not.toHaveProperty("anchors");
   });
 
   it("parses the validation time strictly as RFC 3339 with an offset", () => {
