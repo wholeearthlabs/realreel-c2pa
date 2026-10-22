@@ -167,7 +167,11 @@ export async function verifyRealReel(
   // (no-op on the common never-offline path). Each Update Manifest is
   // validated en route; per _shared.ts, the interposition can only add a
   // timestamp, never an edit.
-  const capture = resolveCaptureThroughUpdateManifests(store, immediateParent);
+  const capture = resolveCaptureThroughUpdateManifests(
+    store,
+    immediateParent,
+    resolveTrustSource,
+  );
 
   // Stage 1 structural rules — issuer-agnostic. A wrap-mode third-party
   // capture (Pixel etc.) must still be a fresh capture with only c2pa.created;

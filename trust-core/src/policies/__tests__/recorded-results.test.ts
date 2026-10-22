@@ -71,7 +71,7 @@ describe("findUnverifiedRecordedFailures", () => {
     expect(codes(store({ recorded }))).toEqual(["signingCredential.untrusted"]);
   });
 
-  it("clears signingCredential.* codes on a parent the verifier trusts", () => {
+  it("clears untrusted and expired on a parent the verifier trusts", () => {
     const recorded = {
       activeManifest: { failure: e("signingCredential.untrusted", "signingCredential.expired") },
     };
@@ -81,6 +81,26 @@ describe("findUnverifiedRecordedFailures", () => {
   it("clears nothing else on a trusted parent", () => {
     const recorded = { activeManifest: { failure: e("claimSignature.mismatch") } };
     expect(codes(store({ recorded, liveTrusted: true }))).toEqual(["claimSignature.mismatch"]);
+  });
+
+  it("never clears a revoked or invalid credential on a trusted parent", () => {
+    const recorded = {
+      activeManifest: { failure: e("signingCredential.ocsp.revoked", "signingCredential.invalid") },
+    };
+    expect(codes(store({ recorded, liveTrusted: true }))).toEqual([
+      "signingCredential.ocsp.revoked",
+      "signingCredential.invalid",
+    ]);
+  });
+
+  it("clears only entries about the trusted parent itself", () => {
+    const other = "self#jumbf=/c2pa/urn:c2pa:other/c2pa.signature";
+    const recorded = {
+      ingredientDeltas: [
+        { validationDeltas: { failure: [{ code: "signingCredential.untrusted", url: other }] } },
+      ],
+    };
+    expect(codes(store({ recorded, liveTrusted: true }))).toEqual(["signingCredential.untrusted"]);
   });
 
   it("judges the code, not the bucket", () => {

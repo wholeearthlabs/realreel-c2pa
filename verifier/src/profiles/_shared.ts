@@ -301,10 +301,13 @@ export function enforceRecordedIngredientResults(
 //
 // Security: the interposition can only ADD a timestamp, never an edit. Each
 // Update Manifest is gated to carry NO editorial action and exactly one
-// parentOf ingredient; the capture beneath still faces the full fresh-capture +
-// action-allowlist + revocation-denylist gates. Revocation is covered without a
-// separate lookup here: the TSA queue is device-local, so the draining key IS
-// the capturing key that the Stage-1 denylist already checks. If a future
+// parentOf ingredient, and must be signed under a RealReel source: it carries
+// the capture's recorded report, which the parent gates read, so only the
+// draining app may write it. The capture beneath still faces the full
+// fresh-capture + action-allowlist + revocation-denylist gates. Revocation is
+// covered without a separate lookup here: the TSA queue is device-local, so
+// the draining key IS the capturing key that the Stage-1 denylist already
+// checks. If a future
 // design ever let a queue entry drain on a DIFFERENT device than it was
 // captured on, add a denylist lookup on each interposed Update Manifest's
 // cert_serial here.
@@ -340,13 +343,14 @@ const MAX_UPDATE_MANIFEST_DEPTH = 4;
  * the Stage-1 gates). When the immediate parent is already a fresh capture
  * (today's common, never-offline path), returns it unchanged.
  *
- * Throws VerifyError if an Update Manifest carries a disallowed action, its
- * parent ingredient is malformed/dangling, or the chain exceeds
- * MAX_UPDATE_MANIFEST_DEPTH.
+ * Throws VerifyError if an Update Manifest carries a disallowed action, isn't
+ * signed under a RealReel source, its parent ingredient is malformed/dangling,
+ * or the chain exceeds MAX_UPDATE_MANIFEST_DEPTH.
  */
 export function resolveCaptureThroughUpdateManifests(
   store: ManifestStoreShape,
   immediateParent: ManifestShape,
+  resolveTrustSource: TrustSourceResolver,
 ): ManifestShape {
   let current = immediateParent;
   let depth = 0;
@@ -358,9 +362,27 @@ export function resolveCaptureThroughUpdateManifests(
       );
     }
     enforceUpdateManifestActions(current);
+    enforceUpdateManifestSigner(current, resolveTrustSource);
     current = enforceUpdateManifestParent(store, current);
   }
   return current;
+}
+
+function enforceUpdateManifestSigner(
+  updateManifest: ManifestShape,
+  resolveTrustSource: TrustSourceResolver,
+): void {
+  const issuer = updateManifest.signature_info?.issuer;
+  const source =
+    typeof issuer === "string"
+      ? resolveTrustSource(issuer, updateManifest.signature_info?.common_name)
+      : null;
+  if (source?.profile !== "realreel") {
+    throw new VerifyError(
+      VerifyErrorCode.UNTRUSTED_ISSUER,
+      "interposed timestamp Update Manifest is not signed under a RealReel trust source",
+    );
+  }
 }
 
 /** The Update Manifest's lone parentOf ingredient. Mirrors enforceStage2Parent's

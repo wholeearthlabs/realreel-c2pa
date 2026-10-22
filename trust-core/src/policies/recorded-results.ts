@@ -6,10 +6,10 @@
 // never reaches the strict classifier. This recovers those failures.
 //
 // The signer's trust pool is narrower than the verifier's, so a recorded
-// `signingCredential.*` failure can be a false alarm. When the verifier's own
-// pool trusts the parent's chain, c2pa-rs reports `signingCredential.trusted`
-// for it (unsuppressed, since the record disagrees), and that clears the
-// parent's recorded `signingCredential.*` codes.
+// `signingCredential.untrusted` or `.expired` can be a false alarm. When the
+// verifier's own pool trusts the parent's chain, c2pa-rs reports
+// `signingCredential.trusted` for it (unsuppressed, since the record
+// disagrees), and that clears those two codes on the parent's own entries.
 
 import {
   getIngredientAssertionUri,
@@ -51,8 +51,11 @@ const NON_FAILURE_CODES: ReadonlySet<string> = new Set([
   "assertion.dataHash.additionalExclusionsPresent",
 ]);
 
-const SIGNING_CREDENTIAL_PREFIX = "signingCredential.";
 const SIGNING_CREDENTIAL_TRUSTED = "signingCredential.trusted";
+const CLEARED_ON_TRUSTED_PARENT: ReadonlySet<string> = new Set([
+  "signingCredential.untrusted",
+  "signingCredential.expired",
+]);
 
 function bucketEntries(
   buckets: ValidationResultsBucketsShape | undefined,
@@ -85,10 +88,10 @@ function trustedParentUris(store: ManifestStoreShape): Set<string> {
 
 /**
  * The failure codes recorded on any ingredient, minus hard-binding codes
- * (findRecordedBindingViolation's job) and minus `signingCredential.*` codes
- * on a parent the verifier itself trusts. Reads every bucket and the report's
- * own ingredient deltas, else the pre-v3 `validation_status`: the same
- * statuses c2pa-rs reconciles against.
+ * (findRecordedBindingViolation's job) and minus the untrusted/expired entries
+ * about a parent the verifier itself trusts. Reads every bucket and the
+ * report's own ingredient deltas, else the pre-v3 `validation_status`: the
+ * same statuses c2pa-rs reconciles against.
  */
 export function findUnverifiedRecordedFailures(
   store: ManifestStoreShape,
@@ -98,7 +101,12 @@ export function findUnverifiedRecordedFailures(
   for (const [holderLabel, manifest] of Object.entries(store.manifests ?? {})) {
     for (const ingredient of manifest.ingredients ?? []) {
       const uri = getIngredientAssertionUri(holderLabel, ingredient.label);
-      const parentTrusted = uri !== null && trusted.has(uri);
+      const trustedParentUrl =
+        uri !== null &&
+        trusted.has(uri) &&
+        typeof ingredient.active_manifest === "string"
+          ? `self#jumbf=/c2pa/${ingredient.active_manifest}/`
+          : null;
       const results = ingredient.validation_results;
       const entries = results
         ? [
@@ -113,7 +121,14 @@ export function findUnverifiedRecordedFailures(
         const code = entry?.code;
         if (typeof code !== "string") continue;
         if (NON_FAILURE_CODES.has(code) || isBindingCode(code)) continue;
-        if (parentTrusted && code.startsWith(SIGNING_CREDENTIAL_PREFIX)) continue;
+        if (
+          trustedParentUrl !== null &&
+          CLEARED_ON_TRUSTED_PARENT.has(code) &&
+          typeof entry.url === "string" &&
+          entry.url.startsWith(trustedParentUrl)
+        ) {
+          continue;
+        }
         out.push(entry);
       }
     }

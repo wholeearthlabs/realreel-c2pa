@@ -844,6 +844,8 @@ function makeDrainedStore(opts?: {
   captureIngredients?: Array<{ active_manifest?: string; relationship?: string }>;
   /** Actions on the true capture. Default [c2pa.created]. */
   captureActions?: string[];
+  /** The Update Manifest's signer. Default a RealReel one. */
+  updateSigner?: { issuer: string; common_name?: string };
 }): unknown {
   const updateAssertions: Array<{ label: string; data: unknown }> = [
     {
@@ -885,7 +887,10 @@ function makeDrainedStore(opts?: {
       },
       "urn:test:update": {
         label: "urn:test:update",
-        signature_info: { cert_serial_number: UPDATE_SERIAL },
+        signature_info: {
+          cert_serial_number: UPDATE_SERIAL,
+          ...(opts?.updateSigner ?? { issuer: "Whole Earth Labs LLC" }),
+        },
         ingredients: [
           {
             active_manifest: opts?.updateParentLabel ?? "urn:test:stage1",
@@ -1063,6 +1068,15 @@ describe("Policy — TSA Update Manifest walk-through", () => {
     });
   });
 
+  it.each([
+    ["a wrap-mode vendor", { issuer: "C=US, O=Google LLC", common_name: "Pixel Camera" }],
+    ["an unknown issuer", { issuer: "C=US, O=Example Corp" }],
+  ])("rejects an Update Manifest signed by %s", async (_, updateSigner) => {
+    await expect(
+      verifyRealReel(makeDrainedStore({ updateSigner }), "realreel", resolveSource),
+    ).rejects.toMatchObject({ code: VerifyErrorCode.UNTRUSTED_ISSUER });
+  });
+
   it("rejects a chain of interposed Update Manifests deeper than the cap", async () => {
     // Build active → u1 → u2 → ... → u6 → stage1, each uN an Update Manifest.
     const manifests: Record<string, unknown> = {
@@ -1078,7 +1092,7 @@ describe("Policy — TSA Update Manifest walk-through", () => {
     for (let i = DEPTH; i >= 1; i--) {
       const child = i === DEPTH ? "urn:test:stage1" : `urn:test:u${i + 1}`;
       manifests[`urn:test:u${i}`] = {
-        signature_info: { cert_serial_number: `u${i}` },
+        signature_info: { cert_serial_number: `u${i}`, issuer: "Whole Earth Labs LLC" },
         ingredients: [{ active_manifest: child, relationship: "parentOf" }],
         assertions: [
           { label: "c2pa.actions.v2", data: { actions: [] } },

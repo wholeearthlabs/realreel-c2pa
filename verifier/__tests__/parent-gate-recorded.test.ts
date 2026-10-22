@@ -6,10 +6,14 @@
 // Fixtures (throwaway hierarchies, plain gradient base), each a capture
 // wrapped by a Stage-2 sign whose pool anchors only the capture and upload
 // roots:
-//   parent-gate-aged.jpg    capture leaf valid only in a past window; the
-//                           Stage-2 signer recorded it untrusted + expired.
+//   parent-gate-aged.jpg       capture leaf valid only in a past window; the
+//                              Stage-2 signer recorded it untrusted + expired.
 //   parent-gate-untrusted.jpg  capture under an unanchored CA; recorded
 //                              untrusted.
+//   parent-gate-drained*.jpg   the untrusted capture behind a timestamp Update
+//                              Manifest signed under a verifier-only root (not
+//                              a RealReel source); -misfiled records the
+//                              capture's failure outside the failure bucket.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { readFile, access, mkdtemp, writeFile, rm } from "node:fs/promises";
@@ -19,19 +23,27 @@ import { Reader } from "@contentauth/c2pa-node";
 
 import { buildVerifierSettings } from "../src/verify.js";
 import { loadTrustConfig } from "../src/trust/loader.js";
+import { makeTrustSourceResolver } from "../src/trust/dispatcher.js";
+import type { TrustSourceResolver } from "../src/trust/dispatcher.js";
 import {
   classifyStrictValidationStatus,
   enforceRecordedIngredientResults,
 } from "../src/profiles/_shared.js";
+import { verifyRealReel } from "../src/profiles/realreel.js";
 import { VerifyErrorCode } from "../src/errors.js";
 import type { ManifestStoreShape } from "@realreel/c2pa-trust-core";
 
 const fixturesDir = resolve(import.meta.dirname, "fixtures");
-const aged = resolve(fixturesDir, "parent-gate-aged.jpg");
-const untrusted = resolve(fixturesDir, "parent-gate-untrusted.jpg");
+const fixture = (name: string) => resolve(fixturesDir, `parent-gate-${name}.jpg`);
+const aged = fixture("aged");
+const untrusted = fixture("untrusted");
+const drained = fixture("drained");
+const drainedMisfiled = fixture("drained-misfiled");
 
 // LFS-pulled fixtures may be absent (pointer-only checkout) — skip then.
-const fixturesExist = await Promise.all([access(aged), access(untrusted)])
+const fixturesExist = await Promise.all(
+  [aged, untrusted, drained, drainedMisfiled].map((f) => access(f)),
+)
   .then(() => true)
   .catch(() => false);
 
@@ -46,6 +58,7 @@ function recordedFailures(store: ManifestStoreShape): string[] {
 describe.skipIf(!fixturesExist)("parent gate — recorded ingredient results (real engine)", () => {
   let tmp: string;
   let settings: string;
+  let resolveSource: TrustSourceResolver;
 
   beforeAll(async () => {
     tmp = await mkdtemp(join(tmpdir(), "parent-gate-"));
@@ -62,10 +75,17 @@ describe.skipIf(!fixturesExist)("parent gate — recorded ingredient results (re
         "    name: upload root (test)",
         `    root_cert: ${resolve(fixturesDir, "parent-gate-upload-root.pem")}`,
         "    verification_profile: realreel",
+        "tsa_roots:",
+        "  - id: update-root",
+        "    name: verifier-only root (test)",
+        `    root_cert: ${resolve(fixturesDir, "parent-gate-update-root.pem")}`,
+        "    client_bundle: false",
         "",
       ].join("\n"),
     );
-    settings = buildVerifierSettings(await loadTrustConfig(yamlPath));
+    const trustConfig = await loadTrustConfig(yamlPath);
+    settings = buildVerifierSettings(trustConfig);
+    resolveSource = makeTrustSourceResolver(trustConfig);
   });
 
   afterAll(async () => {
@@ -97,5 +117,22 @@ describe.skipIf(!fixturesExist)("parent gate — recorded ingredient results (re
     expect(() => enforceRecordedIngredientResults(store)).toThrow(
       expect.objectContaining({ code: VerifyErrorCode.UNTRUSTED_ISSUER }),
     );
+  });
+
+  // Each drained fixture is caught twice over: by the recorded-results gate
+  // alone, and by the Update Manifest signer check in the full profile.
+  it.each([
+    ["drained", drained],
+    ["drained-misfiled", drainedMisfiled],
+  ])("rejects the %s chain", async (_, path) => {
+    const store = await read(path);
+    expect(() => classifyStrictValidationStatus(store.validation_status ?? [])).not.toThrow();
+    expect(() => enforceRecordedIngredientResults(store)).toThrow(
+      expect.objectContaining({ code: VerifyErrorCode.UNTRUSTED_ISSUER }),
+    );
+    await expect(verifyRealReel(store, "realreel", resolveSource)).rejects.toMatchObject({
+      code: VerifyErrorCode.UNTRUSTED_ISSUER,
+      detail: expect.stringContaining("Update Manifest"),
+    });
   });
 });
