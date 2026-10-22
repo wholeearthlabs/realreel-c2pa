@@ -100,6 +100,9 @@ export interface IngredientShape {
    * reconciles its own ingredient findings against it — see
    * policies/recorded-results.ts. */
   validation_results?: ValidationResultsShape;
+  /** The pre-v3 ingredient report, which c2pa-rs reads when
+   * `validation_results` is absent. */
+  validation_status?: ValidationStatusEntryShape[];
 }
 
 /** A single manifest within store.manifests[label]. */
