@@ -145,6 +145,7 @@ export const C2PA_SIGNING_EKU_OIDS = [
   "1.3.6.1.4.1.311.76.59.1.9", // MS C2PA signing
   "1.3.6.1.4.1.62558.2.1", // C2PA claim signing
 ];
+export const C2PA_SIGNING_EKU_CONFIG = `${C2PA_SIGNING_EKU_OIDS.join("\n")}\n`;
 
 export function buildVerifierSettings(
   trust: Pick<TrustConfig, "trustAnchorsBundle" | "ocspHosts">,
@@ -153,7 +154,7 @@ export function buildVerifierSettings(
   const settings: VerifierSettings = {
     ...createTrustSettings({
       trustAnchors: trust.trustAnchorsBundle,
-      trustConfig: `${C2PA_SIGNING_EKU_OIDS.join("\n")}\n`,
+      trustConfig: C2PA_SIGNING_EKU_CONFIG,
     }),
     core: { allowedNetworkHosts: [...trust.ocspHosts] },
     verify: {

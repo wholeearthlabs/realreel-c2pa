@@ -3,20 +3,21 @@
 // gradient base. Read through the real engine with the verifier's settings.
 
 import { describe, it, expect } from "vitest";
-import { readFile, access, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Reader } from "@contentauth/c2pa-node";
 
 import { buildVerifierSettings, C2PA_SIGNING_EKU_OIDS } from "../src/verify.js";
 import { loadTrustConfig } from "../src/trust/loader.js";
+import { fixturePresent } from "./harness/_support.js";
 
 const fixturesDir = resolve(import.meta.dirname, "fixtures");
 const capture = resolve(fixturesDir, "c2pa-eku-capture.jpg");
 const nativeDir = resolve(import.meta.dirname, "../../native");
 
-// LFS-pulled fixtures may be absent (pointer-only checkout) — skip then.
-const fixtureExists = await access(capture).then(() => true, () => false);
+// LFS-pulled fixtures may be pointer stubs (no `git lfs pull`) — skip then.
+const fixtureExists = await fixturePresent("c2pa-eku-capture.jpg");
 
 describe("signing-cert EKUs", () => {
   it.skipIf(!fixtureExists)("trusts a leaf whose only EKUs are C2PA claim signing / document signing", async () => {
@@ -53,11 +54,11 @@ describe("signing-cert EKUs", () => {
   });
 
   it.each([
-    ["android", "android/src/main/java/expo/modules/photoattest/PhotoAttestModule.kt", /C2PA_SIGNING_EKU_OIDS =\s*"([^"]*)"/],
-    ["ios", "ios/PhotoAttestModule.swift", /c2paSigningEkuOids =\s*"([^"]*)"/],
-  ])("photo-attest %s carries the same list", async (_, path, pattern) => {
+    ["android", "android/src/main/java/expo/modules/photoattest/PhotoAttestModule.kt"],
+    ["ios", "ios/PhotoAttestModule.swift"],
+  ])("photo-attest %s carries the same list", async (_, path) => {
     const source = await readFile(resolve(nativeDir, path), "utf-8");
-    const oids = pattern.exec(source)?.[1]?.split("\\n").filter(Boolean);
+    const oids = /"trust_config":"([^"]*)"/.exec(source)?.[1]?.split("\\n").filter(Boolean);
     expect(oids).toEqual(C2PA_SIGNING_EKU_OIDS);
   });
 });

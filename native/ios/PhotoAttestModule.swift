@@ -713,8 +713,13 @@ public class PhotoAttestModule: Module {
   private static let BUILDER_SETTINGS_JSON =
     #""created_assertion_labels":["c2pa.actions","c2pa.ingredient","c2pa.thumbnail.claim","c2pa.thumbnail.ingredient","c2pa.time-stamp","c2pa.metadata","org.realreel.capture","org.realreel.upload","org.realreel.play_integrity","org.realreel.app_attest"],"actions":{"all_actions_included":true}"#
 
+  // Android's TRUST_SETTINGS_JSON: c2pa-rs's built-in EKU list, cleared when
+  // it loads settings and reloaded only from trust_config. Lockstep with Android.
+  private static let TRUST_SETTINGS_JSON =
+    #""trust":{"trust_config":"1.3.6.1.5.5.7.3.4\n1.3.6.1.5.5.7.3.36\n1.3.6.1.5.5.7.3.8\n1.3.6.1.5.5.7.3.9\n1.3.6.1.4.1.311.76.59.1.9\n1.3.6.1.4.1.62558.2.1\n"}"#
+
   private static let SIGN_SETTINGS_JSON =
-    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false},"thumbnail":{"enabled":true},"# + BUILDER_SETTINGS_JSON + #"}}"#
+    #"{"version":1,"# + TRUST_SETTINGS_JSON + #","verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false},"thumbnail":{"enabled":true},"# + BUILDER_SETTINGS_JSON + #"}}"#
 
   // Update-Manifest drain: auto-timestamp ON with fetch_scope=parent, so
   // c2pa-rs stamps the PARENT (Stage-1) signature it auto-incorporates from the
@@ -726,7 +731,7 @@ public class PhotoAttestModule: Module {
   // c2pa.thumbnail.ingredient when it does not (e.g. a parent signed under a
   // root outside the trust pool) — this pins the fallback off.
   private static let UPDATE_MANIFEST_SETTINGS_JSON =
-    #"{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"},"thumbnail":{"enabled":false},"# + BUILDER_SETTINGS_JSON + #"}}"#
+    #"{"version":1,"# + TRUST_SETTINGS_JSON + #","verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"},"thumbnail":{"enabled":false},"# + BUILDER_SETTINGS_JSON + #"}}"#
 
   // claim_generator_info.specVersion — the spec version this signer targets,
   // in the SemVer form the spec's CDDL requires; the Conformance Program
@@ -751,11 +756,6 @@ public class PhotoAttestModule: Module {
   // signs (every path sets verify_trust explicitly, as above); the one cost is
   // that a pool dropped by an in-process JS reload stays trusted until restart.
   // The 0.92 move to context-based builders ends this.
-  // Android's C2PA_SIGNING_EKU_OIDS: c2pa-rs's built-in EKU list, cleared when
-  // it loads trust settings and reloaded only from trust_config. Lockstep with Android.
-  private static let c2paSigningEkuOids =
-    "1.3.6.1.5.5.7.3.4\n1.3.6.1.5.5.7.3.36\n1.3.6.1.5.5.7.3.8\n1.3.6.1.5.5.7.3.9\n1.3.6.1.4.1.311.76.59.1.9\n1.3.6.1.4.1.62558.2.1\n"
-
   private static func settingsWithTrustAnchors(
     _ baseSettingsJson: String,
     trustAnchorsPem: String?
@@ -775,7 +775,9 @@ public class PhotoAttestModule: Module {
         message: "base c2pa settings JSON is not an object"
       )
     }
-    settings["trust"] = ["trust_anchors": pem, "trust_config": c2paSigningEkuOids]
+    var trust = settings["trust"] as? [String: Any] ?? [:]
+    trust["trust_anchors"] = pem
+    settings["trust"] = trust
     var verify = settings["verify"] as? [String: Any] ?? [:]
     verify["verify_trust"] = true
     verify["verify_timestamp_trust"] = true

@@ -1868,8 +1868,15 @@ class PhotoAttestModule : Module() {
     const val BUILDER_SETTINGS_JSON =
       """"created_assertion_labels":["c2pa.actions","c2pa.ingredient","c2pa.thumbnail.claim","c2pa.thumbnail.ingredient","c2pa.time-stamp","c2pa.metadata","org.realreel.capture","org.realreel.upload","org.realreel.play_integrity","org.realreel.app_attest"],"actions":{"all_actions_included":true}"""
 
+    // c2pa-rs's built-in list of accepted signing-cert EKUs, which it clears
+    // when it loads settings and reloads only from trust_config. In every base
+    // settings JSON, so the anchorless fallbacks keep it too. Lockstep with iOS
+    // and the verifier (verifier/__tests__/signing-ekus.test.ts).
+    const val TRUST_SETTINGS_JSON =
+      """"trust":{"trust_config":"1.3.6.1.5.5.7.3.4\n1.3.6.1.5.5.7.3.36\n1.3.6.1.5.5.7.3.8\n1.3.6.1.5.5.7.3.9\n1.3.6.1.4.1.311.76.59.1.9\n1.3.6.1.4.1.62558.2.1\n"}"""
+
     const val SIGN_SETTINGS_JSON =
-      """{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false},$BUILDER_SETTINGS_JSON}}"""
+      """{"version":1,$TRUST_SETTINGS_JSON,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":false},$BUILDER_SETTINGS_JSON}}"""
 
     // Update-Manifest drain: auto-timestamp ON with fetch_scope=parent, so
     // c2pa-rs stamps the PARENT (Stage-1) signature it auto-incorporates from
@@ -1881,18 +1888,12 @@ class PhotoAttestModule : Module() {
     // c2pa.thumbnail.ingredient when it does not (e.g. a parent signed under a
     // root outside the trust pool) — this pins the fallback off.
     const val UPDATE_MANIFEST_SETTINGS_JSON =
-      """{"version":1,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"},"thumbnail":{"enabled":false},$BUILDER_SETTINGS_JSON}}"""
+      """{"version":1,$TRUST_SETTINGS_JSON,"verify":{"verify_trust":false,"verify_after_sign":false,"remote_manifest_fetch":false,"ocsp_fetch":false},"builder":{"auto_timestamp_assertion":{"enabled":true,"skip_existing":false,"fetch_scope":"parent"},"thumbnail":{"enabled":false},$BUILDER_SETTINGS_JSON}}"""
 
     // claim_generator_info.specVersion — the spec version this signer targets,
     // in the SemVer form the spec's CDDL requires; the Conformance Program
     // requires it to match the CPL record. Lockstep with iOS.
     const val C2PA_SPEC_VERSION = "2.4.0"
-
-    // c2pa-rs's built-in list of accepted signing-cert EKUs, which it clears
-    // when it loads trust settings and reloads only from trust_config.
-    // Lockstep with iOS and the verifier (verifier/__tests__/signing-ekus.test.ts).
-    const val C2PA_SIGNING_EKU_OIDS =
-      "1.3.6.1.5.5.7.3.4\n1.3.6.1.5.5.7.3.36\n1.3.6.1.5.5.7.3.8\n1.3.6.1.5.5.7.3.9\n1.3.6.1.4.1.311.76.59.1.9\n1.3.6.1.4.1.62558.2.1\n"
 
     // Inject the client trust pool (trust-core's CLIENT_TRUST_ANCHORS_PEM,
     // passed from JS) into a base settings JSON. With anchors present, the
@@ -1920,12 +1921,9 @@ class PhotoAttestModule : Module() {
     fun settingsWithTrustAnchors(baseSettingsJson: String, trustAnchorsPem: String?): String {
       if (trustAnchorsPem.isNullOrBlank()) return baseSettingsJson
       val settings = JSONObject(baseSettingsJson)
-      settings.put(
-        "trust",
-        JSONObject()
-          .put("trust_anchors", trustAnchorsPem)
-          .put("trust_config", C2PA_SIGNING_EKU_OIDS),
-      )
+      val trust = settings.optJSONObject("trust")
+        ?: JSONObject().also { settings.put("trust", it) }
+      trust.put("trust_anchors", trustAnchorsPem)
       val verify = settings.optJSONObject("verify")
         ?: JSONObject().also { settings.put("verify", it) }
       verify.put("verify_trust", true)

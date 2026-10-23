@@ -55,7 +55,7 @@ vi.mock("../src/db.js", () => {
   };
 });
 
-import { verify } from "../src/verify.js";
+import { buildVerifierSettings, verify } from "../src/verify.js";
 import { loadTrustConfig } from "../src/trust/loader.js";
 import { lookupSigningKeyRevocation } from "../src/db.js";
 import { VerifyErrorCode } from "../src/errors.js";
@@ -483,15 +483,10 @@ describe("verify() — TSA-trust state surfaces in top-level validation_results"
   // verify.ts uses.
 
   it("emits timeStamp.trusted in success when TSA roots are loaded; timeStamp.untrusted in informational when stripped", async () => {
-    const [{ Reader, createTrustSettings, settingsToJson }] = await Promise.all([
-      import("@contentauth/c2pa-node"),
-    ]);
+    const { Reader } = await import("@contentauth/c2pa-node");
 
     async function timestampCodes(bundle: string) {
-      const settings = settingsToJson({
-        ...createTrustSettings({ trustAnchors: bundle }),
-        verify: { verifyTimestampTrust: true },
-      });
+      const settings = buildVerifierSettings({ trustAnchorsBundle: bundle, ocspHosts: [] });
       const reader = await Reader.fromAsset(
         { buffer: fixtureBytes, mimeType: "image/jpeg" },
         settings,
