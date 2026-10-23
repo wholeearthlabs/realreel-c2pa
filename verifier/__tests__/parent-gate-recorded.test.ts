@@ -19,7 +19,7 @@
 //                              capture's failure outside the failure bucket.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { readFile, access, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Reader } from "@contentauth/c2pa-node";
@@ -34,6 +34,7 @@ import {
 } from "../src/profiles/_shared.js";
 import { verifyRealReel } from "../src/profiles/realreel.js";
 import { VerifyErrorCode } from "../src/errors.js";
+import { fixturePresent } from "./harness/_support.js";
 import type { ManifestStoreShape } from "@realreel/c2pa-trust-core";
 
 const fixturesDir = resolve(import.meta.dirname, "fixtures");
@@ -44,12 +45,14 @@ const untrusted = fixture("untrusted");
 const drained = fixture("drained");
 const drainedMisfiled = fixture("drained-misfiled");
 
-// LFS-pulled fixtures may be absent (pointer-only checkout) — skip then.
-const fixturesExist = await Promise.all(
-  [staleBundle, aged, untrusted, drained, drainedMisfiled].map((f) => access(f)),
-)
-  .then(() => true)
-  .catch(() => false);
+// LFS-pulled fixtures may be pointer stubs (no `git lfs pull`) — skip then.
+const fixturesExist = (
+  await Promise.all(
+    ["stale-bundle", "aged", "untrusted", "drained", "drained-misfiled"].map((n) =>
+      fixturePresent(`parent-gate-${n}.jpg`),
+    ),
+  )
+).every(Boolean);
 
 function recordedFailures(store: ManifestStoreShape): string[] {
   return Object.values(store.manifests ?? {}).flatMap((m) =>

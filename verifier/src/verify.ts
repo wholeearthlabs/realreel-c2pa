@@ -132,12 +132,30 @@ type VerifierSettings = Settings & {
   core: { allowedNetworkHosts: string[] };
 };
 
+// c2pa-rs's built-in list of accepted signing-cert EKUs. Building its trust
+// policy from settings clears that list and reloads it only from trust_config,
+// so without this a leaf whose EKUs are only C2PA claim signing / document
+// signing reads signingCredential.invalid. Lockstep with photo-attest's native
+// settings (signing-ekus.test.ts).
+export const C2PA_SIGNING_EKU_OIDS = [
+  "1.3.6.1.5.5.7.3.4", // id-kp-emailProtection
+  "1.3.6.1.5.5.7.3.36", // id-kp-documentSigning
+  "1.3.6.1.5.5.7.3.8", // id-kp-timeStamping
+  "1.3.6.1.5.5.7.3.9", // id-kp-OCSPSigning
+  "1.3.6.1.4.1.311.76.59.1.9", // MS C2PA signing
+  "1.3.6.1.4.1.62558.2.1", // C2PA claim signing
+];
+export const C2PA_SIGNING_EKU_CONFIG = `${C2PA_SIGNING_EKU_OIDS.join("\n")}\n`;
+
 export function buildVerifierSettings(
   trust: Pick<TrustConfig, "trustAnchorsBundle" | "ocspHosts">,
   networkRevocation = false,
 ): string {
   const settings: VerifierSettings = {
-    ...createTrustSettings({ trustAnchors: trust.trustAnchorsBundle }),
+    ...createTrustSettings({
+      trustAnchors: trust.trustAnchorsBundle,
+      trustConfig: C2PA_SIGNING_EKU_CONFIG,
+    }),
     core: { allowedNetworkHosts: [...trust.ocspHosts] },
     verify: {
       verifyTimestampTrust: true,

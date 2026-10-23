@@ -217,8 +217,8 @@ export function pemCertificates(bundle: string): string[] {
  *  and TSA certificates (EKU-discriminated), so the two lists are concatenated
  *  — the same pooling trust/loader.ts does for trust-sources.yaml. No network:
  *  the host allow-list is empty and OCSP fetch stays off, which keeps the
- *  output a function of its inputs. Two empty lists leave the trust block out,
- *  so nothing is trusted. */
+ *  output a function of its inputs. Two empty lists leave the anchors out
+ *  (only the EKU list remains), so nothing is trusted. */
 export function harnessSettings(trustListPem: string, tsaTrustListPem: string): string {
   const anchors = [...pemCertificates(trustListPem), ...pemCertificates(tsaTrustListPem)];
   return buildVerifierSettings({

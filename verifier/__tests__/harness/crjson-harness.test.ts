@@ -21,6 +21,7 @@ import {
   toFaketime,
   type CrjsonDocument,
 } from "../../src/harness/crjson.js";
+import { C2PA_SIGNING_EKU_CONFIG } from "../../src/verify.js";
 import { buildVerifierSettings } from "../../src/verify.js";
 import { AT, fixture, fixturesReady, harnessAvailable, schemaErrors, TRUST_LISTS, TSA_LISTS } from "./_support.js";
 
@@ -59,8 +60,8 @@ describe("harness inputs", () => {
   });
 
   it("omits the anchors key when both lists are empty (c2pa-rs rejects an empty anchor string)", () => {
-    const settings = JSON.parse(harnessSettings("", "")) as Record<string, unknown>;
-    expect("trust" in settings).toBe(false);
+    const settings = JSON.parse(harnessSettings("", "")) as { trust?: object };
+    expect(settings.trust).toEqual({ trust_config: C2PA_SIGNING_EKU_CONFIG });
   });
 
   it("parses the validation time strictly as RFC 3339 with an offset", () => {

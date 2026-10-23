@@ -123,8 +123,12 @@ When a c2pa-swift / c2pa-android release moves to c2pa-rs ≥ 0.92:
 2. Switch both platforms, in lockstep, to the shape 0.91 derives from the legacy field:
 
    ```json
-   "trust": { "anchors": [ { "trust_kind": "manifest", "trust_uri": "system_anchors", "trust_anchors": "<PEM pool>" } ] }
+   "trust": { "trust_config": "<EKU list>", "anchors": [ { "trust_kind": "manifest", "trust_uri": "system_anchors", "trust_anchors": "<PEM pool>" } ] }
    ```
+
+   Keep `trust_config` (`TRUST_SETTINGS_JSON`, also in the base settings): c2pa-rs
+   clears its built-in EKU list when it loads settings, so dropping it records a
+   ProofMode-style parent as `signingCredential.invalid`.
 
    Keep one `manifest` entry for the whole pool: the TSA check pools anchors of
    every kind, but OCSP responder chaining reads `manifest` only.
