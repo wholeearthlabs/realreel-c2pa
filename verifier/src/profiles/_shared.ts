@@ -3,6 +3,7 @@
 // pure policies from @realreel/c2pa-trust-core into thrown VerifyErrors.
 
 import {
+  CAPTURE_CERT_EXPIRED_DETAIL_PREFIX,
   findDisallowedActions,
   findRecordedBindingViolation,
   findUnverifiedRecordedFailures,
@@ -30,12 +31,6 @@ const OCSP_NOT_REVOKED = "signingCredential.ocsp.notRevoked";
 const OCSP_FETCHED_RESPONSE_URL = "OCSP_RESPONSE";
 const isFetchedNotRevoked = (e: { code: string; url?: string | null }): boolean =>
   e.code === OCSP_NOT_REVOKED && e.url === OCSP_FETCHED_RESPONSE_URL;
-
-/** Starts the detail of a CERT_EXPIRED about a signature other than this
- *  upload's (the photo's capture or timestamp manifest), so the app can say
- *  retrying won't help instead of re-enrolling. App-facing format, pinned by
- *  tests. */
-export const CAPTURE_CERT_EXPIRED_DETAIL_PREFIX = "capture: ";
 
 /**
  * Map a c2pa-rs validation_status array to our VerifyError taxonomy.

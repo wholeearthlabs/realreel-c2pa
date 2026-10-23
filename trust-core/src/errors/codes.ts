@@ -118,3 +118,9 @@ export const VerifyErrorCode = {
 } as const;
 
 export type VerifyErrorCode = typeof VerifyErrorCode[keyof typeof VerifyErrorCode];
+
+/** Starts the detail of a CERT_EXPIRED about a signature already in the photo
+ *  (its capture or timestamp manifest) rather than the upload's own: that
+ *  certificate expired before any trusted timestamp, so re-enrolling and
+ *  retrying can't help. The verifier sets it; the app keys its copy off it. */
+export const CAPTURE_CERT_EXPIRED_DETAIL_PREFIX = "capture: ";
