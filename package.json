@@ -35,6 +35,6 @@
     "@changesets/changelog-github": "^1.0.1",
     "@changesets/cli": "^3.0.3",
     "eslint": "^9.39.5",
-    "typescript-eslint": "^8.71.0"
+    "typescript-eslint": "^8.72.0"
   }
 }
