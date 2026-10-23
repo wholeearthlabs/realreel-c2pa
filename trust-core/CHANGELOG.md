@@ -1,5 +1,17 @@
 # @realreel/c2pa-trust-core
 
+## 0.9.0
+
+### Minor Changes
+
+- [#105](https://github.com/wholeearthlabs/realreel-c2pa/pull/105) [`ad7c75a`](https://github.com/wholeearthlabs/realreel-c2pa/commit/ad7c75a2a8f04e2586650f3917dbcf13d4960998) Thanks [@boojamya](https://github.com/boojamya)! - New `CAPTURE_CERT_EXPIRED_DETAIL_PREFIX`: the start of a `CERT_EXPIRED` detail about a certificate already in the photo rather than the upload's own, for the app to key its message off.
+
+- [#101](https://github.com/wholeearthlabs/realreel-c2pa/pull/101) [`c3f3294`](https://github.com/wholeearthlabs/realreel-c2pa/commit/c3f329492d35ecfc5ff1d72b452fa607049286bd) Thanks [@boojamya](https://github.com/boojamya)! - New `findUnverifiedRecordedFailures(store)` and `getIngredientAssertionUri`. `IngredientShape` types the recorded report's `ingredientDeltas` and the pre-v3 `validation_status`.
+
+- [#97](https://github.com/wholeearthlabs/realreel-c2pa/pull/97) [`cc3f1f3`](https://github.com/wholeearthlabs/realreel-c2pa/commit/cc3f1f33c5e8e3e035c69483ca353c653b03fd47) Thanks [@boojamya](https://github.com/boojamya)! - ProofMode's iOS and Android camera apps join the trust list as a wrap-mode capture source: a `proofmode` `TRUSTED_ISSUERS` entry (O "Proofmode Reality Systems LLC", CNs "Proofmode for iOS" and "Proofmode for Android") and a matching `wrap_parent_only` source anchored at the Trufo C2PA Root CA (2025, ECC P384), with Trufo's OCSP responder `https://ocsp.trufo.ai`. The client trust-anchor bundle is regenerated.
+
+  `TrustedIssuer.commonNameMatch` now also takes a list, and the new `matchesCommonName` export is the one check `findTrustedIssuer` and the verifier's dispatcher share. Code that reads `commonNameMatch` directly must handle `readonly string[]`.
+
 ## 0.8.1
 
 ### Patch Changes

@@ -1,5 +1,38 @@
 # @realreel/verifier
 
+## 0.13.0
+
+### Minor Changes
+
+- [#97](https://github.com/wholeearthlabs/realreel-c2pa/pull/97) [`cc3f1f3`](https://github.com/wholeearthlabs/realreel-c2pa/commit/cc3f1f33c5e8e3e035c69483ca353c653b03fd47) Thanks [@boojamya](https://github.com/boojamya)! - ProofMode's iOS and Android camera apps join the trust list as a wrap-mode capture source: a `proofmode` `TRUSTED_ISSUERS` entry (O "Proofmode Reality Systems LLC", CNs "Proofmode for iOS" and "Proofmode for Android") and a matching `wrap_parent_only` source anchored at the Trufo C2PA Root CA (2025, ECC P384), with Trufo's OCSP responder `https://ocsp.trufo.ai`. The client trust-anchor bundle is regenerated.
+
+  `TrustedIssuer.commonNameMatch` now also takes a list, and the new `matchesCommonName` export is the one check `findTrustedIssuer` and the verifier's dispatcher share. Code that reads `commonNameMatch` directly must handle `readonly string[]`.
+
+- [#99](https://github.com/wholeearthlabs/realreel-c2pa/pull/99) [`f25ee9b`](https://github.com/wholeearthlabs/realreel-c2pa/commit/f25ee9bbae17eedd4453eed2dd4ef3d1149f4790) Thanks [@boojamya](https://github.com/boojamya)! - The verifier's engine moves to `@contentauth/c2pa-node` 0.9.10 (c2pa-rs 0.91.3), and the crJSON harness to `c2patool` 0.28.2 (c2pa-rs 0.91.2), now downloaded from `contentauth/c2patool`.
+
+  - Network revocation accepts an OCSP answer only from a responder whose certificate carries OCSP signing and chains to the anchor pool, which narrows forging a `good` answer on the path to the responder to holders of an OCSP-signing key under a pooled root.
+  - c2pa-rs 0.91 files a stapled response's `notRevoked` as `success`. The parent revocation gate now counts only a fetched answer (`url` `OCSP_RESPONSE`), so a staple still never satisfies it.
+  - The trust check now requires every certificate in the chain to be valid at signing time, and c2pa-rs logs it before the certificate profile. An expired signer therefore reads `untrusted` and then `expired`; the classifier still maps that pair to `CERT_EXPIRED`.
+  - c2pa-rs 0.91 files an OCSP `unknown` answer as informational, so it now rejects as retryable `VERIFIER_UNAVAILABLE` instead of `UNTRUSTED_ISSUER`.
+  - Trust settings use the c2pa-rs 0.91 `trust.anchors[]` shape.
+
+### Patch Changes
+
+- [#104](https://github.com/wholeearthlabs/realreel-c2pa/pull/104) [`6b356a3`](https://github.com/wholeearthlabs/realreel-c2pa/commit/6b356a3e61ba57fbbe4a219640e6020007cd5380) Thanks [@boojamya](https://github.com/boojamya)! - Accept every signing-certificate EKU c2pa-rs allows by default, including C2PA claim signing and document signing. A capture leaf carrying only those, such as ProofMode's, previously failed as `signingCredential.invalid`.
+
+- [#105](https://github.com/wholeearthlabs/realreel-c2pa/pull/105) [`ad7c75a`](https://github.com/wholeearthlabs/realreel-c2pa/commit/ad7c75a2a8f04e2586650f3917dbcf13d4960998) Thanks [@boojamya](https://github.com/boojamya)! - A `CERT_EXPIRED` about a signature other than this upload's own (the photo's capture or timestamp manifest) now has a detail starting `capture: `, so the app can say retrying won't help instead of re-enrolling.
+
+- [#97](https://github.com/wholeearthlabs/realreel-c2pa/pull/97) [`cc3f1f3`](https://github.com/wholeearthlabs/realreel-c2pa/commit/cc3f1f33c5e8e3e035c69483ca353c653b03fd47) Thanks [@boojamya](https://github.com/boojamya)! - The verifier no longer sends the `location_display_leak` Sentry warning. It fired when a precise upload's signed assertion carried GPS its file bytes lacked. That is harmless (a non-precise case is already rejected by the declared-level check) and now expected, for videos whose location comes from the capture's signed metadata. Both location-privacy rejects are unchanged.
+
+- [#101](https://github.com/wholeearthlabs/realreel-c2pa/pull/101) [`c3f3294`](https://github.com/wholeearthlabs/realreel-c2pa/commit/c3f329492d35ecfc5ff1d72b452fa607049286bd) Thanks [@boojamya](https://github.com/boojamya)! - Harden the parent gate: a failure recorded in the parent's ingredient report is rejected as the same failure found live would be, unless it is the parent's own `signingCredential.untrusted` or `.expired` and the verifier's own validation trusts that parent. An interposed timestamp Update Manifest must be signed under a RealReel trust source. The reject detail no longer echoes the recorded explanation.
+
+- [#102](https://github.com/wholeearthlabs/realreel-c2pa/pull/102) [`e008db4`](https://github.com/wholeearthlabs/realreel-c2pa/commit/e008db415dd632a165875c9463a726ef213a2bff) Thanks [@dependabot](https://github.com/apps/dependabot)! - Runtime dependency updates: `fastify` 5.12.5 → 5.12.7, `cbor-x` 1.6.6 → 1.6.7 and `google-auth-library` 11.2.0 → 11.3.1.
+
+  fastify 5.12.6 fixes GHSA-389g-gv7q-r4x8 (header `propertyNames` case normalization); the verifier declares no header schema. cbor-x 1.6.7 rejects malformed CBOR it used to report as truncated, which only tightens the App Attest assertion decode. google-auth-library 11.3 nests gaxios 8; it only mints the Play Integrity token, and a token failure still rejects as retryable `VERIFIER_UNAVAILABLE`.
+
+- Updated dependencies [[`ad7c75a`](https://github.com/wholeearthlabs/realreel-c2pa/commit/ad7c75a2a8f04e2586650f3917dbcf13d4960998), [`c3f3294`](https://github.com/wholeearthlabs/realreel-c2pa/commit/c3f329492d35ecfc5ff1d72b452fa607049286bd), [`cc3f1f3`](https://github.com/wholeearthlabs/realreel-c2pa/commit/cc3f1f33c5e8e3e035c69483ca353c653b03fd47)]:
+  - @realreel/c2pa-trust-core@0.9.0
+
 ## 0.12.3
 
 ### Patch Changes

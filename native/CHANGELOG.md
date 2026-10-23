@@ -1,5 +1,13 @@
 # @realreel/photo-attest
 
+## 0.9.1
+
+### Patch Changes
+
+- [#104](https://github.com/wholeearthlabs/realreel-c2pa/pull/104) [`6b356a3`](https://github.com/wholeearthlabs/realreel-c2pa/commit/6b356a3e61ba57fbbe4a219640e6020007cd5380) Thanks [@boojamya](https://github.com/boojamya)! - The recorded parent-ingredient validation accepts every signing-certificate EKU c2pa-rs allows by default, so a parent whose leaf carries only the C2PA claim-signing or document-signing EKU (such as ProofMode's) is no longer recorded as `signingCredential.invalid`.
+
+- [#101](https://github.com/wholeearthlabs/realreel-c2pa/pull/101) [`c3f3294`](https://github.com/wholeearthlabs/realreel-c2pa/commit/c3f329492d35ecfc5ff1d72b452fa607049286bd) Thanks [@boojamya](https://github.com/boojamya)! - Docs: the `trustAnchorsPem` contract now states that the verifier enforces recorded ingredient failures beyond hard binding.
+
 ## 0.9.0
 
 ### Minor Changes
