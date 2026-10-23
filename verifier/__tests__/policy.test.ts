@@ -1325,8 +1325,37 @@ describe("Policy — recorded ingredient results", () => {
     });
     await expect(
       verifyRealReel(store, "realreel", resolveSource, undefined, false, undefined, undefined, readWithOcsp),
-    ).rejects.toMatchObject({ code: VerifyErrorCode.UNTRUSTED_ISSUER, category: "ocsp" });
+    ).rejects.toMatchObject({
+      code: VerifyErrorCode.UNTRUSTED_ISSUER,
+      category: "ocsp",
+      detail: "signingCredential.ocsp.revoked",
+    });
     expect(readWithOcsp).not.toHaveBeenCalled();
+  });
+
+  // The app keys its "can no longer be verified" copy off this exact detail.
+  it.each([
+    [["signingCredential.expired"]],
+    [["signingCredential.untrusted", "signingCredential.expired"]],
+  ])("marks a recorded expiry as the capture's, not this upload's: %j", async (codes) => {
+    await expect(verifyRealReel(recording(codes), "realreel", resolveSource)).rejects.toMatchObject({
+      code: VerifyErrorCode.CERT_EXPIRED,
+      detail: "capture: signingCredential.expired",
+    });
+  });
+
+  it("keeps a recorded revocation ahead of a recorded expiry, unmarked", async () => {
+    await expect(
+      verifyRealReel(
+        recording(["signingCredential.expired", "signingCredential.ocsp.revoked"]),
+        "realreel",
+        resolveSource,
+      ),
+    ).rejects.toMatchObject({
+      code: VerifyErrorCode.UNTRUSTED_ISSUER,
+      category: "ocsp",
+      detail: "signingCredential.ocsp.revoked",
+    });
   });
 
   it("reads the Update Manifest's record of the capture on a drained chain", async () => {

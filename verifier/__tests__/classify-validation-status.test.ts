@@ -161,6 +161,46 @@ describe("classifyStrictValidationStatus", () => {
     }
   });
 
+  describe("CERT_EXPIRED about a signature other than this upload's", () => {
+    const UPLOAD = "urn:c2pa:upload";
+    const sig = (label: string) => `self#jumbf=/c2pa/${label}/c2pa.signature`;
+    const expired = (url: string) => ({ code: "signingCredential.expired", explanation: "certificate expired", url });
+    const detailOf = (status: Parameters<typeof classifyStrictValidationStatus>[0], active?: string) => {
+      try {
+        classifyStrictValidationStatus(status, active);
+      } catch (e) {
+        expect((e as VerifyError).code).toBe(VerifyErrorCode.CERT_EXPIRED);
+        return (e as VerifyError).detail;
+      }
+      throw new Error("expected a throw");
+    };
+
+    it("marks the capture's expired signature", () => {
+      expect(detailOf([expired(sig("urn:c2pa:capture"))], UPLOAD)).toBe("capture: certificate expired");
+    });
+
+    it("marks it on the untrusted-then-expired pair too", () => {
+      const url = sig("urn:c2pa:capture");
+      expect(detailOf([{ code: "signingCredential.untrusted", url }, expired(url)], UPLOAD)).toBe(
+        "capture: certificate expired",
+      );
+    });
+
+    it("leaves this upload's own expired signature unmarked", () => {
+      expect(detailOf([expired(sig(UPLOAD))], UPLOAD)).toBe("certificate expired");
+    });
+
+    it("leaves it unmarked without an active label or a url naming another manifest", () => {
+      expect(detailOf([expired(sig("urn:c2pa:capture"))])).toBe("certificate expired");
+      expect(detailOf([{ code: "signingCredential.expired", explanation: "certificate expired" }], UPLOAD)).toBe(
+        "certificate expired",
+      );
+      for (const url of ["", UPLOAD, "urn:c2pa:capture", "OCSP_RESPONSE"]) {
+        expect(detailOf([expired(url)], UPLOAD)).toBe("certificate expired");
+      }
+    });
+  });
+
   it("surfaces the explanation in the error detail when present", () => {
     try {
       classifyStrictValidationStatus([

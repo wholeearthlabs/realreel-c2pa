@@ -3,6 +3,7 @@
 // pure policies from @realreel/c2pa-trust-core into thrown VerifyErrors.
 
 import {
+  CAPTURE_CERT_EXPIRED_DETAIL_PREFIX,
   findDisallowedActions,
   findRecordedBindingViolation,
   findUnverifiedRecordedFailures,
@@ -31,6 +32,8 @@ const OCSP_FETCHED_RESPONSE_URL = "OCSP_RESPONSE";
 const isFetchedNotRevoked = (e: { code: string; url?: string | null }): boolean =>
   e.code === OCSP_NOT_REVOKED && e.url === OCSP_FETCHED_RESPONSE_URL;
 
+const JUMBF_MANIFEST_PREFIX = "self#jumbf=/c2pa/";
+
 /**
  * Map a c2pa-rs validation_status array to our VerifyError taxonomy.
  * Strict: every non-empty status is a hard reject.
@@ -44,13 +47,18 @@ const isFetchedNotRevoked = (e: { code: string; url?: string | null }): boolean 
  *   - signingCredential.expired   → CERT_EXPIRED, also when the first entry is
  *                                   untrusted for the same signature: c2pa-rs
  *                                   0.91 checks the chain's validity in its
- *                                   trust check, which it logs first
+ *                                   trust check, which it logs first. When the
+ *                                   expired signature's url names a manifest
+ *                                   other than `activeManifestLabel` (this
+ *                                   upload's own), the detail starts with
+ *                                   CAPTURE_CERT_EXPIRED_DETAIL_PREFIX
  *   - signingCredential.untrusted → UNTRUSTED_ISSUER
  *   - claimSignature.* / *.mismatch / *.invalid → SIGNATURE_INVALID
  *   - manifest.* + everything else → MANIFEST_MALFORMED
  */
 export function classifyStrictValidationStatus(
   status: Array<{ code: string; explanation?: string | null; url?: string | null }>,
+  activeManifestLabel?: string,
 ): void {
   // INVARIANT (pinned by classify-validation-status.test.ts): this throws on
   // ANY non-empty validation status. Apart from revocation, only status[0]
@@ -69,19 +77,28 @@ export function classifyStrictValidationStatus(
     );
   }
   const detail = v.explanation ?? v.code;
+  // Marked only when the url positively names another manifest; anything
+  // ambiguous reads as this upload's, so the app re-enrolls as before.
+  const certExpired = (s: typeof v) => {
+    const aboutOtherManifest =
+      activeManifestLabel !== undefined &&
+      typeof s.url === "string" &&
+      s.url.startsWith(JUMBF_MANIFEST_PREFIX) &&
+      !s.url.startsWith(`${JUMBF_MANIFEST_PREFIX}${activeManifestLabel}/`);
+    const sDetail = s.explanation ?? s.code;
+    return new VerifyError(
+      VerifyErrorCode.CERT_EXPIRED,
+      aboutOtherManifest ? `${CAPTURE_CERT_EXPIRED_DETAIL_PREFIX}${sDetail}` : sDetail,
+    );
+  };
   if (v.code.startsWith("signingCredential.expired")) {
-    throw new VerifyError(VerifyErrorCode.CERT_EXPIRED, detail);
+    throw certExpired(v);
   }
   if (v.code.startsWith("signingCredential.untrusted")) {
     const expired = status.find(
       (s) => s.code.startsWith("signingCredential.expired") && s.url === v.url,
     );
-    if (expired) {
-      throw new VerifyError(
-        VerifyErrorCode.CERT_EXPIRED,
-        expired.explanation ?? expired.code,
-      );
-    }
+    if (expired) throw certExpired(expired);
     throw new VerifyError(VerifyErrorCode.UNTRUSTED_ISSUER, detail);
   }
   if (
@@ -297,6 +314,7 @@ export function enforceRecordedIngredientResults(
   // The recorded explanation is uploader-authored; the code alone is the detail.
   classifyStrictValidationStatus(
     findUnverifiedRecordedFailures(store).map((e) => ({ code: e.code, url: e.url })),
+    store.active_manifest,
   );
 }
 
