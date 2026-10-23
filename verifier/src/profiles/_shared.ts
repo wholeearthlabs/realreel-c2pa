@@ -31,6 +31,12 @@ const OCSP_FETCHED_RESPONSE_URL = "OCSP_RESPONSE";
 const isFetchedNotRevoked = (e: { code: string; url?: string | null }): boolean =>
   e.code === OCSP_NOT_REVOKED && e.url === OCSP_FETCHED_RESPONSE_URL;
 
+/** Starts the detail of a CERT_EXPIRED about a signature other than this
+ *  upload's (the photo's capture or timestamp manifest), so the app can say
+ *  retrying won't help instead of re-enrolling. App-facing format, pinned by
+ *  tests. */
+export const CAPTURE_CERT_EXPIRED_DETAIL_PREFIX = "capture: ";
+
 /**
  * Map a c2pa-rs validation_status array to our VerifyError taxonomy.
  * Strict: every non-empty status is a hard reject.
@@ -44,13 +50,18 @@ const isFetchedNotRevoked = (e: { code: string; url?: string | null }): boolean 
  *   - signingCredential.expired   → CERT_EXPIRED, also when the first entry is
  *                                   untrusted for the same signature: c2pa-rs
  *                                   0.91 checks the chain's validity in its
- *                                   trust check, which it logs first
+ *                                   trust check, which it logs first. When the
+ *                                   expired signature isn't in
+ *                                   `activeManifestLabel` (this upload's own
+ *                                   manifest), the detail starts with
+ *                                   CAPTURE_CERT_EXPIRED_DETAIL_PREFIX
  *   - signingCredential.untrusted → UNTRUSTED_ISSUER
  *   - claimSignature.* / *.mismatch / *.invalid → SIGNATURE_INVALID
  *   - manifest.* + everything else → MANIFEST_MALFORMED
  */
 export function classifyStrictValidationStatus(
   status: Array<{ code: string; explanation?: string | null; url?: string | null }>,
+  activeManifestLabel?: string,
 ): void {
   // INVARIANT (pinned by classify-validation-status.test.ts): this throws on
   // ANY non-empty validation status. Apart from revocation, only status[0]
@@ -69,19 +80,25 @@ export function classifyStrictValidationStatus(
     );
   }
   const detail = v.explanation ?? v.code;
+  const certExpired = (s: typeof v) => {
+    const aboutUpload =
+      activeManifestLabel === undefined ||
+      typeof s.url !== "string" ||
+      s.url.startsWith(`self#jumbf=/c2pa/${activeManifestLabel}/`);
+    const sDetail = s.explanation ?? s.code;
+    return new VerifyError(
+      VerifyErrorCode.CERT_EXPIRED,
+      aboutUpload ? sDetail : `${CAPTURE_CERT_EXPIRED_DETAIL_PREFIX}${sDetail}`,
+    );
+  };
   if (v.code.startsWith("signingCredential.expired")) {
-    throw new VerifyError(VerifyErrorCode.CERT_EXPIRED, detail);
+    throw certExpired(v);
   }
   if (v.code.startsWith("signingCredential.untrusted")) {
     const expired = status.find(
       (s) => s.code.startsWith("signingCredential.expired") && s.url === v.url,
     );
-    if (expired) {
-      throw new VerifyError(
-        VerifyErrorCode.CERT_EXPIRED,
-        expired.explanation ?? expired.code,
-      );
-    }
+    if (expired) throw certExpired(expired);
     throw new VerifyError(VerifyErrorCode.UNTRUSTED_ISSUER, detail);
   }
   if (
@@ -286,11 +303,6 @@ export function enforceParentBinding(
   }
 }
 
-/** Starts the detail of a CERT_EXPIRED about the original capture rather than
- *  this upload's signer, so the app can say retrying won't help instead of
- *  re-enrolling. App-facing format, pinned by tests. */
-export const CAPTURE_CERT_EXPIRED_DETAIL_PREFIX = "capture: ";
-
 /**
  * Reject a recorded ingredient failure that c2pa-rs left out of
  * `validation_status`, classified as it would be live. See trust-core
@@ -299,20 +311,11 @@ export const CAPTURE_CERT_EXPIRED_DETAIL_PREFIX = "capture: ";
 export function enforceRecordedIngredientResults(
   store: ManifestStoreShape,
 ): void {
-  try {
-    // The recorded explanation is uploader-authored; the code alone is the detail.
-    classifyStrictValidationStatus(
-      findUnverifiedRecordedFailures(store).map((e) => ({ code: e.code, url: e.url })),
-    );
-  } catch (e) {
-    if (e instanceof VerifyError && e.code === VerifyErrorCode.CERT_EXPIRED) {
-      throw new VerifyError(
-        VerifyErrorCode.CERT_EXPIRED,
-        `${CAPTURE_CERT_EXPIRED_DETAIL_PREFIX}${e.detail ?? ""}`,
-      );
-    }
-    throw e;
-  }
+  // The recorded explanation is uploader-authored; the code alone is the detail.
+  classifyStrictValidationStatus(
+    findUnverifiedRecordedFailures(store).map((e) => ({ code: e.code, url: e.url })),
+    store.active_manifest,
+  );
 }
 
 // Interposed timestamp Update Manifest walk-through.

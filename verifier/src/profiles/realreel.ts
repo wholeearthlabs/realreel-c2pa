@@ -142,7 +142,7 @@ export async function verifyRealReel(
   // Because this throws on any issue, sanitizeManifestStore() is only ever
   // reached with an empty validation_status, so persisted realreel rows are
   // always validation_state 'trusted'.
-  classifyStrictValidationStatus(store.validation_status ?? []);
+  classifyStrictValidationStatus(store.validation_status ?? [], store.active_manifest);
 
   // active_manifest is a LABEL string in c2pa-node (0.5.5 through 0.8.0); resolve the object.
   const active = getActiveManifest(store);
@@ -208,7 +208,7 @@ export async function verifyRealReel(
   // ahead of every DB read.
   if (captureSource.revocation && readWithOcsp) {
     const online = await readWithOcsp();
-    classifyStrictValidationStatus(online.validation_status ?? []);
+    classifyStrictValidationStatus(online.validation_status ?? [], online.active_manifest);
     enforceParentRevocationStatus(online, capture, captureSource);
   }
 

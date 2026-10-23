@@ -1334,12 +1334,27 @@ describe("Policy — recorded ingredient results", () => {
   });
 
   // The app keys its "can no longer be verified" copy off this exact detail.
-  it("marks a recorded expiry as the capture's, not this upload's", async () => {
-    await expect(
-      verifyRealReel(recording(["signingCredential.expired"]), "realreel", resolveSource),
-    ).rejects.toMatchObject({
+  it.each([
+    [["signingCredential.expired"]],
+    [["signingCredential.untrusted", "signingCredential.expired"]],
+  ])("marks a recorded expiry as the capture's, not this upload's: %j", async (codes) => {
+    await expect(verifyRealReel(recording(codes), "realreel", resolveSource)).rejects.toMatchObject({
       code: VerifyErrorCode.CERT_EXPIRED,
       detail: "capture: signingCredential.expired",
+    });
+  });
+
+  it("keeps a recorded revocation ahead of a recorded expiry, unmarked", async () => {
+    await expect(
+      verifyRealReel(
+        recording(["signingCredential.expired", "signingCredential.ocsp.revoked"]),
+        "realreel",
+        resolveSource,
+      ),
+    ).rejects.toMatchObject({
+      code: VerifyErrorCode.UNTRUSTED_ISSUER,
+      category: "ocsp",
+      detail: "signingCredential.ocsp.revoked",
     });
   });
 
