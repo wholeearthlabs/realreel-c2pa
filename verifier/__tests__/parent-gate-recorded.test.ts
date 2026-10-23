@@ -122,7 +122,10 @@ describe.skipIf(!fixturesExist)("parent gate — recorded ingredient results (re
     ]);
     expect(() => classifyStrictValidationStatus(store.validation_status ?? [])).not.toThrow();
     expect(() => enforceRecordedIngredientResults(store)).toThrow(
-      expect.objectContaining({ code: VerifyErrorCode.CERT_EXPIRED }),
+      expect.objectContaining({
+        code: VerifyErrorCode.CERT_EXPIRED,
+        detail: "capture: signingCredential.expired",
+      }),
     );
   });
 

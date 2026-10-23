@@ -286,6 +286,11 @@ export function enforceParentBinding(
   }
 }
 
+/** Starts the detail of a CERT_EXPIRED about the original capture rather than
+ *  this upload's signer, so the app can say retrying won't help instead of
+ *  re-enrolling. App-facing format, pinned by tests. */
+export const CAPTURE_CERT_EXPIRED_DETAIL_PREFIX = "capture: ";
+
 /**
  * Reject a recorded ingredient failure that c2pa-rs left out of
  * `validation_status`, classified as it would be live. See trust-core
@@ -294,10 +299,20 @@ export function enforceParentBinding(
 export function enforceRecordedIngredientResults(
   store: ManifestStoreShape,
 ): void {
-  // The recorded explanation is uploader-authored; the code alone is the detail.
-  classifyStrictValidationStatus(
-    findUnverifiedRecordedFailures(store).map((e) => ({ code: e.code, url: e.url })),
-  );
+  try {
+    // The recorded explanation is uploader-authored; the code alone is the detail.
+    classifyStrictValidationStatus(
+      findUnverifiedRecordedFailures(store).map((e) => ({ code: e.code, url: e.url })),
+    );
+  } catch (e) {
+    if (e instanceof VerifyError && e.code === VerifyErrorCode.CERT_EXPIRED) {
+      throw new VerifyError(
+        VerifyErrorCode.CERT_EXPIRED,
+        `${CAPTURE_CERT_EXPIRED_DETAIL_PREFIX}${e.detail ?? ""}`,
+      );
+    }
+    throw e;
+  }
 }
 
 // Interposed timestamp Update Manifest walk-through.
