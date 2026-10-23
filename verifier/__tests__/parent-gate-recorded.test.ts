@@ -13,6 +13,8 @@
 //                              Stage-2 signer recorded it untrusted + expired.
 //   parent-gate-untrusted.jpg  capture under an unanchored CA; recorded
 //                              untrusted.
+//   parent-gate-own-expired.jpg  an upload signed, in the past, by a leaf that
+//                              has since expired: the upload's own expiry.
 //   parent-gate-drained*.jpg   the untrusted capture behind a timestamp Update
 //                              Manifest signed under a verifier-only root (not
 //                              a RealReel source); -misfiled records the
@@ -44,11 +46,12 @@ const aged = fixture("aged");
 const untrusted = fixture("untrusted");
 const drained = fixture("drained");
 const drainedMisfiled = fixture("drained-misfiled");
+const ownExpired = fixture("own-expired");
 
 // LFS-pulled fixtures may be pointer stubs (no `git lfs pull`) — skip then.
 const fixturesExist = (
   await Promise.all(
-    ["stale-bundle", "aged", "untrusted", "drained", "drained-misfiled"].map((n) =>
+    ["stale-bundle", "aged", "untrusted", "drained", "drained-misfiled", "own-expired"].map((n) =>
       fixturePresent(`parent-gate-${n}.jpg`),
     ),
   )
@@ -135,6 +138,18 @@ describe.skipIf(!fixturesExist)("parent gate — recorded ingredient results (re
     expect(() => classifyStrictValidationStatus(store.validation_status ?? [])).not.toThrow();
     expect(() => enforceRecordedIngredientResults(store)).toThrow(
       expect.objectContaining({ code: VerifyErrorCode.UNTRUSTED_ISSUER }),
+    );
+  });
+
+  it("leaves the upload's own expired certificate unmarked, so the app re-enrolls", async () => {
+    const store = await read(ownExpired);
+    expect(() =>
+      classifyStrictValidationStatus(store.validation_status ?? [], store.active_manifest),
+    ).toThrow(
+      expect.objectContaining({
+        code: VerifyErrorCode.CERT_EXPIRED,
+        detail: expect.not.stringMatching(/^capture: /),
+      }),
     );
   });
 

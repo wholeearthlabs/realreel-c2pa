@@ -32,6 +32,8 @@ const OCSP_FETCHED_RESPONSE_URL = "OCSP_RESPONSE";
 const isFetchedNotRevoked = (e: { code: string; url?: string | null }): boolean =>
   e.code === OCSP_NOT_REVOKED && e.url === OCSP_FETCHED_RESPONSE_URL;
 
+const JUMBF_MANIFEST_PREFIX = "self#jumbf=/c2pa/";
+
 /**
  * Map a c2pa-rs validation_status array to our VerifyError taxonomy.
  * Strict: every non-empty status is a hard reject.
@@ -46,9 +48,9 @@ const isFetchedNotRevoked = (e: { code: string; url?: string | null }): boolean 
  *                                   untrusted for the same signature: c2pa-rs
  *                                   0.91 checks the chain's validity in its
  *                                   trust check, which it logs first. When the
- *                                   expired signature isn't in
- *                                   `activeManifestLabel` (this upload's own
- *                                   manifest), the detail starts with
+ *                                   expired signature's url names a manifest
+ *                                   other than `activeManifestLabel` (this
+ *                                   upload's own), the detail starts with
  *                                   CAPTURE_CERT_EXPIRED_DETAIL_PREFIX
  *   - signingCredential.untrusted → UNTRUSTED_ISSUER
  *   - claimSignature.* / *.mismatch / *.invalid → SIGNATURE_INVALID
@@ -75,15 +77,18 @@ export function classifyStrictValidationStatus(
     );
   }
   const detail = v.explanation ?? v.code;
+  // Marked only when the url positively names another manifest; anything
+  // ambiguous reads as this upload's, so the app re-enrolls as before.
   const certExpired = (s: typeof v) => {
-    const aboutUpload =
-      activeManifestLabel === undefined ||
-      typeof s.url !== "string" ||
-      s.url.startsWith(`self#jumbf=/c2pa/${activeManifestLabel}/`);
+    const aboutOtherManifest =
+      activeManifestLabel !== undefined &&
+      typeof s.url === "string" &&
+      s.url.startsWith(JUMBF_MANIFEST_PREFIX) &&
+      !s.url.startsWith(`${JUMBF_MANIFEST_PREFIX}${activeManifestLabel}/`);
     const sDetail = s.explanation ?? s.code;
     return new VerifyError(
       VerifyErrorCode.CERT_EXPIRED,
-      aboutUpload ? sDetail : `${CAPTURE_CERT_EXPIRED_DETAIL_PREFIX}${sDetail}`,
+      aboutOtherManifest ? `${CAPTURE_CERT_EXPIRED_DETAIL_PREFIX}${sDetail}` : sDetail,
     );
   };
   if (v.code.startsWith("signingCredential.expired")) {
