@@ -217,6 +217,9 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     const withRoot = runCrjsonHarness({ assetPath: fixture(V2), trustListPem: TRUST_LISTS.v2TestRoot, tsaTrustListPem: TSA_LISTS.production, validationTime: AT.baseline });
     const withoutRoot = runCrjsonHarness({ assetPath: fixture(V2), ...production, validationTime: AT.baseline });
     expect(codes(withRoot.crjson, "failure")).toEqual([]);
+    // The verifier's own engine reads the mixed-curve v2 chain the same way
+    // (verify-v2-hierarchy.test.ts relies on this pin).
+    expect(withRoot.record.engineAgreement).toMatchObject({ checked: true, agree: true });
     expect(codes(withoutRoot.crjson, "failure")).toEqual(["signingCredential.untrusted"]);
   });
 
