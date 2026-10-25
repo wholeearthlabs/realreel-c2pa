@@ -607,6 +607,65 @@ const PATCH_STALE_ROWS = new Set([
   "AL2_BOOT_PATCH_STALE",
 ]);
 
+// A.3.1 patch-currency windows: os is the CSR month plus the 3 before it,
+// vendor/boot are ≤ 90 days.
+const OS_PATCH_MAX_AGE_MONTHS = 3;
+const FIRMWARE_PATCH_MAX_AGE_DAYS = 90;
+
+/** What the app shows for ATTESTATION_STALE_PATCH. "os" when the OS patch
+ * (the date in the phone's Settings) is stale, which a system update usually
+ * fixes. "firmware" when only the maker's vendor/boot patches are, carrying
+ * the oldest stale one: the Settings date can look current while these lag,
+ * and only the maker can ship newer ones. The values come from the device's
+ * own signed attestation, so returning them tells the client nothing new. */
+export type StalePatchDetail =
+  | { kind: "os"; patchMonth: string; maxAgeMonths: number }
+  | { kind: "firmware"; patchDate: string; maxAgeDays: number };
+
+export class StalePatchError extends AttestationError {
+  readonly detail: StalePatchDetail;
+  constructor(message: string, detail: StalePatchDetail) {
+    super("ATTESTATION_STALE_PATCH", message);
+    this.detail = detail;
+  }
+}
+
+/** 202603 → "2026-03". */
+function isoMonth(yyyymm: number): string {
+  return `${Math.floor(yyyymm / 100)}-${String(yyyymm % 100).padStart(2, "0")}`;
+}
+
+/** 20260605 → "2026-06-05". */
+function isoDay(yyyymmdd: number): string {
+  return `${isoMonth(Math.floor(yyyymmdd / 100))}-${
+    String(yyyymmdd % 100).padStart(2, "0")
+  }`;
+}
+
+/** Detail for a rejection whose failures are all stale-patch rows. An os
+ * failure wins: the update that fixes it usually brings vendor/boot along. */
+function stalePatchDetail(
+  desc: KeyDescription,
+  failures: string[],
+): StalePatchDetail {
+  if (failures.includes("AL2_OS_PATCH_STALE")) {
+    return {
+      kind: "os",
+      patchMonth: isoMonth(desc.osPatchLevel!),
+      maxAgeMonths: OS_PATCH_MAX_AGE_MONTHS,
+    };
+  }
+  const stale = [
+    failures.includes("AL2_VENDOR_PATCH_STALE") ? desc.vendorPatchLevel! : null,
+    failures.includes("AL2_BOOT_PATCH_STALE") ? desc.bootPatchLevel! : null,
+  ].filter((v): v is number => v !== null);
+  return {
+    kind: "firmware",
+    patchDate: isoDay(Math.min(...stale)),
+    maxAgeDays: FIRMWARE_PATCH_MAX_AGE_DAYS,
+  };
+}
+
 function yyyymmFloor(now: Date, monthsBack: number): number {
   const d = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1),
@@ -688,12 +747,14 @@ export function enforceAl2Evidence(
   // month ahead for os and more than 31 days ahead for vendor/boot.
   if (desc.osPatchLevel === null) {
     failures.push("AL2_OS_PATCH_MISSING");
-  } else if (desc.osPatchLevel < yyyymmFloor(opts.now, 3)) {
+  } else if (
+    desc.osPatchLevel < yyyymmFloor(opts.now, OS_PATCH_MAX_AGE_MONTHS)
+  ) {
     failures.push("AL2_OS_PATCH_STALE");
   } else if (desc.osPatchLevel > yyyymmFloor(opts.now, -1)) {
     failures.push("AL2_OS_PATCH_FUTURE");
   }
-  const dayFloor = yyyymmddFloor(opts.now, 90);
+  const dayFloor = yyyymmddFloor(opts.now, FIRMWARE_PATCH_MAX_AGE_DAYS);
   const dayCeiling = yyyymmddFloor(opts.now, -31);
   if (desc.vendorPatchLevel === null) {
     failures.push("AL2_VENDOR_PATCH_MISSING");
@@ -711,12 +772,11 @@ export function enforceAl2Evidence(
   }
 
   if (failures.length === 0) return;
-  throw new AttestationError(
-    failures.every((f) => PATCH_STALE_ROWS.has(f))
-      ? "ATTESTATION_STALE_PATCH"
-      : "AL2_EVIDENCE_FAILED",
-    `A.3.1 rows failed: ${failures.join(",")}`,
-  );
+  const message = `A.3.1 rows failed: ${failures.join(",")}`;
+  if (failures.every((f) => PATCH_STALE_ROWS.has(f))) {
+    throw new StalePatchError(message, stalePatchDetail(desc, failures));
+  }
+  throw new AttestationError("AL2_EVIDENCE_FAILED", message);
 }
 
 // Walks an AuthorizationList SEQUENCE looking for the [706] context-class

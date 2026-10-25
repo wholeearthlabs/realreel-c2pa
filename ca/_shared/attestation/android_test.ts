@@ -23,6 +23,7 @@ import {
   type KeyDescription,
   readTaggedInt,
   readTaggedIntSet,
+  StalePatchError,
   validateAndroidAttestation,
   type ValidateAndroidAttestationOpts,
 } from "./android.ts";
@@ -656,6 +657,37 @@ Deno.test("enforceAl2Evidence — only stale patch rows → ATTESTATION_STALE_PA
       JSON.stringify(over),
     );
   }
+});
+
+Deno.test("enforceAl2Evidence — stale patch carries the detail the app shows", () => {
+  const detailOf = (over: Partial<KeyDescription>) => {
+    const err = al2Error(over);
+    if (!(err instanceof StalePatchError)) {
+      throw new Error(`expected StalePatchError for ${JSON.stringify(over)}`);
+    }
+    return err.detail;
+  };
+  assertEquals(detailOf({ osPatchLevel: 202603 }), {
+    kind: "os",
+    patchMonth: "2026-03",
+    maxAgeMonths: 3,
+  });
+  // An os failure wins over vendor/boot: the update that fixes it usually
+  // brings them along.
+  assertEquals(
+    detailOf({ osPatchLevel: 202601, vendorPatchLevel: 20260101 }).kind,
+    "os",
+  );
+  // OS current, maker patches stale: the oldest stale one.
+  assertEquals(detailOf({ vendorPatchLevel: 20260405 }), {
+    kind: "firmware",
+    patchDate: "2026-04-05",
+    maxAgeDays: 90,
+  });
+  assertEquals(
+    detailOf({ vendorPatchLevel: 20260405, bootPatchLevel: 20251201 }),
+    { kind: "firmware", patchDate: "2025-12-01", maxAgeDays: 90 },
+  );
 });
 
 Deno.test("enforceAl2Evidence — future-dated or mixed failures stay generic", () => {

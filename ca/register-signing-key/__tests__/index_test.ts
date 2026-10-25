@@ -40,6 +40,7 @@ import {
   testUserId,
 } from "../../_shared/test-harness/edge-test.ts";
 import { AttestationError } from "../../_shared/attestation/pki.ts";
+import { StalePatchError } from "../../_shared/attestation/android.ts";
 
 // ---------- Fixtures + helpers ---------------------------------------
 
@@ -741,11 +742,41 @@ Deno.test("register-signing-key — Android: ATTESTATION_STALE_PATCH → 400 wit
       deps,
     );
     const { status, body } = await readJsonResponse<
-      { error: string; code?: string }
+      { error: string; code?: string; stalePatch?: unknown }
     >(res);
     assertEquals(status, 400);
     assertEquals(body.code, "ATTESTATION_STALE_PATCH");
     assertEquals(body.error, "Device security patch level out of date");
+    assertEquals(body.stalePatch, undefined);
+  }));
+
+Deno.test("register-signing-key — Android: stale maker patch → 400 with the patch detail", () =>
+  withAndroidSigningCertEnv(async () => {
+    const detail = {
+      kind: "firmware",
+      patchDate: "2026-06-05",
+      maxAgeDays: 90,
+    } as const;
+    const { deps } = buildDeps({
+      validateAndroidAttestationImpl: () =>
+        Promise.reject(
+          new StalePatchError(
+            "A.3.1 rows failed: AL2_VENDOR_PATCH_STALE,AL2_BOOT_PATCH_STALE",
+            detail,
+          ),
+        ),
+    });
+
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<
+      { error: string; code?: string; stalePatch?: unknown }
+    >(res);
+    assertEquals(status, 400);
+    assertEquals(body.code, "ATTESTATION_STALE_PATCH");
+    assertEquals(body.stalePatch, detail);
   }));
 
 Deno.test("register-signing-key — Android: other AttestationError codes stay masked", () =>

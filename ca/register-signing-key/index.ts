@@ -44,7 +44,10 @@ import {
 } from "../_shared/auth.ts";
 import { enforceRateLimit } from "../_shared/rate_limit.ts";
 import { validateAppleAttestation } from "../_shared/attestation/apple.ts";
-import { validateAndroidAttestation } from "../_shared/attestation/android.ts";
+import {
+  StalePatchError,
+  validateAndroidAttestation,
+} from "../_shared/attestation/android.ts";
 import {
   type AndroidRevocationList,
   buildAndroidRevocationLoader,
@@ -631,12 +634,18 @@ export async function handleRegister(
         `[register-signing-key] attestation rejected user=${user.id} platform=${platform} code=${e.code} message=${e.message}`,
       );
       // The one code surfaced to the client: the app renders an actionable
-      // "update your device" message for it. Every other AttestationError
+      // "update your device" message for it, or, with `stalePatch` saying
+      // only the maker's vendor/boot patches are stale, a "your phone's
+      // maker" message with the patch date. Every other AttestationError
       // stays generic — leaking which check failed gives an attacker a
       // playbook for tweaking inputs until they get through.
       if (e.code === "ATTESTATION_STALE_PATCH") {
         return jsonResponse(
-          { error: "Device security patch level out of date", code: e.code },
+          {
+            error: "Device security patch level out of date",
+            code: e.code,
+            ...(e instanceof StalePatchError ? { stalePatch: e.detail } : {}),
+          },
           { status: 400 },
         );
       }
