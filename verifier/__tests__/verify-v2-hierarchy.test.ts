@@ -1,11 +1,14 @@
-// Chain-validation pin for the conformant (v2) CA hierarchy through the
-// REAL c2pa-node Reader — not c2patool, whose bundled c2pa-rs is newer.
-// Proves three empirical claims the cutover rests on, in the exact
-// library the production verifier runs:
+// Pins for the conformant (v2) CA hierarchy through the REAL c2pa-node
+// Reader, the exact library the production verifier runs. Three empirical
+// claims the cutover rests on:
 //
 //   1. A mixed-curve chain (P-256 leaf under a P-384/SHA-384 root+ICA)
 //      with the CP §7.1.2 leaf extensions (certificatePolicies, AIA,
-//      c2pa-al, c2pa-cpl-record) validates cleanly.
+//      c2pa-al, c2pa-cpl-record) validates cleanly. Pinned in the crJSON
+//      harness (harness/crjson-harness.test.ts, the trust-list case), not
+//      here: the fixture's untimestamped leaf expired 2026-10-25, and only
+//      the harness can freeze the clock inside its validity. It requires
+//      c2pa-node to agree with c2patool status-by-status.
 //   2. c2pa-rs surfaces the leaf SUBJECT O as signature_info.issuer
 //      ("Whole Earth Labs LLC") and the subject CN as common_name — the
 //      strings TRUSTED_ISSUERS[id=realreel] pins.
@@ -20,7 +23,7 @@
 // c2patool 2026-07-27. Single-stage on purpose: the two-stage profile
 // shape is covered by the real-device fixtures, which get regenerated
 // against the live v2 ICA once dev issuance flips — this test only pins
-// chain validation + string surfacing, which need no device.
+// string surfacing and dispatch, which need no device and no clock.
 
 import { describe, it, expect, beforeAll } from "vitest";
 import { readFile, access, mkdir, writeFile, rm } from "node:fs/promises";
@@ -30,7 +33,6 @@ import { Reader } from "@contentauth/c2pa-node";
 import { buildVerifierSettings } from "../src/verify.js";
 import { loadTrustConfig } from "../src/trust/loader.js";
 import { identifyTrustSource } from "../src/trust/dispatcher.js";
-import { classifyStrictValidationStatus } from "../src/profiles/_shared.js";
 import {
   getActiveManifest,
   type ManifestStoreShape,
@@ -88,16 +90,6 @@ describe.skipIf(!fixtureExists)(
       store = reader!.json() as unknown as ManifestStoreShape;
 
       await rm(TMP_DIR, { recursive: true, force: true });
-    });
-
-    it("validates the mixed-curve v2 chain with zero strict validation issues", () => {
-      // classifyStrictValidationStatus throws on any c2pa-rs issue —
-      // signingCredential.untrusted here would mean c2pa-node choked on
-      // the P-256-leaf-under-P-384-chain shape or one of the new
-      // extensions.
-      expect(() =>
-        classifyStrictValidationStatus(store.validation_status ?? []),
-      ).not.toThrow();
     });
 
     it("surfaces the v2 DN exactly as TRUSTED_ISSUERS pins it", () => {
