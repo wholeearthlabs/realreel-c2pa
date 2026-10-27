@@ -152,6 +152,26 @@ Note: `trust-sources.yaml` no longer carries an `issuer_match` field. The cross-
 
 **First real rotation rewrites this section as it happens** — these are sketches, not a proven playbook.
 
+<!-- Anchor "#tsa-trust-list-refresh" is referenced by
+     verifier/scripts/audit-tsa-list.ts. -->
+## TSA trust-list refresh
+
+`trust-sources/c2pa-tsa/c2pa-tsa-trust-list.pem` mirrors the C2PA
+[TSA Trust List](https://github.com/c2pa-org/conformance-public/blob/main/trust-list/C2PA-TSA-TRUST-LIST.pem)
+byte-for-byte. The weekly [`audit-tsa-list`](../.github/workflows/audit-tsa-list.yml) workflow
+(`make verify-tsa-list`) opens a `tsa-trust-list` issue when upstream changes. A TSA removed
+upstream stays trusted here until you refresh, so treat removals as urgent; a TSA added upstream
+isn't trusted until then.
+
+1. Review the issue's ADDED / REMOVED list, then replace the file with upstream verbatim
+   (annotation lines included). `make verify-tsa-list` exits 0 once it matches.
+2. Update the snapshot date in the `c2pa-tsa-list` entry of `trust-sources.yaml`.
+3. `npm run codegen:trust-anchors` in `trust-core/` and commit the regenerated client bundle — the
+   `client-trust-anchors-lockstep` test fails until you do.
+4. Add a changeset for `@realreel/c2pa-trust-core` (the bundle ships in it) and the verifier.
+5. Redeploy the verifier (the bundle is image-baked), then release trust-core so the app gets the
+   new pool, and close the issue.
+
 ## Other rotations
 
 - **`VERIFIER_SHARED_SECRET`**: update Cloud Run env + Supabase Edge secret to the same new value; rolling restart.
