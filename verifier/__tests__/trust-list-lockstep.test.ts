@@ -47,7 +47,7 @@ const YAML_SOURCES = (
  * trust material (TSA roots, etc.) and intentionally do NOT have a
  * matching TRUSTED_ISSUERS entry. TRUSTED_ISSUERS is for content
  * signers — entities whose certs sign C2PA claims and need an
- * `issuerMatch` substring for runtime dispatch. TSAs sign timestamps
+ * `issuerMatch` for runtime dispatch. TSAs sign timestamps
  * over signatures; they're trust-pool members but not content issuers.
  *
  * Add a directory here when it holds non-signer PEMs (TSA roots, OCSP

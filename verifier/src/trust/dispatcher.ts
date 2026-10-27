@@ -1,27 +1,16 @@
 // Routes a c2pa-node-verified manifest to the right verification profile
-// based on the leaf cert's issuer DN.
+// based on the signing leaf's organization.
 //
-// IMPORTANT — this is routing, NOT trust:
-//
-//   The trust gate is c2pa-node's chain validation against
-//   trustConfig.trustAnchorsBundle (verify_trust_list: false +
-//   trust_anchors: bundle). By the time identifyTrustSource() runs, the
-//   manifest's cert chain has already been validated against a known
-//   root from our bundle. Substring matching here is safe because it
-//   operates only on already-trusted certs — an attacker can forge a
-//   `CN=RealReel Issuing CA` string in their own cert, but unless that
-//   cert chains to a root in our bundle, c2pa-node rejects it before we
-//   ever see signature_info.issuer.
-//
-// Matching strategy: substring `includes()` on the issuer DN, AND (when the
-// matched entry pins a `commonNameMatch`) exact equality on the leaf cert's
-// `signature_info.common_name`. Real-world issuer DNs carry extra fields (O,
-// C, OU), so substring is the right shape. `commonNameMatch` narrows a coarse
-// issuer string (e.g. "Google LLC" matches any future Google C2PA program;
-// the Pixel entry pins common_name="Pixel Camera"). The `issuerMatch` /
-// `commonNameMatch` strings on @realreel/c2pa-trust-core TRUSTED_ISSUERS are
-// shared with the React Native client preflight gate (findTrustedIssuer),
-// guaranteeing both validators agree on what counts as a trusted issuer.
+// By the time this runs, c2pa-node has validated the chain, but against ONE
+// pool: every camera root plus every TSA root, including public CAs that
+// issue claim-signing certs to any organization they vet. A valid chain
+// therefore says only "some pooled CA issued this". What scopes a cert to a
+// source is this match: exact equality of `signature_info.issuer` (c2pa-rs:
+// the leaf's subject O) with the entry's `issuerMatch`, AND, when the entry
+// pins one, of `common_name` with its `commonNameMatch`. Never substring: a
+// pooled CA would issue a real cert to an organization whose name merely
+// contains a trusted one. The criteria are the client preflight gate's
+// (findTrustedIssuer in @realreel/c2pa-trust-core), so both agree.
 
 import { TRUSTED_ISSUERS, matchesCommonName } from "@realreel/c2pa-trust-core";
 import type {
@@ -32,7 +21,7 @@ import type {
 
 /**
  * Resolve a signature's issuer + common_name to a trust-source id, or
- * null if no trusted issuer's `issuerMatch` is a substring of
+ * null if no trusted issuer's `issuerMatch` equals
  * `signatureIssuer` (AND, when defined, its `commonNameMatch` admits
  * `signatureCommonName`) AND the corresponding source is loaded (i.e.,
  * its `root_cert` file exists on disk and produced a non-skipped
@@ -42,14 +31,12 @@ import type {
  * `trustConfig.loadedIds` is a regression guard, not a security boundary: a
  * source whose PEM didn't load also isn't in `trustAnchorsBundle`, so
  * c2pa-node rejects manifests signed by it at chain validation before this
- * runs. The filter only bites if an attacker's cert chains to a different
- * loaded root yet carries another source's issuerMatch substring in its DN —
- * keeping it makes such deploy drift surface as a clean UNTRUSTED_ISSUER
- * rather than a misrouted profile.
+ * runs. The filter only bites if a cert chains to a different loaded root
+ * yet carries another source's organization — keeping it makes such deploy
+ * drift surface as a clean UNTRUSTED_ISSUER rather than a misrouted profile.
  *
- * @param signatureIssuer  The leaf cert's issuer DN as surfaced by
- *   c2pa-node (signature_info.issuer). Already-trusted at the
- *   chain-validation level — this is purely for profile dispatch.
+ * @param signatureIssuer  The leaf cert's subject O as surfaced by
+ *   c2pa-node (signature_info.issuer).
  * @param signatureCommonName  The leaf cert's subject CN as surfaced by
  *   c2pa-node (signature_info.common_name). Consulted only by entries
  *   whose `commonNameMatch` is set (today: Pixel and ProofMode);
@@ -64,7 +51,7 @@ export function identifyTrustSource(
   if (signatureIssuer.length === 0) return null;
   for (const entry of TRUSTED_ISSUERS) {
     if (!trustConfig.loadedIds.has(entry.id)) continue;
-    if (!signatureIssuer.includes(entry.issuerMatch)) continue;
+    if (signatureIssuer !== entry.issuerMatch) continue;
     // Tightening pin: the same check the client gate's findTrustedIssuer
     // applies, so both route on identical criteria.
     if (!matchesCommonName(entry, signatureCommonName)) continue;

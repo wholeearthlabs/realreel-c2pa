@@ -31,10 +31,10 @@
 #          ocsp_hosts: ["http://<responder-host>"]   # scheme://[*.]host[:port]
 #      Read the responder host off the vendor's leaf certificate (the AIA
 #      "OCSP" URI of a sample capture), matched literally: a port in the
-#      pattern matches only URLs that carry it. The union of every source's
-#      hosts is the only set c2pa-rs may contact, and with
-#      NETWORK_REVOCATION=true the verifier asks it on every wrapped
-#      upload; a capture whose responder gave no answer is rejected
+#      pattern matches only URLs that carry it. With
+#      NETWORK_REVOCATION=true the verifier asks these hosts, and only
+#      these, about every wrapped capture from this source; a capture
+#      whose responder gave no answer is rejected
 #      (retryable). Leave the block out for sources revoked through the
 #      issued-certificates ledger (the RealReel hierarchies; the loader
 #      refuses it on a `realreel` profile).

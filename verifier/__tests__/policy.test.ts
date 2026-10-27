@@ -1069,8 +1069,8 @@ describe("Policy — TSA Update Manifest walk-through", () => {
   });
 
   it.each([
-    ["a wrap-mode vendor", { issuer: "C=US, O=Google LLC", common_name: "Pixel Camera" }],
-    ["an unknown issuer", { issuer: "C=US, O=Example Corp" }],
+    ["a wrap-mode vendor", { issuer: "Google LLC", common_name: "Pixel Camera" }],
+    ["an unknown issuer", { issuer: "Example Corp" }],
   ])("rejects an Update Manifest signed by %s", async (_, updateSigner) => {
     await expect(
       verifyRealReel(makeDrainedStore({ updateSigner }), "realreel", resolveSource),
@@ -1149,7 +1149,7 @@ function stubWrapKeys(): void {
 }
 
 const PIXEL_STAGE1 = {
-  issuer: "C=US, O=Google LLC, CN=Google C2PA Mobile A 1P ICA G3 L2",
+  issuer: "Google LLC",
   commonName: "Pixel Camera",
 };
 
@@ -1166,18 +1166,32 @@ describe("Policy — Stage 1 trust source (wrap_parent_only made real)", () => {
     // c2pa-rs chain validation but must fail HERE: its identity matches no
     // TRUSTED_ISSUERS entry.
     const store = makeRealReelStore({
-      stage1: { issuer: "C=US, O=DigiCert Inc, CN=DigiCert Trusted G4 Code Signing" },
+      stage1: { issuer: "DigiCert Inc" },
     });
     await expect(
       verifyRealReel(store, "realreel", resolveSource),
     ).rejects.toMatchObject({ code: VerifyErrorCode.UNTRUSTED_ISSUER });
   });
 
+  it("rejects UNTRUSTED_ISSUER when the parent's organization merely contains a trusted one", async () => {
+    // A pooled public CA issues real certs to any organization it vets, so a
+    // lookalike name must not pass as a RealReel or Pixel capture.
+    for (const stage1 of [
+      { issuer: "New Whole Earth Labs LLC" },
+      { issuer: "RealReel Media LLC" },
+      { issuer: "NotGoogle LLC", commonName: "Pixel Camera" },
+    ]) {
+      await expect(
+        verifyRealReel(makeRealReelStore({ stage1 }), "realreel", resolveSource),
+      ).rejects.toMatchObject({ code: VerifyErrorCode.UNTRUSTED_ISSUER });
+    }
+  });
+
   it("rejects UNTRUSTED_ISSUER when a Google-LLC parent lacks the Pixel Camera CN pin", async () => {
     // Sibling Google programs (Photos, Drive) must not qualify as capture
     // sources — same commonNameMatch pin the active-manifest dispatch uses.
     const store = makeRealReelStore({
-      stage1: { issuer: "C=US, O=Google LLC", commonName: "Google Photos" },
+      stage1: { issuer: "Google LLC", commonName: "Google Photos" },
     });
     await expect(
       verifyRealReel(store, "realreel", resolveSource),
@@ -1320,7 +1334,7 @@ describe("Policy — recorded ingredient results", () => {
   it("rejects a recorded revocation on a trusted wrap parent before the online re-check", async () => {
     const readWithOcsp = vi.fn();
     const store = recording(["signingCredential.ocsp.revoked"], true, {
-      issuer: "C=US, O=Google LLC",
+      issuer: "Google LLC",
       commonName: "Pixel Camera",
     });
     await expect(

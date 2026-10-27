@@ -4,7 +4,7 @@
 //
 //   - The client uses `issuerMatch` to decide whether a manifest in the
 //     user's camera roll came from a trusted camera/PEM. No PEMs, no
-//     chain validation — just an issuer-string substring check.
+//     chain validation — just an exact match on the signer's organization.
 //
 //   - The server uses the same `issuerMatch` for dispatch (routing a
 //     manifest to its verification profile). Separately, the server
@@ -37,17 +37,16 @@ export interface TrustedIssuer {
    * or "Pixel"). Suitable for direct display to end users. */
   displayName: string;
 
-  /** Substring matched against `signature_info.issuer` (the string
-   * c2pa-rs surfaces from the signing leaf cert's issuer DN). Both
-   * client and server use this to identify which trusted source signed
-   * a manifest. The match is INTENTIONALLY a substring rather than an
-   * exact match because c2pa-rs's surfacing of the issuer DN varies
-   * across cert chain shapes; pinning the substring empirically against
-   * real fixtures is the only way to track its output.
+  /** The signing leaf's subject organization, matched EXACTLY against
+   * `signature_info.issuer` — c2pa-rs fills that with the leaf's last
+   * subject O attribute, never a full DN (sdk/src/crypto/cose/verifier.rs).
+   * Both client and server use this to identify which trusted source
+   * signed a manifest.
    *
-   * Collision-avoidance: when adding an issuer, ensure its
-   * `issuerMatch` is NOT a substring of any other entry's match (and
-   * vice versa). The trust-list uniqueness test enforces this. */
+   * Exact, not substring: the verifier's anchor pool also holds every TSA
+   * root, including public CAs that issue claim-signing certs, so a cert
+   * whose O merely CONTAINS this string must not route here. Unique across
+   * entries (tested). */
   issuerMatch: string;
 
   /** Optional pin against `signature_info.common_name` (leaf cert
@@ -77,9 +76,7 @@ export interface TrustedIssuer {
 }
 
 /**
- * The curated list. Order is matching-significant: findTrustedIssuer is
- * first-match, and `realreel` must precede `realreel-legacy` (see that
- * entry's comment).
+ * The curated list.
  *
  * RealReel (our own captures), Google Pixel (Pixel 8 and later, stock
  * Camera app with Content Credentials) and ProofMode (its iOS and Android
@@ -106,13 +103,6 @@ export const TRUSTED_ISSUERS: ReadonlyArray<TrustedIssuer> = [
     // `realreel`, different trust anchor. Empirically pinned against
     // verifier/__tests__/fixtures/realreel-uploaded.jpg (real iPhone
     // capture): c2pa-rs surfaces "RealReel" — the legacy leaf subject O.
-    //
-    // MUST stay declared AFTER `realreel`: the bare-O surfaces are
-    // mutually non-substring, but a full-DN v2 surface (c2pa-rs emits
-    // those for some chain shapes) contains "RealReel" via its CN
-    // ("RealReel iOS"/"RealReel Android"), so first-match order — not
-    // substring disjointness — is what keeps v2 leaves on `realreel`.
-    // Tests pin the order and the full-DN routing.
     //
     // Retire this entry once the last legacy leaf expires after the
     // issuance flip (max one leaf lifetime).
@@ -163,8 +153,8 @@ export function matchesCommonName(
 
 /**
  * Look up a trusted issuer by a manifest's `signature_info.issuer`
- * string. Returns the first entry whose `issuerMatch` is a substring
- * of the issuer field, or null if none match.
+ * string. Returns the entry whose `issuerMatch` equals the issuer field
+ * and whose CN pin (if any) admits the common_name, or null.
  *
  * Both the client preflight gate (decides whether to accept the upload)
  * and the server's dispatcher (decides which verification profile to
@@ -174,11 +164,10 @@ export function matchesCommonName(
  * Returns null when:
  *   - signature_info is missing entirely (unsigned manifest).
  *   - issuer field is missing or non-string.
- *   - No entry's substring matches.
+ *   - No entry matches.
  *
  * Client maps null → ClientGateReason.ISSUER_NOT_TRUSTED. Server maps null →
- * UNTRUSTED_ISSUER (an untrusted issuer wouldn't have chained to a trust
- * anchor anyway, so chain validation already rejects it).
+ * UNTRUSTED_ISSUER.
  */
 export function findTrustedIssuer(manifest: ManifestShape): TrustedIssuer | null {
   const issuer = manifest.signature_info?.issuer;
@@ -186,7 +175,7 @@ export function findTrustedIssuer(manifest: ManifestShape): TrustedIssuer | null
   const commonName = manifest.signature_info?.common_name;
   return (
     TRUSTED_ISSUERS.find((entry) => {
-      if (!issuer.includes(entry.issuerMatch)) return false;
+      if (issuer !== entry.issuerMatch) return false;
       // If this entry pins common_name, require exact match. Entries
       // without a commonNameMatch (e.g. RealReel) accept any common_name
       // value (including missing) and route on issuerMatch alone — see
