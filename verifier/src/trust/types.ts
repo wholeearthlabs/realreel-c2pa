@@ -101,9 +101,9 @@ export interface TrustConfig {
    *  (enforceParentTrustSource); both keyed on an EXACT match of the leaf's
    *  organization (TRUSTED_ISSUERS), which a cert from another pooled CA
    *  meets only if that CA vetted an organization with exactly that legal
-   *  name. A third-party capture must also get a fetched notRevoked from
-   *  its own source's OCSP responder. If c2pa-rs grows a distinct TSA
-   *  anchor setting, split this bundle. */
+   *  name. With NETWORK_REVOCATION=true, a third-party capture must also
+   *  get a fetched notRevoked from its own source's OCSP responder. If
+   *  c2pa-rs grows a distinct TSA anchor setting, split this bundle. */
   trustAnchorsBundle: string;
 
   /** Set of source ids whose PEM loaded successfully. Read by

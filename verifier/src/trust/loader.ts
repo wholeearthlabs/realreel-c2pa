@@ -3,7 +3,7 @@
 //   - sources: per-source server-side policy (root_cert path,
 //     verification_profile), each enriched with the
 //     loaded PEM. Joined with @realreel/c2pa-trust-core's TRUSTED_ISSUERS
-//     by `id` for the issuerMatch substring at dispatch time.
+//     by `id` for the exact issuerMatch at dispatch time.
 //   - trustAnchorsBundle: concatenated PEM string handed to c2pa-node's
 //     settings.trust.trust_anchors. This is the actual cryptographic
 //     trust gate.

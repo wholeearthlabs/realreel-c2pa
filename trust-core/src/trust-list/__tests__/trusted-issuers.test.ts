@@ -39,7 +39,8 @@ describe("TRUSTED_ISSUERS list invariants", () => {
   });
 
   it("issuerMatch values are unique", () => {
-    // A duplicate would leave the later entry matching nothing.
+    // Two entries under one O would need disjoint CN pins to both be
+    // reachable; none exist yet, so keep the list simple and forbid it.
     const matches = TRUSTED_ISSUERS.map((entry) => entry.issuerMatch);
     expect(new Set(matches).size).toBe(matches.length);
   });

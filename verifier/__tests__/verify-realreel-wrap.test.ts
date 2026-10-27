@@ -150,10 +150,12 @@ function mockWrapKeys(
 // keeping these tests off the network means pointing Pixel's at `host`.
 type LoadedTrust = Awaited<ReturnType<typeof loadTrustConfig>>;
 function withPixelResponder(trust: LoadedTrust, host: string): LoadedTrust {
-  return {
-    ...trust,
-    sources: trust.sources.map((s) => (s.id === "pixel" ? { ...s, revocation: { ocsp_hosts: [host] } } : s)),
-  };
+  const sources = trust.sources.map((s) =>
+    s.id === "pixel" ? { ...s, revocation: { ocsp_hosts: [host] } } : s,
+  );
+  // Recompute the union the loader would derive from these sources.
+  const ocspHosts = [...new Set(sources.flatMap((s) => s.revocation?.ocsp_hosts ?? []))];
+  return { ...trust, sources, ocspHosts };
 }
 
 describe.skipIf(!fixtureExists)(
@@ -234,7 +236,7 @@ describe.skipIf(!fixtureExists)(
       // c2pa-node manifest — see trust-source-dispatch.test.ts for the
       // common_name routing regression coverage. The SanitizedManifest now
       // persists that common_name too, so a viewer can name the camera.
-      expect(parent.signature_info.issuer).toContain("Google LLC");
+      expect(parent.signature_info.issuer).toBe("Google LLC");
       expect(parent.signature_info.common_name).toBe("Pixel Camera");
     });
 
