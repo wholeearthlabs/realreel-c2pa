@@ -82,6 +82,7 @@ import { Reader } from "@contentauth/c2pa-node";
 
 import { verify } from "../src/verify.js";
 import { loadTrustConfig } from "../src/trust/loader.js";
+import { identifyTrustSource } from "../src/trust/dispatcher.js";
 import { lookupSigningKeyRevocation } from "../src/db.js";
 import { VerifyErrorCode } from "../src/errors.js";
 
@@ -133,12 +134,15 @@ function defaultStage2Row(opts: { userId?: string; revoked?: boolean } = {}) {
 }
 
 // Input-aware mock modelling production: ONLY the RealReel Stage-2 key is
-// enrolled. The Pixel Stage-1 parent isn't, so its revocation lookup
+// enrolled. The capture parent isn't, so its revocation lookup
 // returns null and the denylist skips it. Order-independent.
 // Pass null to also make the Stage-2 lookup miss (KEY_NOT_FOUND path).
-function mockWrapKeys(stage2Row: ReturnType<typeof defaultStage2Row> | null): void {
+function mockWrapKeys(
+  stage2Row: Awaited<ReturnType<typeof lookupSigningKeyRevocation>>,
+  stage2Serial = WRAP_STAGE2_SERIAL,
+): void {
   vi.mocked(lookupSigningKeyRevocation).mockImplementation(async (serial: string) =>
-    serial === WRAP_STAGE2_SERIAL ? stage2Row : null,
+    serial === stage2Serial ? stage2Row : null,
   );
 }
 
@@ -477,3 +481,137 @@ describe.skipIf(!fixtureExists)(
     });
   },
 );
+
+// ---------------------------------------------------------------
+// RealReel wrap over a real ProofMode capture
+// ---------------------------------------------------------------
+//
+// Fixtures: fixtures/proofmode-{ios,android}-uploaded.jpg — a ProofMode capture
+// taken with GPS on, uploaded through the production app with location
+// "general" and pulled as above. Stage 2 signs under the v2 hierarchy. On both
+// platforms the capture carries GPS twice: in its EXIF and in ProofMode's
+// signed c2pa.metadata. The app strips the first and redacts the second.
+
+const PROOFMODE_WRAPS = [
+  {
+    platform: "iOS",
+    path: "fixtures/proofmode-ios-uploaded.jpg",
+    stage2Serial: "634570527972698869569305718987358780887440009253",
+    keyPlatform: "ios",
+    commonName: "Proofmode for iOS",
+    // The enrollment's stored public keys, so App Attest verifies for real.
+    // The SPKI is the Stage 2 leaf's; the App Attest key is recoverable from
+    // the assertion's signature.
+    keys: {
+      public_key: Buffer.from(
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEkdUOgdSmHZhPbbq89ka3KhnqxNTMeq8vAHtjUP4ObEsSxQeDaMxK+sCiUkRQkC+vG0Fvq5kvQAyG+dJjW1Y14g==",
+        "base64",
+      ),
+      app_attest_public_key: Buffer.from(
+        "BCK9MUgM2nv6lNaEVOcChju/jt7HFTxb8uAjkcimhQ7gXtrIrF6cGhFddujFx55JQRXcWWCo1cr8JBB1oaFgHC4=",
+        "base64",
+      ),
+    },
+  },
+  {
+    platform: "Android",
+    path: "fixtures/proofmode-android-uploaded.jpg",
+    stage2Serial: "320002776042256217317941033356147544071017289429",
+    keyPlatform: "android-strongbox",
+    commonName: "Proofmode for Android",
+    // Play Integrity runs without Google credentials here, as for the
+    // fixtures above.
+    keys: {},
+  },
+] as const;
+
+// Every object key under `value` that names a location field. The city label
+// ("locationLabel") is what a "general" upload is meant to publish.
+function locationKeys(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(locationKeys);
+  if (value === null || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([key, v]) => [
+    ...(/gps|latitude|longitude|geo|location(?!label)/i.test(key) ? [key] : []),
+    ...locationKeys(v),
+  ]);
+}
+
+for (const wrap of PROOFMODE_WRAPS) {
+  const fixturePath = resolve(import.meta.dirname, wrap.path);
+  const exists = await access(fixturePath)
+    .then(() => true)
+    .catch(() => false);
+
+  describe.skipIf(!exists)(`verify() — RealReel wrap over a real ProofMode capture (${wrap.platform})`, () => {
+    let bytes: Buffer;
+    let trustConfig: Awaited<ReturnType<typeof loadTrustConfig>>;
+
+    beforeEach(async () => {
+      vi.mocked(lookupSigningKeyRevocation).mockReset();
+      mockWrapKeys(
+        {
+          ...defaultStage2Row(),
+          cert_serial_number: wrap.stage2Serial,
+          platform: wrap.keyPlatform,
+          ...wrap.keys,
+          issued_at: "2026-10-01T00:00:00.000Z",
+          expires_at: "2027-10-01T00:00:00.000Z",
+        },
+        wrap.stage2Serial,
+      );
+      bytes = await readFile(fixturePath);
+      trustConfig = await loadTrustConfig(trustSourcesPath);
+    });
+
+    function verifyGeneral() {
+      return verify({
+        assetBytes: bytes,
+        mimeType: "image/jpeg",
+        expectedUserId: STAGE2_USER,
+        trustConfig,
+        declaredLocation: "general",
+      });
+    }
+
+    it("accepts the wrap, and the capture routes to the 'proofmode' source", async () => {
+      const result = await verifyGeneral();
+
+      expect(result.sanitizedManifest.trust_source).toBe("realreel");
+      expect(result.sanitizedManifest.validation_state).toBe("trusted");
+      const parentLabel = result.sanitizedManifest.active_manifest!.parent_label!;
+      const { issuer, common_name } = result.sanitizedManifest.manifests[parentLabel]!.signature_info;
+      expect(issuer).toBe("Proofmode Reality Systems LLC");
+      expect(common_name).toBe(wrap.commonName);
+      expect(identifyTrustSource(issuer!, common_name, trustConfig)).toBe("proofmode");
+    });
+
+    it("publishes no coordinates from the capture: no EXIF GPS, and no location field in the stored result or any manifest", async () => {
+      const result = await verifyGeneral();
+
+      // Accepted by the location gate, with only the city label derived.
+      expect(result.derived).toMatchObject({ latitude: null, longitude: null, bytesHadGps: false });
+      expect(result.derived.location).toBeTruthy();
+      expect(locationKeys(result.sanitizedManifest)).toEqual([]);
+
+      // The signed Stage 2 records that the capture had GPS in both places and
+      // what was done about it, so this fixture can't pass by lacking GPS.
+      const store = (await Reader.fromAsset({ buffer: bytes, mimeType: "image/jpeg" }))!.json() as any;
+      const active = store.manifests[store.active_manifest];
+      const actions = active.assertions.find((a: any) => a.label === "c2pa.actions.v2")?.data.actions ?? [];
+      const removed = actions.find((a: any) => a.action === "c2pa.edited.metadata")?.parameters["org.realreel.removed"];
+      expect(removed).toEqual(expect.arrayContaining(["exif:GPSLatitude", "exif:GPSLongitude"]));
+      const parentLabel = active.ingredients[0].active_manifest;
+      expect(actions).toContainEqual(
+        expect.objectContaining({
+          action: "c2pa.redacted",
+          parameters: { redacted: `self#jumbf=/c2pa/${parentLabel}/c2pa.assertions/c2pa.metadata` },
+        }),
+      );
+
+      // Nothing left in any manifest, ProofMode's included, names a location.
+      for (const manifest of Object.values(store.manifests) as any[]) {
+        expect(locationKeys(manifest.assertions.map((a: any) => a.data))).toEqual([]);
+      }
+    });
+  });
+}
