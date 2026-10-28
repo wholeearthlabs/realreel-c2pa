@@ -4,7 +4,7 @@
 # there's one entry point across the Node workspaces (trust-core, verifier,
 # native) and the Deno workspace (ca).
 
-.PHONY: test test-trust-core test-verifier test-ca lint lint-fix typecheck verify-trust-anchors verify-attestation-roots verifier-dev deploy-verifier rollback-verifier deploy-ocsp-leaf rollback-ocsp-leaf
+.PHONY: test test-trust-core test-verifier test-ca lint lint-fix typecheck verify-trust-anchors verify-tsa-list verify-attestation-roots verifier-dev deploy-verifier rollback-verifier deploy-ocsp-leaf rollback-ocsp-leaf
 
 # Run every test suite (trust-core + verifier + ca).
 test:
@@ -34,6 +34,10 @@ typecheck:
 # Validate the vendored trust-anchor PEM chains.
 verify-trust-anchors:
 	cd verifier && npx tsx scripts/audit-trust-anchors.ts
+
+# Check the vendored C2PA TSA Trust List against upstream.
+verify-tsa-list:
+	cd verifier && npx tsx scripts/audit-tsa-list.ts
 
 # Watch the pinned enrollment attestation roots (Google + Apple) for expiry.
 verify-attestation-roots:
