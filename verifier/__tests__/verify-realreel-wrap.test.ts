@@ -138,7 +138,7 @@ function defaultStage2Row(opts: { userId?: string; revoked?: boolean } = {}) {
 // returns null and the denylist skips it. Order-independent.
 // Pass null to also make the Stage-2 lookup miss (KEY_NOT_FOUND path).
 function mockWrapKeys(
-  stage2Row: ReturnType<typeof defaultStage2Row> | null,
+  stage2Row: Awaited<ReturnType<typeof lookupSigningKeyRevocation>>,
   stage2Serial = WRAP_STAGE2_SERIAL,
 ): void {
   vi.mocked(lookupSigningKeyRevocation).mockImplementation(async (serial: string) =>
