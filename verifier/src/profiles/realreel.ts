@@ -18,8 +18,10 @@
 // lists, which enforceRecordedIngredientResults judges instead.
 //
 // Trust in the capture is enrollment-only: it rests on the Stage-1 cert
-// chaining to a trusted root (the RealReel CA, or a trusted vendor like
-// Pixel) plus the structural fresh-capture + action allowlist — the same
+// chaining to a pooled anchor and resolving, by exact organization match,
+// to a capture source (trust/dispatcher.ts — the pool also holds TSA roots,
+// so the chain alone doesn't name the CA), plus the structural
+// fresh-capture + action allowlist — the same
 // model Pixel's C2PA camera and iOS App Attest use. There is NO per-capture
 // device-health check; Stage-1 device-health envelopes are not processed.
 //
@@ -117,8 +119,9 @@ export interface RealReelVerifyResult {
  *   ledger-backed Gate 3 (a trusted TSA lifts the post-expiry bound; C2PA
  *   §15.7 then governs). The no-stamp default keeps direct callers and the
  *   gate fail-closed.
- * @param readWithOcsp Re-reads the asset with OCSP fetch on (verify.ts
- *   readStoreWithOcsp). Present only when network revocation is enabled;
+ * @param readWithOcsp Re-reads the asset with OCSP fetch on, allowed to
+ *   contact only the given hosts — the capture source's own responders
+ *   (verify.ts readStoreWithOcsp). Present only when network revocation is enabled;
  *   called only for a capture whose source declares responders, after every
  *   structural gate, so the network is reached for a proven wrap alone. The
  *   profile judges the returned store's OCSP codes. Absent by default: with
@@ -132,7 +135,7 @@ export async function verifyRealReel(
   attestationRequired: boolean = false,
   datastore: VerifierDatastore = postgresAdapter,
   tsaState: TsaState = { hasStamp: false, trusted: false },
-  readWithOcsp?: () => Promise<ManifestStoreShape>,
+  readWithOcsp?: (ocspHosts: readonly string[]) => Promise<ManifestStoreShape>,
 ): Promise<RealReelVerifyResult> {
   const store = storeUnknown as ManifestStoreShape;
 
@@ -207,7 +210,7 @@ export async function verifyRealReel(
   // responder outage (retryable) never hides a permanent rejection; still
   // ahead of every DB read.
   if (captureSource.revocation && readWithOcsp) {
-    const online = await readWithOcsp();
+    const online = await readWithOcsp(captureSource.revocation.ocsp_hosts);
     classifyStrictValidationStatus(online.validation_status ?? [], online.active_manifest);
     enforceParentRevocationStatus(online, capture, captureSource);
   }

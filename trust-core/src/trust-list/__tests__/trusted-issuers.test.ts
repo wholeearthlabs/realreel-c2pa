@@ -1,11 +1,11 @@
 // Unit tests for the curated trust list. Two flavors of test:
 //
-//   1. Invariants on the list itself — id uniqueness, issuerMatch
-//      non-collision, every entry well-formed. These run alongside the
-//      shared package's other vitest suites.
+//   1. Invariants on the list itself — id and issuerMatch uniqueness,
+//      every entry well-formed. These run alongside the shared package's
+//      other vitest suites.
 //
-//   2. findTrustedIssuer behavior — substring match, missing fields,
-//      first-match-wins semantics.
+//   2. findTrustedIssuer behavior — exact organization match, CN pins,
+//      missing fields.
 //
 // A separate test on the verifier side (verifier/__tests__/trust-list-lockstep.test.ts)
 // performs the PEM-to-metadata lockstep check, parsing each anchor's
@@ -38,27 +38,11 @@ describe("TRUSTED_ISSUERS list invariants", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("issuerMatch substrings don't collide across entries", () => {
-    // Two collision classes to catch:
-    //   (a) Two entries with the exact same issuerMatch — findTrustedIssuer
-    //       would deterministically pick the first but the second never
-    //       matches anything.
-    //   (b) One entry's issuerMatch is a substring of another's — a
-    //       manifest containing the shorter string would route through
-    //       the shorter entry even when the longer one was the actual
-    //       issuer. Defeats the per-vendor isolation we get from
-    //       substring matching.
-    for (let i = 0; i < TRUSTED_ISSUERS.length; i++) {
-      for (let j = 0; j < TRUSTED_ISSUERS.length; j++) {
-        if (i === j) continue;
-        const a = TRUSTED_ISSUERS[i]!;
-        const b = TRUSTED_ISSUERS[j]!;
-        expect(
-          a.issuerMatch.includes(b.issuerMatch),
-          `issuerMatch collision: '${b.issuerMatch}' (${b.id}) is a substring of '${a.issuerMatch}' (${a.id})`,
-        ).toBe(false);
-      }
-    }
+  it("issuerMatch values are unique", () => {
+    // Two entries under one O would need disjoint CN pins to both be
+    // reachable; none exist yet, so keep the list simple and forbid it.
+    const matches = TRUSTED_ISSUERS.map((entry) => entry.issuerMatch);
+    expect(new Set(matches).size).toBe(matches.length);
   });
 
   it("every entry has a non-empty displayName, issuerMatch, and rootCommonName", () => {
@@ -127,22 +111,23 @@ describe("findTrustedIssuer", () => {
   });
 
   it("matches legacy-hierarchy leaves to realreel-legacy, not realreel", () => {
-    // Fielded pre-conformance leaves surface issuer "RealReel", which is
-    // not a substring of "Whole Earth Labs LLC".
+    // Fielded pre-conformance leaves surface issuer "RealReel".
     const result = findTrustedIssuer(manifestWithIssuer("RealReel"));
     expect(result?.id).toBe("realreel-legacy");
   });
 
-  it("full-DN v2 surface routes to realreel — declaration order is load-bearing", () => {
-    // A full v2 subject DN contains "RealReel" via its CN, so this
-    // resolves correctly only because `realreel` is declared first.
-    // Reordering the list (alphabetizing, inserting) must fail here.
-    const ids = TRUSTED_ISSUERS.map((e) => e.id);
-    expect(ids.indexOf("realreel")).toBeLessThan(ids.indexOf("realreel-legacy"));
-    const result = findTrustedIssuer(
-      manifestWithIssuer("CN=RealReel Android, O=Whole Earth Labs LLC, C=US"),
-    );
-    expect(result?.id).toBe("realreel");
+  it("rejects an organization that merely contains a trusted one", () => {
+    // A public CA in the verifier's anchor pool can issue a real cert to any
+    // company whose legal name contains a trusted organization's.
+    for (const [issuer, cn] of [
+      ["New Whole Earth Labs LLC", undefined],
+      ["Whole Earth Labs LLC Holdings", undefined],
+      ["RealReel Media LLC", undefined],
+      ["NotGoogle LLC", "Pixel Camera"],
+      ["Proofmode Reality Systems LLC Europe", "Proofmode for iOS"],
+    ] as const) {
+      expect(findTrustedIssuer(manifestWithIssuer(issuer, cn)), issuer).toBeNull();
+    }
   });
 
   it("matches Pixel only when both issuer AND common_name pin match", () => {
@@ -200,16 +185,6 @@ describe("findTrustedIssuer", () => {
     ).toBeNull();
   });
 
-  it("matches inside a longer issuer string (substring semantics)", () => {
-    // c2pa-rs may surface the issuer with surrounding context — the
-    // substring contract guarantees we still match. RealReel has no
-    // common_name pin so it still routes on the substring alone.
-    const result = findTrustedIssuer(
-      manifestWithIssuer("Production / Issuing CA / RealReel"),
-    );
-    expect(result?.id).toBe("realreel-legacy");
-  });
-
   it("returns null when issuer is not in the trust list", () => {
     expect(findTrustedIssuer(manifestWithIssuer("Photoshop Inc."))).toBeNull();
     expect(
@@ -223,8 +198,6 @@ describe("findTrustedIssuer", () => {
   });
 
   it("returns null when issuer is an empty string", () => {
-    // Edge case: substring matching on an empty string would match
-    // every entry — explicitly guarded against.
     expect(findTrustedIssuer(manifestWithIssuer(""))).toBeNull();
   });
 

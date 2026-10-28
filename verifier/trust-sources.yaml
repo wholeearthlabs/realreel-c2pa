@@ -6,7 +6,7 @@
 # for revocation.
 #
 # The cross-process portion of the trust list (id, displayName,
-# issuerMatch substring, rootCommonName) lives in
+# exact issuerMatch organization, rootCommonName) lives in
 # @realreel/c2pa-trust-core's TRUSTED_ISSUERS array. The two are joined
 # by `id` at startup. The verifier's React Native client gate (preflight
 # in the upload screen) consumes the same TRUSTED_ISSUERS so both
@@ -31,10 +31,10 @@
 #          ocsp_hosts: ["http://<responder-host>"]   # scheme://[*.]host[:port]
 #      Read the responder host off the vendor's leaf certificate (the AIA
 #      "OCSP" URI of a sample capture), matched literally: a port in the
-#      pattern matches only URLs that carry it. The union of every source's
-#      hosts is the only set c2pa-rs may contact, and with
-#      NETWORK_REVOCATION=true the verifier asks it on every wrapped
-#      upload; a capture whose responder gave no answer is rejected
+#      pattern matches only URLs that carry it. With
+#      NETWORK_REVOCATION=true the verifier asks these hosts, and only
+#      these, about every wrapped capture from this source; a capture
+#      whose responder gave no answer is rejected
 #      (retryable). Leave the block out for sources revoked through the
 #      issued-certificates ledger (the RealReel hierarchies; the loader
 #      refuses it on a `realreel` profile).
@@ -56,7 +56,7 @@
 # Today: RealReel, Google Pixel and ProofMode. Most phones don't sign with C2PA yet; as more
 # cameras ship native C2PA, add their root here (see "To add a source" above).
 sources:
-  # The `issuerMatch` substring used by identifyTrustSource() no longer
+  # The `issuerMatch` used by identifyTrustSource() no longer
   # lives in this file — it's joined by `id` against TRUSTED_ISSUERS in
   # @realreel/c2pa-trust-core. To add a new trusted source: register the
   # entry in trust-core/src/trust-list/trusted-issuers.ts
