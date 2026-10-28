@@ -755,11 +755,10 @@ export function resolveV2LeafOptions(
 //
 // User identity is never embedded — the (user_id, public_key) binding
 // lives in user_signing_keys — so any externally-published cert stays
-// privacy-respecting. Note the leaf's *issuer* DN (the "...Issuing CA" string
-// the verifier surfaces as `signature_info.issuer`) comes from the
-// intermediate cert, NOT from this subject; the verifier's trust-list
-// `issuerMatch` keys off that issuer string, so a fork that rebrands here must
-// also re-issue its CA hierarchy and update the trust-list metadata.
+// privacy-respecting. c2pa-rs surfaces this subject's O as
+// `signature_info.issuer`, and the verifier's trust-list `issuerMatch` must
+// equal it exactly, so a fork that changes LEAF_SUBJECT_ORG_V2 must update the
+// trust-list metadata too.
 //
 // pkijs's `RelativeDistinguishedNames.toSchema()` serializes the entire
 // `typesAndValues` array into a SINGLE multi-valued RDN (one SET containing

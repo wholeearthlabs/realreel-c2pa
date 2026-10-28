@@ -146,6 +146,18 @@ function mockWrapKeys(
   );
 }
 
+// The OCSP re-read may contact only the capture source's own responders, so
+// keeping these tests off the network means pointing Pixel's at `host`.
+type LoadedTrust = Awaited<ReturnType<typeof loadTrustConfig>>;
+function withPixelResponder(trust: LoadedTrust, host: string): LoadedTrust {
+  const sources = trust.sources.map((s) =>
+    s.id === "pixel" ? { ...s, revocation: { ocsp_hosts: [host] } } : s,
+  );
+  // Recompute the union the loader would derive from these sources.
+  const ocspHosts = [...new Set(sources.flatMap((s) => s.revocation?.ocsp_hosts ?? []))];
+  return { ...trust, sources, ocspHosts };
+}
+
 describe.skipIf(!fixtureExists)(
   "verify() — Pixel parent + RealReel Stage 2 wrap",
   () => {
@@ -224,7 +236,7 @@ describe.skipIf(!fixtureExists)(
       // c2pa-node manifest — see trust-source-dispatch.test.ts for the
       // common_name routing regression coverage. The SanitizedManifest now
       // persists that common_name too, so a viewer can name the camera.
-      expect(parent.signature_info.issuer).toContain("Google LLC");
+      expect(parent.signature_info.issuer).toBe("Google LLC");
       expect(parent.signature_info.common_name).toBe("Pixel Camera");
     });
 
@@ -378,7 +390,7 @@ describe.skipIf(!fixtureExists)(
           assetBytes: wrapBytes,
           mimeType: "image/jpeg",
           expectedUserId: STAGE2_USER,
-          trustConfig: { ...trustConfig, ocspHosts: ["http://ocsp.invalid"] },
+          trustConfig: withPixelResponder(trustConfig, "http://ocsp.invalid"),
           declaredLocation: "precise",
           networkRevocation: true,
         }),
@@ -439,11 +451,29 @@ describe.skipIf(!fixtureExists)(
         assetBytes: await readFile(wrapFixturePath),
         mimeType: "image/jpeg",
         expectedUserId: STAGE2_USER,
-        trustConfig: { ...trustConfig, ocspHosts: ["http://ocsp.invalid"] },
+        trustConfig: withPixelResponder(trustConfig, "http://ocsp.invalid"),
         declaredLocation: "precise",
         networkRevocation: true,
       }).catch(() => undefined);
       expect(fromAsset.mock.calls.map(ocspFetchOf)).toEqual([false, true]);
+    });
+
+    it("the OCSP read may contact only the capture source's own responders", async () => {
+      // Every source's responders would let ProofMode's (Trufo's) answer for a
+      // Trufo-issued cert that claims to be a Pixel.
+      expect(trustConfig.ocspHosts).toContain("https://ocsp.trufo.ai");
+      await verify({
+        assetBytes: await readFile(wrapFixturePath),
+        mimeType: "image/jpeg",
+        expectedUserId: STAGE2_USER,
+        trustConfig: withPixelResponder(trustConfig, "http://ocsp.invalid"),
+        declaredLocation: "precise",
+        networkRevocation: true,
+      }).catch(() => undefined);
+      const hostsOf = (call: unknown[]) =>
+        (JSON.parse(call[1] as string) as { core: { allowed_network_hosts: string[] } }).core
+          .allowed_network_hosts;
+      expect(hostsOf(fromAsset.mock.calls[1]!)).toEqual(["http://ocsp.invalid"]);
     });
 
     it("a native RealReel upload never reads with OCSP on, even with network revocation enabled", async () => {

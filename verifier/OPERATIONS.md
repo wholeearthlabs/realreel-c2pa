@@ -143,7 +143,7 @@ vendor):
 
 1. Drop the new PEM at `verifier/trust-sources/<id>/root.pem`.
 2. If the cert subject CN changed, update `rootCommonName` for that `id` in `trust-core/src/trust-list/trusted-issuers.ts`. The `trust-list-lockstep` test asserts PEM-subject CN equals `rootCommonName` and fails CI if the two drift.
-3. If the cert's surfaced issuer string changed (which c2pa-rs derives from the leaf cert and is rare for a root-only rotation), update `issuerMatch` for that `id` in the same file. Substring match — not the trust gate. The trust gate is `trust_anchors` chain validation by c2pa-node; `issuerMatch` runs only on already-trusted certs.
+3. If the cert's surfaced issuer string changed (which c2pa-rs derives from the leaf cert and is rare for a root-only rotation), update `issuerMatch` for that `id` in the same file. It must equal the leaf's subject O exactly — the anchor pool also holds TSA roots, so the chain alone doesn't scope a cert to its source.
 4. Locally: `make verify-trust-anchors` → exit 0 confirms the new anchor reads cleanly and is self-signed. Run `cd verifier && npx vitest run` to confirm the lockstep test passes against the new PEM.
 5. Rebuild image, redeploy to Cloud Run. The trust bundle is image-baked — rotation = redeploy.
 6. Close the open GitHub issue (`label: trust-anchors`).

@@ -210,15 +210,21 @@ export function withOcspTimeout<T>(
 // responders and only after every structural gate has passed — a handful of
 // claims at most. Costs one extra parse. The store it returns differs from
 // the offline one only in the OCSP codes the profile then judges.
+//
+// The host allow-list is the capture source's own responders, not every
+// source's: c2pa-rs asks whichever responder the cert itself names, and the
+// fetched answer doesn't say which one replied, so a wider list would let
+// one source's responder vouch for a cert claiming to be another source.
 async function readStoreWithOcsp(
   assetBytes: Buffer,
   mimeType: string,
   trustConfig: TrustConfig,
+  ocspHosts: readonly string[],
 ): Promise<ManifestStoreShape> {
   const reader = await withOcspTimeout(
     Reader.fromAsset(
       { buffer: assetBytes, mimeType },
-      buildVerifierSettings(trustConfig, true),
+      buildVerifierSettings({ trustAnchorsBundle: trustConfig.trustAnchorsBundle, ocspHosts }, true),
     ),
   );
   if (reader === null) {
@@ -363,7 +369,7 @@ export async function verify(args: VerifyArgs): Promise<VerifyResult> {
     datastore,
     tsaState,
     fetchesOcsp(trustConfig, networkRevocation)
-      ? () => readStoreWithOcsp(assetBytes, normalizedMime, trustConfig)
+      ? (ocspHosts) => readStoreWithOcsp(assetBytes, normalizedMime, trustConfig, ocspHosts)
       : undefined,
   );
 

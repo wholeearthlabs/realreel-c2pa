@@ -1,13 +1,9 @@
 // Trust-source dispatcher tests.
 //
-// The dispatcher's only job is routing-to-profile. The trust gate is
-// c2pa-node chain validation (verify_trust_list: false + trust_anchors
-// bundle), which runs before identifyTrustSource() is ever called.
-//
-// The substring-matching logic itself lives in
-// @realreel/c2pa-trust-core's TRUSTED_ISSUERS — covered by
-// trust-core/src/trust-list/__tests__/trusted-issuers.test.ts.
-// These tests cover only the verifier-side concerns the dispatcher adds:
+// The dispatcher maps a chain-validated signature to its trust source. The
+// match criteria mirror @realreel/c2pa-trust-core's findTrustedIssuer —
+// covered by trust-core/src/trust-list/__tests__/trusted-issuers.test.ts.
+// These tests cover the verifier side:
 //
 //   1. Routing returns the source id when the issuer matches AND that
 //      source has a loaded PEM.
@@ -16,10 +12,9 @@
 //      was missing on disk — loader skips it and the dispatcher refuses
 //      to route).
 //   3. Empty string + no-match return null.
-//   4. The substring contract DOES match attacker-controlled strings —
-//      the routing layer is permissive; trust comes from c2pa-node chain
-//      validation, not from string matching. This regression test
-//      documents the contract.
+//   4. A lookalike organization does NOT route: chain validation accepts
+//      any pooled anchor, TSA roots included, so the exact match is what
+//      scopes a cert to a source.
 
 import { describe, it, expect } from "vitest";
 import { identifyTrustSource } from "../src/trust/dispatcher.js";
@@ -51,13 +46,9 @@ function configWithLoaded(...ids: string[]): TrustConfig {
   };
 }
 
-// Note on DN shape: these tests build synthetic full-DN issuer strings
-// (e.g. "CN=RealReel Issuing CA, O=RealReel Inc, C=US") because that's
-// the worst-case shape the substring contract has to handle. The real
-// c2pa-rs output is usually narrower — verify-pixel.test.ts confirms
-// signature_info.issuer === "Google LLC" (bare string) for the Pixel
-// fixture. Whether c2pa-rs surfaces the full DN or just the O field
-// varies by cert chain shape; the substring match works either way.
+// c2pa-rs surfaces signature_info.issuer as the leaf's subject O alone
+// (verify-pixel.test.ts pins "Google LLC" for the Pixel fixture), so these
+// tests use bare organizations.
 
 describe("identifyTrustSource — routing", () => {
   it("routes v2-hierarchy leaves (subject O) to 'realreel'", () => {
@@ -73,31 +64,18 @@ describe("identifyTrustSource — routing", () => {
   it("routes legacy-hierarchy leaves to 'realreel-legacy', never 'realreel'", () => {
     expect(
       identifyTrustSource(
-        "CN=RealReel Issuing CA, O=RealReel Inc, C=US",
+        "RealReel",
         "RealReel-Device-Key",
         configWithLoaded("realreel", "realreel-legacy", "pixel"),
       ),
     ).toBe("realreel-legacy");
   });
 
-  it("full-DN v2 surface routes to 'realreel' via declaration order", () => {
-    // The full v2 DN contains "RealReel" via its CN; `realreel` being
-    // declared before `realreel-legacy` in TRUSTED_ISSUERS is what keeps
-    // this on the v2 source (first-match). See trusted-issuers.ts.
-    expect(
-      identifyTrustSource(
-        "CN=RealReel Android, O=Whole Earth Labs LLC, C=US",
-        "RealReel Android",
-        configWithLoaded("realreel", "realreel-legacy", "pixel"),
-      ),
-    ).toBe("realreel");
-  });
-
   it("matches RealReel even with null common_name (entries are unopinionated)", () => {
     // Neither RealReel entry has a commonNameMatch — routes on issuer alone.
     expect(
       identifyTrustSource(
-        "CN=RealReel Issuing CA, O=RealReel Inc, C=US",
+        "RealReel",
         null,
         configWithLoaded("realreel", "realreel-legacy", "pixel"),
       ),
@@ -115,11 +93,10 @@ describe("identifyTrustSource — routing", () => {
   });
 
   it("rejects Google LLC issuer when common_name is not 'Pixel Camera' (H6 regression)", () => {
-    // Closes the loose-substring window: a hypothetical future Google
-    // C2PA program (Workspace export, Drive, etc.) signed as
-    // "Google LLC" must NOT route to the Pixel profile just because
-    // the issuer substring matches. The commonNameMatch pin on the
-    // Pixel entry is the second gate.
+    // A hypothetical future Google C2PA program (Workspace export, Drive,
+    // etc.) signed as "Google LLC" must NOT route to the Pixel profile
+    // just because the organization matches. The commonNameMatch pin on
+    // the Pixel entry is the second gate.
     expect(
       identifyTrustSource(
         "Google LLC",
@@ -171,7 +148,7 @@ describe("identifyTrustSource — routing", () => {
   it("returns null when no TRUSTED_ISSUERS entry matches the issuer string", () => {
     expect(
       identifyTrustSource(
-        "CN=Some Other CA, O=Other, C=US",
+        "Other Inc",
         null,
         configWithLoaded("realreel", "pixel"),
       ),
@@ -187,7 +164,7 @@ describe("identifyTrustSource — routing", () => {
 
 describe("identifyTrustSource — loaded-source filter", () => {
   // This is the verifier-side bit the dispatcher adds on top of the
-  // shared substring match: a TRUSTED_ISSUERS entry whose PEM didn't
+  // shared organization match: a TRUSTED_ISSUERS entry whose PEM didn't
   // load at startup MUST NOT be routed to, otherwise c2pa-node would
   // have rejected the manifest at chain validation but we'd still claim
   // to recognize it.
@@ -209,7 +186,7 @@ describe("identifyTrustSource — loaded-source filter", () => {
   it("still routes the other source when only one is loaded", () => {
     expect(
       identifyTrustSource(
-        "CN=RealReel Issuing CA, O=RealReel Inc, C=US",
+        "RealReel",
         null,
         configWithLoaded("realreel-legacy"),
       ),
@@ -221,7 +198,7 @@ describe("identifyTrustSource — loaded-source filter", () => {
     // versa) must return null, not route to the other RealReel entry.
     expect(
       identifyTrustSource(
-        "CN=RealReel Issuing CA, O=RealReel Inc, C=US",
+        "RealReel",
         null,
         configWithLoaded("realreel"),
       ),
@@ -238,7 +215,7 @@ describe("identifyTrustSource — loaded-source filter", () => {
   it("returns null when no sources are loaded at all", () => {
     expect(
       identifyTrustSource(
-        "CN=RealReel Issuing CA, O=RealReel Inc, C=US",
+        "RealReel",
         null,
         configWithLoaded(),
       ),
@@ -246,34 +223,24 @@ describe("identifyTrustSource — loaded-source filter", () => {
   });
 });
 
-// -------- Routing safety: substring-match-on-trusted-only --------
+// -------- Routing safety: exact organization match --------
 //
-// These cases document the dispatcher's contract:
-//
-//   The substring match is for ROUTING, not TRUST. By the time
-//   identifyTrustSource() runs, the manifest's cert chain has
-//   already been validated against a trust anchor by c2pa-node.
-//   An attacker can forge "CN=RealReel Issuing CA" in their own
-//   cert string, but unless that cert chains to a root in our
-//   trust_anchors bundle, c2pa-node rejects it before this code
-//   runs. We don't unit-test the c2pa-node chain validation here
-//   (that's c2pa-rs's job) — we just document the assumption.
+// A chain-valid cert can come from any pooled anchor, including the public
+// CAs on the C2PA TSA Trust List, which issue real claim-signing certs to
+// organizations they vet. So routing must not admit an organization that
+// merely contains a trusted one.
 
-describe("identifyTrustSource — substring contract", () => {
-  it("regression: attacker-controlled 'contains' a known issuer still routes via dispatch; trust is c2pa-node's job", () => {
-    // If c2pa-node validates this chain (it WON'T — attacker can't
-    // forge a cert chaining to our root), the dispatcher would route
-    // it to the realreel profile. This is intentional: trust comes
-    // from chain validation, not from string matching.
-    expect(
-      identifyTrustSource(
-        "CN=RealReel Issuing CA Evil Twin, O=Attacker",
-        null,
-        configWithLoaded("realreel", "realreel-legacy", "pixel"),
-      ),
-    ).toBe("realreel-legacy");
-    // ← Confirms substring routing fires. Real-world protection: this
-    //   only ever happens on certs c2pa-node already accepted, which
-    //   means they chain to our root, which means they ARE our certs.
+describe("identifyTrustSource — exact organization match", () => {
+  it("does not route an organization that contains a trusted one", () => {
+    const all = configWithLoaded("realreel", "realreel-legacy", "pixel", "proofmode");
+    for (const [issuer, cn] of [
+      ["New Whole Earth Labs LLC", "RealReel iOS"],
+      ["RealReel Media LLC", null],
+      ["RealReel Issuing CA Evil Twin", null],
+      ["NotGoogle LLC", "Pixel Camera"],
+      ["Proofmode Reality Systems LLC Europe", "Proofmode for iOS"],
+    ] as const) {
+      expect(identifyTrustSource(issuer, cn, all), issuer).toBeNull();
+    }
   });
 });

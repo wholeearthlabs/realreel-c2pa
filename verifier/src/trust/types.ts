@@ -29,8 +29,8 @@ export type VerificationProfile = "realreel" | "wrap_parent_only";
  * none. */
 export interface RevocationConfig {
   /** c2pa-rs `HostPattern` strings — `scheme://[*.]host[:port]`, scheme
-   * required — naming the source's OCSP responders. The union over every
-   * source is c2pa-rs's outbound host allow-list. */
+   * required — naming the source's OCSP responders. The OCSP re-read of a
+   * capture from this source may contact only these. */
   ocsp_hosts: string[];
 }
 
@@ -98,10 +98,12 @@ export interface TrustConfig {
    *  as one chaining to a camera root. The POLICY layer scopes each
    *  anchor's role — active manifest must resolve to a `realreel`-profile
    *  source (force-wrap) and the capture to a capture-capable source
-   *  (enforceParentTrustSource); both keyed on TRUSTED_ISSUERS identity
-   *  matches a TSA-rooted cert won't satisfy without defrauding a public
-   *  CA's org validation. If c2pa-rs grows a distinct TSA anchor setting,
-   *  split this bundle. */
+   *  (enforceParentTrustSource); both keyed on an EXACT match of the leaf's
+   *  organization (TRUSTED_ISSUERS), which a cert from another pooled CA
+   *  meets only if that CA vetted an organization with exactly that legal
+   *  name. With NETWORK_REVOCATION=true, a third-party capture must also
+   *  get a fetched notRevoked from its own source's OCSP responder. If
+   *  c2pa-rs grows a distinct TSA anchor setting, split this bundle. */
   trustAnchorsBundle: string;
 
   /** Set of source ids whose PEM loaded successfully. Read by
@@ -109,8 +111,9 @@ export interface TrustConfig {
    * rebuilt on the hot path. Immutable after the loader returns. */
   loadedIds: ReadonlySet<string>;
 
-  /** Every loaded source's `revocation.ocsp_hosts`, deduplicated: the whole
-   * of c2pa-rs's outbound host allow-list (see buildVerifierSettings). Empty
+  /** Every loaded source's `revocation.ocsp_hosts`, deduplicated: the offline
+   * read's allow-list, and non-empty is what enables the OCSP re-read
+   * (fetchesOcsp), which narrows to the capture source's own hosts. Empty
    * blocks every c2pa-rs network request. */
   ocspHosts: readonly string[];
 }
