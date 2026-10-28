@@ -1,112 +1,107 @@
 # RealReel C2PA Verifier
 
-Cloud Run microservice that validates the embedded C2PA manifest of each upload against a curated trust list and revocation state. Synchronous; called from the Supabase `verify-and-create-media` edge function before any `media` row is inserted.
+Cloud Run service that validates each upload's embedded C2PA manifest against a
+curated trust list and revocation state. It's synchronous: the Supabase
+`verify-and-create-media` edge function calls it before any `media` row is
+inserted.
 
-This directory is self-contained: its own `package.json`, `Dockerfile`, dependencies, and tests.
-
-For the architectural context, see [`TRUST_ARCHITECTURE.md`](../TRUST_ARCHITECTURE.md).
+Self-contained, with its own `package.json`, `Dockerfile`, dependencies, and
+tests. The architecture is in [`TRUST_ARCHITECTURE.md`](../TRUST_ARCHITECTURE.md);
+deploying and running it in [`DEPLOY.md`](DEPLOY.md) and
+[`OPERATIONS.md`](OPERATIONS.md).
 
 ## Layout
 
 ```
 verifier/
-├── package.json
-├── tsconfig.json
-├── Dockerfile
-├── trust-sources.yaml          ← curated list of trusted C2PA content sources
-├── trust-sources/
-│   ├── realreel/               ← RealReel C2PA root + ICA + OCSP responder certs
-│   ├── realreel-legacy/root.pem← pre-conformance RealReel root (legacy leaves)
-│   └── pixel/root.pem          ← Google Content Credentials root (Pixel Camera)
+├── Dockerfile                ← builds from the repo root (see Build + container)
+├── trust-sources.yaml        ← curated trusted C2PA content sources + TSA pools
+├── trust-sources/            ← the public PEMs each entry's `root_cert` points at
+│                               (realreel/ also holds the ICA + both OCSP responder certs)
 ├── src/
-│   ├── server.ts               ← Fastify entrypoint + auth + SSRF guard
-│   ├── verify.ts               ← main verify() — dispatches to a profile
-│   ├── trust/
-│   │   ├── loader.ts           ← parses YAML, reads PEMs, builds trust_anchors bundle
-│   │   ├── dispatcher.ts       ← issuer → source_id resolver
-│   │   └── types.ts
-│   ├── profiles/
-│   │   └── realreel.ts         ← 2-stage manifest + revocation denylist + Stage-2 attestation
-│   ├── attestation/
-│   │   ├── apple.ts            ← Stage-2 App Attest validator (iOS): structural + ECDSA chain against enrollment-stored credCert pubkey + single-use nonce burn
-│   │   ├── pki-node.ts         ← node:crypto primitives (sha256, P-256 raw pubkey import, ECDSA verify)
-│   │   └── play_integrity.ts   ← Stage-2 Play Integrity validator (Android): plausibility filter + Google decodeIntegrityToken + STRONG verdict enforcement
-│   ├── db.ts                   ← postgres client; single call site
-│   ├── sanitize.ts             ← strips signature bytes + cert chain from manifest
-│   ├── errors.ts               ← VerifyErrorCode + VerifyError
-│   ├── config.ts               ← env var parsing
-│   └── observability.ts        ← Sentry init + pino logger
+│   ├── server.ts             ← Fastify entrypoint: auth, SSRF guard
+│   ├── verify.ts             ← verify(): orchestrator-level gates, then the profile
+│   ├── ports.ts              ← datastore port — pass your own `datastore` to verify()
+│   ├── db.ts                 ← default Postgres adapter
+│   ├── trust/                ← trust-sources loader + issuer → source dispatcher
+│   ├── profiles/             ← realreel: two-stage manifest, revocation, Stage-2 attestation
+│   ├── attestation/          ← Stage-2 App Attest (iOS) + Play Integrity (Android)
+│   ├── cert-validity.ts      ← time-bound certificate-validity gates
+│   ├── generative-ai.ts      ← generative-AI provenance gate
+│   ├── location-privacy.ts   ← location-privacy backstop
+│   ├── derive-metadata.ts    ← displayed metadata, derived from the verified bytes
+│   ├── container-sniff.ts    ← byte-level photo / video container sniff
+│   ├── sanitize.ts           ← strips re-verification-only data before persistence
+│   ├── harness/              ← crJSON conformance harness (below)
+│   └── errors.ts · config.ts · observability.ts
 └── __tests__/
-    └── ...
 ```
 
 ## Local development
 
-Run it as a standalone HTTP service against a local Postgres with the verifier schema applied.
-
-### Run the verifier locally
-
 ```bash
-make verifier-dev   # from repo root
+make verifier-dev   # from the repo root
 ```
 
-Runs just the verifier with a local-dev env wired up (a local Postgres reachable at the default `DATABASE_URL`, a placeholder shared secret, and the SSRF host config). The verifier auto-restarts on `src/` changes. For anything beyond the defaults, copy `verifier/.env.example` and supply your own values.
+Runs the verifier against a local Postgres with the verifier schema applied, at
+the default `DATABASE_URL`, with a placeholder shared secret and the SSRF host
+config; it restarts on `src/` changes. For anything beyond the defaults, copy
+`verifier/.env.example`.
 
-### Bare-bones (no Make)
+Without Make, `npm run dev` (tsx watch) reads only `PORT` (default 8787) — set
+the rest yourself. The minimum, mirroring `make verifier-dev`:
 
-```bash
-cd verifier
-npm install
-npm run dev     # tsx watch — auto-reloads on src/ changes
-```
-
-`npm run dev` itself reads only `PORT` (default 8787) — every other env var must be set externally. The `make verifier-dev` target is the canonical source for those values; here's the minimum set if you're invoking `npm run dev` directly:
-
-> **Local-dev values only.** Do not use these placeholder values in production; the production deployment uses Secret Manager-mounted secrets with rotated credentials.
+> **Local-dev values only.** Production uses Secret Manager-mounted, rotated
+> credentials.
 
 ```
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:54322/postgres
 VERIFIER_SHARED_SECRET=dev-shared-secret-not-for-prod
-ASSET_STORAGE_HOST_REGEX=^https?:\/\/127\.0\.0\.1:54321\/storage\/v1\/object\/sign\/
-ASSET_STORAGE_HOST_ALLOWLIST=127.0.0.1:54321
+ASSET_STORAGE_HOST_REGEX=^http://(127\.0\.0\.1|localhost):54321/storage/v1/object/sign/
+ASSET_STORAGE_HOST_ALLOWLIST=127.0.0.1:54321,localhost:54321
 ```
 
-`ASSET_STORAGE_HOST_REGEX` is the first SSRF layer (URL shape match); `ASSET_STORAGE_HOST_ALLOWLIST` is the authoritative second layer — comma-separated lowercase hosts compared against `new URL(signedUrl).host`. The two-step defense neutralizes the userinfo-prefix trick (`https://abc.supabase.co@attacker.com/...`) even if the regex is permissive.
+SSRF is checked twice: `ASSET_STORAGE_HOST_REGEX` matches the URL's shape, and
+`ASSET_STORAGE_HOST_ALLOWLIST` — comma-separated lowercase hosts compared against
+`new URL(signedUrl).host` — is authoritative, so the userinfo-prefix trick
+(`https://abc.supabase.co@attacker.com/...`) fails even under a permissive regex.
 
-Stage-2 attestation env (`PLAY_INTEGRITY_PACKAGE_NAME`, `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER`, `ATTESTATION_REQUIRED`) and `NETWORK_REVOCATION` are intentionally left unset locally — the verifier runs in lenient mode (structural envelope check + nonce burn, JWS decode skipped) and makes no OCSP request. Production sets all four; see [DEPLOY.md](DEPLOY.md).
+Stage-2 attestation (`PLAY_INTEGRITY_PACKAGE_NAME`,
+`PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER`, `ATTESTATION_REQUIRED`) and
+`NETWORK_REVOCATION` stay unset locally: the verifier runs lenient (structural
+envelope check + nonce burn, JWS decode skipped) and makes no OCSP request.
+Production sets all four — see [DEPLOY.md](DEPLOY.md).
 
-## Running tests
+## Tests
 
 ```bash
-npm test                # vitest run
-npm run test:watch      # vitest watch
+npm test             # vitest run — or `make test-verifier` from the repo root
+npm run test:watch
 ```
 
-Or from repo root:
-
-```bash
-make test-verifier
-```
-
-> **Git LFS required.** The binary test fixtures in `__tests__/fixtures/` (`.jpg`, `.png`, `.mov`, …) are stored in [Git LFS](https://git-lfs.com). Install it **before** cloning (`brew install git-lfs && git lfs install`); on an existing clone run `git lfs pull` once. Without it the fixtures arrive as small text pointer files and the suite fails with decode/parse errors. New binary fixtures dropped into that directory are tracked automatically (the patterns live in the repo-root `.gitattributes`).
+- **Git LFS required.** The binary fixtures in `__tests__/fixtures/` live in
+  [Git LFS](https://git-lfs.com). Install it before cloning
+  (`brew install git-lfs && git lfs install`), or run `git lfs pull` once;
+  otherwise they arrive as small pointer files and the suite fails with
+  decode/parse errors. New binaries dropped there are tracked automatically
+  (the root `.gitattributes`).
+- The crJSON harness suites need the pinned `c2patool` and `faketime` on `PATH`,
+  and skip without them — see [`CRJSON_HARNESS.md`](CRJSON_HARNESS.md).
 
 ## Build + container
 
 ```bash
-npm run build           # tsc → dist/ (local)
+npm run build                                               # tsc → dist/
+docker build -f verifier/Dockerfile -t realreel-verifier .  # from the repo root
 ```
 
-The container image builds from the **repo root** (not `verifier/`), so the
-`@realreel/c2pa-trust-core` workspace dep is compiled from source into it:
-
-```bash
-# from the repo root:
-docker build -f verifier/Dockerfile -t realreel-verifier .
-```
+The image builds from the **repo root** so the `@realreel/c2pa-trust-core`
+workspace dependency compiles from source into it. Release images are built in
+CI from a `verifier-v<semver>` tag — see [`RELEASING.md`](../RELEASING.md).
 
 ## Trust list
 
-The trust list is the set of cameras whose C2PA captures the verifier will accept — today RealReel's own in-app camera and Google Pixel (see [`TRUST_ARCHITECTURE.md` § Multi-source trust](../TRUST_ARCHITECTURE.md#multi-source-trust) for why).
+The trust list is the set of cameras whose C2PA captures the verifier will accept (see [`TRUST_ARCHITECTURE.md` § Multi-source trust](../TRUST_ARCHITECTURE.md#multi-source-trust) for the current sources and why).
 
 The trust list is split across two files. The cross-process portion — `id`, `displayName`, `issuerMatch` substring, optional `commonNameMatch` discriminator, `rootCommonName` — lives in `@realreel/c2pa-trust-core`'s `TRUSTED_ISSUERS` array (at `trust-core/src/trust-list/trusted-issuers.ts`). The React Native client preflight gate reads from the same array, so the two validators cannot disagree on what counts as a trusted issuer.
 
@@ -122,7 +117,7 @@ The trust list is split across two files. The cross-process portion — `id`, `d
 
 **Third-party parent revocation.** A wrapped capture from a `wrap_parent_only` source has no ledger row, so with `NETWORK_REVOCATION=true` (see [DEPLOY.md](DEPLOY.md)) c2pa-rs asks the responder that source declares for the parent's leaf-certificate OCSP status on every wrapped upload. A `revoked` answer rejects as `UNTRUSTED_ISSUER`; no answer — responder unreachable, blocked, timed out, or a response stapled into the manifest, which c2pa-rs never fetches past — rejects as retryable `VERIFIER_UNAVAILABLE` rather than passing. The asset is read offline first; the read with OCSP fetch on happens only for a wrap whose capture source declares responders, after every structural gate, so an uploaded store cannot drive requests before it has proved to be a valid wrap. Off (the default outside production), c2pa-rs makes no network request. c2pa-rs accepts an answer only from a responder whose certificate carries OCSP signing and chains to the anchor pool, though not specifically to the issuing CA. It also queries an issuing CA when the CA's own issuer is in the signer's `x5chain`; Pixel's chain stops at the issuing CA, so only the leaf is asked.
 
-**One ingestion profile, force-wrap.** The verifier dispatches only the `realreel` profile when ingesting an active manifest (see `verify.ts` — anything else is rejected with `UNTRUSTED_ISSUER`). Every upload must therefore carry a RealReel-signed Stage 2 manifest. `wrap_parent_only` (today: Pixel and ProofMode) means the root sits in the c2pa-node trust bundle so parent-chain validation succeeds in wrap mode, but a raw single-stage upload chained to that root is rejected at the force-wrap gate.
+**One ingestion profile, force-wrap.** The verifier dispatches only the `realreel` profile when ingesting an active manifest (see `verify.ts` — anything else is rejected with `UNTRUSTED_ISSUER`). Every upload must therefore carry a RealReel-signed Stage 2 manifest. `wrap_parent_only` means the root sits in the c2pa-node trust bundle so parent-chain validation succeeds in wrap mode, but a raw single-stage upload chained to that root is rejected at the force-wrap gate.
 
 **Generative-AI provenance, refused ahead of trust.** Before issuer resolution, `verify.ts` scans the active manifest and every manifest it references through an ingredient (any relationship, nested `related` sub-actions included) for an action whose IPTC `digitalSourceType` is `trainedAlgorithmicMedia` (a model produced the content) or `compositeWithTrainedAlgorithmicMedia` (a model changed it) and rejects a hit with `AI_GENERATED` (`src/generative-ai.ts`; the pure policy is `findGenerativeAiSource`, exported by `@realreel/c2pa-trust-core` from `trust-core/src/policies/generative-ai.ts`). Issuer-blind on purpose: the action allowlist admits `c2pa.created` on a capture and says nothing about what kind of creation it was, so a trusted camera signing model output is refused the same as a foreign generator, and the code names the content rather than the signer. Manifests the active one does not reference are ignored, so an appended stray manifest cannot relabel a genuine capture. Camera-pipeline terms (`computationalCapture`, `algorithmicallyEnhanced`) are not treated as AI.
 

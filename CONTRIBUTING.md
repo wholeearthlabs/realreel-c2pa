@@ -17,8 +17,8 @@ learn from, and build trust in.
 
 ## Repository layout
 
-See the [workspaces table in `README.md`](./README.md#workspaces) for what each
-workspace is, plus per-workspace build and test instructions.
+See [What's inside](./README.md#whats-inside) for what each workspace is, and
+[Quickstart](./README.md#quickstart) for the build and test commands.
 
 ## Pull requests
 

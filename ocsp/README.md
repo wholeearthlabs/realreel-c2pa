@@ -1,83 +1,79 @@
 # realreel-ocsp
 
 Cloudflare Worker answering **RFC 6960 OCSP** for the RealReel C2PA CA at
-`http://ocsp.realreel.xyz`, operated by Whole Earth Labs LLC. This is the URL
-baked into the **Claim Signing ICA**'s `AIA: OCSP` extension, so it must answer
-24×7 (C2PA Certificate Policy §4.11, §9.6.1(5)).
+`http://ocsp.realreel.xyz`. Operated by Whole Earth Labs LLC. It's the URL in
+the Claim Signing ICA's `AIA: OCSP` extension, so it must answer 24×7 (C2PA
+Certificate Policy §4.11, §9.6.1(5)).
 
 ## How it works
 
-The responder is authoritative for exactly one certificate — the Claim Signing
-ICA — whose status changes essentially never. So nothing signs at request time:
+The Worker is authoritative for exactly one certificate, the Claim Signing ICA,
+whose status essentially never changes — so nothing signs at request time.
 
-1. A **scheduled refresh job** ([`refresh-ocsp.yml`](../.github/workflows/refresh-ocsp.yml),
-   daily) runs [`build-ocsp-responses.ts`](./build-ocsp-responses.ts): it builds
-   `good` responses for the ICA's CertID (one per hash algorithm a client may
-   use — SHA-1 and SHA-256), signs them via **Cloud KMS** with the
-   `realreel-ocsp-root` key (ecdsa-with-SHA256), self-verifies, cross-verifies
-   with openssl, and publishes the DER bytes to **Workers KV**
-   (`response:sha1` / `response:sha256`).
-2. The **Worker** ([`router.ts`](./router.ts)) parses each incoming OCSP
-   request (GET base64-in-path per RFC 6960 A.1, or POST
-   `application/ocsp-request`), matches its CertID against the ICA — hashes
-   are derived at runtime from the trust-source PEMs, never hardcoded — and:
-   - CertID names the ICA → serves the pre-signed response from KV (SHA-1 and
-     SHA-256 CertIDs — all known clients; RFC 5019 §2.1.1 mandates SHA-1. A
-     SHA-384/512 ICA CertID answers `unauthorized`; closing that gap means
-     pre-signing two more responses in the refresh job);
-   - CertID's **issuer is the ICA** (a RealReel leaf) → relayed to the live
-     leaf-status responder ([`../ocsp-leaf/`](../ocsp-leaf/), Cloud Run) when
-     `LEAF_RESPONDER_ORIGIN` is set in `wrangler.toml`; `unauthorized` until
-     then. That origin requires a shared secret, held here as the
-     `LEAF_RELAY_SECRET` Worker secret (`npx wrangler secret put
-     LEAF_RELAY_SECRET`) and sent as `x-realreel-relay-secret`; if it's missing
-     or stale the origin answers 403 and this Worker returns `internalError`;
-   - any other CertID (or a multi-cert request) → `unauthorized` (never `good`
-     for arbitrary serials);
-   - unparseable request → `malformedRequest`;
-   - KV unpopulated → `internalError`.
-3. Responses embed `realreel-ocsp-responder-1.pem` (EKU `id-kp-OCSPSigning` +
-   `id-pkix-ocsp-nocheck`, issued by the root) in `certs`, so validators
-   confirm a root-delegated responder. `nextUpdate` is **7 days** out and the
-   job refreshes daily, so ~6 missed runs still serve valid responses. Request
-   nonces are ignored (pre-signed responses can't echo them; standard RFC 5019
-   operation — openssl prints a warning and verifies anyway).
+1. **A daily refresh job** ([`refresh-ocsp.yml`](../.github/workflows/refresh-ocsp.yml))
+   runs [`build-ocsp-responses.ts`](./build-ocsp-responses.ts): it builds `good`
+   responses for the ICA's CertID (SHA-1 and SHA-256 — every hash a client may
+   use), signs them via **Cloud KMS** with the `realreel-ocsp-root` key
+   (ecdsa-with-SHA256), self-verifies, cross-verifies with openssl, and publishes
+   the DER to **Workers KV** (`response:sha1` / `response:sha256`).
+2. **The Worker** ([`router.ts`](./router.ts)) parses each request (GET
+   base64-in-path per RFC 6960 A.1, or POST `application/ocsp-request`) and
+   matches its CertID against the ICA, with hashes derived at runtime from the
+   trust-source PEMs:
 
-Responses to a nonexistent-status question are the unsigned 5-byte
-`OCSPResponse{responseStatus}` forms, which RFC 6960 §4.2.1 defines exactly so
-responders never sign for certs they don't answer for.
+   | Request                                  | Answer                                                         |
+   | ---------------------------------------- | -------------------------------------------------------------- |
+   | CertID names the ICA (SHA-1 / SHA-256)   | the pre-signed response from KV                                |
+   | CertID's **issuer** is the ICA (a leaf)  | relayed to [`../ocsp-leaf/`](../ocsp-leaf/) when `LEAF_RESPONDER_ORIGIN` is set; `unauthorized` otherwise |
+   | Any other CertID, or a multi-cert request | `unauthorized` — never `good` for arbitrary serials           |
+   | Unparseable                              | `malformedRequest`                                             |
+   | KV unpopulated                           | `internalError`                                                |
+
+   A SHA-384/512 ICA CertID answers `unauthorized` (RFC 5019 §2.1.1 mandates
+   SHA-1, and every known client uses SHA-1 or SHA-256); closing that gap means
+   pre-signing two more responses. The leaf relay sends the
+   `LEAF_RELAY_SECRET` Worker secret (`npx wrangler secret put LEAF_RELAY_SECRET`)
+   as `x-realreel-relay-secret`; if it's missing or stale, the origin answers 403
+   and this Worker returns `internalError`.
+3. **Responses embed** `realreel-ocsp-responder-1.pem` (EKU `id-kp-OCSPSigning` +
+   `id-pkix-ocsp-nocheck`, issued by the root), so validators see a
+   root-delegated responder. `nextUpdate` is **7 days** out against a daily
+   refresh, so ~6 missed runs still serve valid responses. Request nonces are
+   ignored — pre-signed responses can't echo them; standard RFC 5019 operation
+   (openssl warns, then verifies).
+
+Status questions it doesn't answer get the unsigned 5-byte
+`OCSPResponse{responseStatus}` forms, which RFC 6960 §4.2.1 defines so
+responders never sign for certificates they don't cover.
 
 **Why not a live signer?** Per-request KMS signing needs an always-on service
-holding a signing identity on the hot path — the right shape for
-**leaf-status** OCSP (high cardinality, dynamic revocation), which is exactly
-what [`../ocsp-leaf/`](../ocsp-leaf/) is: a Cloud Run sibling of the verifier,
-reached through this Worker's leaf relay. For one never-changing ICA, static
-pre-signed bytes are cheaper, safer, and keep private-key operations off the
-serving path.
+holding a signing identity on the hot path. That's the right shape for
+high-cardinality, dynamic **leaf** status — which is what
+[`../ocsp-leaf/`](../ocsp-leaf/) is, reached through this Worker's relay. For one
+never-changing ICA, static pre-signed bytes are cheaper, safer, and keep
+private-key operations off the serving path.
 
 ## Source of truth and tests
 
-The Worker imports the certificate PEMs from
-`../verifier/trust-sources/realreel/` (no copies live in `ocsp/`), so CertID
-matching can never drift from the verifier's trust anchors. Tests pin the
-router to request bytes generated by **openssl** (an independent RFC 6960
-implementation) and round-trip built responses through the router; the encoder
-was additionally validated with `openssl ocsp -respin` (`Response verify OK`).
+The Worker imports the PEMs from `../verifier/trust-sources/realreel/` (no
+copies live here), so CertID matching can't drift from the verifier's trust
+anchors. Tests pin the router to request bytes generated by **openssl** (an
+independent RFC 6960 implementation) and round-trip built responses through the
+router; the encoder was also validated with `openssl ocsp -respin`.
 
 ```bash
-deno test --allow-read ocsp/
+npm run test:ocsp   # from the repo root
 ```
 
-The ICA and the responder cert are watched for expiry by
-`verifier/scripts/audit-trust-anchors.ts` (weekly cron): the responder audits
-against tight thresholds (WARN <60 d, CRIT <21 d) because it is re-issued
-**annually** via a root mini-ceremony (app repo:
-`docs/runbooks/c2pa-ca-key-ceremony-design.md`).
+The weekly `verifier/scripts/audit-trust-anchors.ts` cron watches the ICA and
+the responder cert for expiry. The responder uses tight thresholds (WARN < 60 d,
+CRIT < 21 d) because it's re-issued **annually** in a root mini-ceremony (app
+repo: `docs/runbooks/c2pa-ca-key-ceremony-design.md`).
 
 ## Deploy (one-time)
 
-Requires the `realreel.xyz` zone on this Cloudflare account and wrangler auth
-(`npx wrangler login`). Free plan is sufficient.
+Needs the `realreel.xyz` zone on this Cloudflare account and wrangler auth
+(`npx wrangler login`). The free plan is enough.
 
 ```bash
 cd ocsp
@@ -90,27 +86,25 @@ npx wrangler deploy
 `custom_domain = true` provisions DNS + edge TLS for `ocsp.realreel.xyz` on the
 first deploy.
 
-Redeploys: run `deno install` first, every time. wrangler bundles from
-`node_modules`, not the import map, so after a pin change an existing checkout
-would otherwise ship the old package with no error.
+**Run `deno install` before every redeploy.** wrangler bundles from
+`node_modules`, not the import map, so after a pin change a stale checkout ships
+the old package with no error.
 
 ### Cloudflare zone settings (load-bearing)
 
-- **Always Use HTTPS must be OFF for this host.** The AIA URL is `http://` and
-  OCSP clients (openssl, c2pa-rs) do **not** follow redirects — a 301 to https
-  breaks them outright (stricter than `pki/`'s AIA fetchers, which do follow).
-  Add a Configuration Rule for hostname `ocsp.realreel.xyz` disabling Always
-  Use HTTPS, or keep the zone-level toggle off.
-- **Bot Fight Mode / Browser Integrity Check / raised Security Level** must not
+- **Always Use HTTPS must be OFF for this host.** OCSP clients (openssl, c2pa-rs)
+  don't follow redirects, so a 301 to https breaks them outright — stricter than
+  `pki/`, whose AIA fetchers do follow. Disable it with a Configuration Rule for
+  `ocsp.realreel.xyz`, or keep the zone-level toggle off.
+- **Bot Fight Mode / Browser Integrity Check / a raised Security Level** must not
   challenge this host: OCSP clients send unusual or empty User-Agents and would
-  receive an HTML challenge page where a DER response belongs. Same ritual as
-  `pki/` — exempt the host, then prove it with `curl -A '' …` below.
+  get an HTML challenge where DER belongs. Exempt the host as for `pki/`, then
+  prove it with the `curl -A ''` check under [Verify](#verify).
 
 ## Refresh job setup (one-time)
 
 GitHub Actions authenticates to GCP via **Workload Identity Federation** — no
-long-lived GCP credential exists anywhere. One-time setup in the CA's GCP
-project:
+long-lived GCP credential exists anywhere. In the CA's GCP project:
 
 ```bash
 PROJECT_ID=<the CA GCP project>   # concrete value: app repo, docs/plans/C2PA_CONFORMANCE_AND_CA.md
@@ -148,20 +142,19 @@ gcloud iam service-accounts add-iam-policy-binding \
   --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-actions/attribute.repository/$REPO"
 ```
 
-Then configure the repository (Settings → Secrets and variables → Actions):
+Then set these under Settings → Secrets and variables → Actions:
 
-| Kind     | Name                                | Value |
-| -------- | ----------------------------------- | ----- |
-| variable | `GCP_WORKLOAD_IDENTITY_PROVIDER`    | `projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/github-actions/providers/github` |
-| variable | `GCP_OCSP_REFRESH_SERVICE_ACCOUNT`  | `ocsp-refresh@<PROJECT_ID>.iam.gserviceaccount.com` |
-| variable | `CLOUDFLARE_ACCOUNT_ID`             | the Cloudflare account id |
-| secret   | `CLOUDFLARE_API_TOKEN`              | token with **Account → Workers KV Storage: Edit** |
+| Kind     | Name                               | Value                                                                                             |
+| -------- | ---------------------------------- | ------------------------------------------------------------------------------------------------- |
+| variable | `GCP_WORKLOAD_IDENTITY_PROVIDER`   | `projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/github-actions/providers/github` |
+| variable | `GCP_OCSP_REFRESH_SERVICE_ACCOUNT` | `ocsp-refresh@<PROJECT_ID>.iam.gserviceaccount.com`                                               |
+| variable | `CLOUDFLARE_ACCOUNT_ID`            | the Cloudflare account id                                                                         |
+| secret   | `CLOUDFLARE_API_TOKEN`             | token with **Account → Workers KV Storage: Edit**                                                 |
 
 ### Manual / first refresh (local)
 
-The job can run locally with any identity holding `cloudkms.signer` on the
-responder key — e.g. a temporary user grant (owner does **not** imply KMS
-signing):
+Any identity holding `cloudkms.signer` on the responder key can run the job — e.g.
+a temporary user grant (owner does **not** imply KMS signing):
 
 ```bash
 gcloud kms keys add-iam-policy-binding realreel-ocsp-root \
@@ -205,31 +198,29 @@ curl -s -A '' "http://ocsp.realreel.xyz/$(openssl ocsp \
   -no_nonce -reqout /dev/stdout | base64)" | openssl ocsp -respin /dev/stdin -resp_text -noverify | head -5
 ```
 
-The refresh workflow re-proves the live endpoint after every publish
-(`verify-live` in `refresh-ops.ts`: POST and GET must both serve bytes
-identical to the just-published response), and opens a tracking issue (label
-`ocsp`) on any failure. `refresh-ops.ts` also carries the workflow's status
-resolve/persist logic — thin `deno run` steps instead of curl/jq in YAML.
+After every publish, the refresh workflow re-proves the live endpoint
+(`verify-live` in `refresh-ops.ts`: POST and GET must both serve bytes identical
+to the just-published response) and opens a tracking issue (label `ocsp`) on any
+failure. `refresh-ops.ts` also carries the workflow's status resolve/persist
+logic, so the YAML stays thin `deno run` steps.
 
 ## Rotation and revocation
 
 - **Responder cert re-issue (annual):** replace
-  `verifier/trust-sources/realreel/realreel-ocsp-responder-1.pem` with the
-  newly ceremony-issued cert — one file; the next refresh embeds and verifies
-  against it. If the ceremony minted a new **key version**, also set
-  `KEY_VERSION` (env) in the refresh workflow. Nothing in the Worker changes.
-- **ICA compromise (revoke ≤ 72 h, CP §3.6):** dispatch *Refresh OCSP
-  responses* with `status=revoked`, a `revocation_time`, and optionally
-  `revocation_reason=1` (keyCompromise). The published status is **sticky**:
-  once the live check passes, the workflow persists it to the `ica-status` key
-  in the responses' KV namespace (workflow-managed — touch it by hand only in
-  recovery, e.g. `wrangler kv key put ica-status … --binding OCSP_RESPONSES
-  --remote`) and every scheduled run re-signs that status with a fresh
-  validity window. Edge caches expire within an hour (`max-age=3600`).
-  Restoring `good` requires an explicit `status=good` dispatch — a scheduled
-  run can never flip the status, and the dispatch default (`inherit`) can't
-  either.
-- **ICA rotation (new ICA under the same root):** the Worker derives CertID
-  targets from `realreel-claim-signing-ca.pem` at runtime — updating that PEM
-  (the `pki/` rotation step) re-points this responder automatically; run a
-  refresh so the pre-signed responses match the new serial.
+  `verifier/trust-sources/realreel/realreel-ocsp-responder-1.pem` with the newly
+  ceremony-issued cert; the next refresh embeds and verifies against it. If the
+  ceremony minted a new **key version**, also set `KEY_VERSION` (env) in the
+  refresh workflow. Nothing in the Worker changes.
+- **ICA compromise (revoke ≤ 72 h, CP §3.6):** dispatch *Refresh OCSP responses*
+  with `status=revoked`, a `revocation_time`, and optionally
+  `revocation_reason=1` (keyCompromise). The status is **sticky**: once the live
+  check passes, the workflow persists it to the `ica-status` KV key, and every
+  scheduled run re-signs it with a fresh validity window. Edge caches expire
+  within an hour (`max-age=3600`). Only an explicit `status=good` dispatch
+  restores `good` — neither a scheduled run nor the dispatch default (`inherit`)
+  can flip it. `ica-status` is workflow-managed; touch it by hand only in
+  recovery (`wrangler kv key put ica-status … --binding OCSP_RESPONSES --remote`).
+- **ICA rotation (new ICA under the same root):** CertID targets come from
+  `realreel-claim-signing-ca.pem` at runtime, so updating that PEM (the `pki/`
+  rotation step) re-points this responder automatically; run a refresh so the
+  pre-signed responses match the new serial.

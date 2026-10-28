@@ -32,8 +32,9 @@ const HERE = resolve(fileURLToPath(import.meta.url), "..");
 const VERIFIER_ROOT = resolve(HERE, "../verifier");
 
 // The sample is a real RealReel-signed JPEG: a Pixel 10 capture (Stage 1)
-// re-signed at upload (Stage 2), trust-rooted at the RealReel CA. Both stages
-// carry a DigiCert RFC-3161 timestamp. Reused straight from the test fixtures
+// re-signed at upload (Stage 2), chained to the pre-conformance (legacy)
+// RealReel root. Both stages carry a DigiCert RFC-3161 timestamp. Reused
+// straight from the test fixtures
 // (Git LFS — run `git lfs pull` if this reads as a small text pointer file).
 const SAMPLE_PATH = resolve(VERIFIER_ROOT, "__tests__/fixtures/realreel-uploaded.jpg");
 const TRUST_SOURCES_PATH = resolve(VERIFIER_ROOT, "trust-sources.yaml");
@@ -41,8 +42,8 @@ const TRUST_SOURCES_PATH = resolve(VERIFIER_ROOT, "trust-sources.yaml");
 // Identity baked into the sample's manifest. The cert serial is the lookup key
 // the verifier hands to the datastore; the capturer UUID is the enrolled
 // owner. (Mirrors verify-realreel.test.ts.)
-const SAMPLE_CERT_SERIAL = "363929595041533803483005728970001726554859632395";
-const SAMPLE_CAPTURER_UUID = "a73f9e58-7323-4fd6-970e-59fb0b4d2ea4";
+const SAMPLE_CERT_SERIAL = "377878420465038296556426931842186971350666267668";
+const SAMPLE_CAPTURER_UUID = "fc7ce1d3-82a8-4119-8e98-fe9b2161df6a";
 
 /**
  * In-memory datastore: the sample's signing key is "enrolled" (non-revoked),
