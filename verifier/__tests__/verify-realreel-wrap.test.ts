@@ -134,12 +134,15 @@ function defaultStage2Row(opts: { userId?: string; revoked?: boolean } = {}) {
 }
 
 // Input-aware mock modelling production: ONLY the RealReel Stage-2 key is
-// enrolled. The Pixel Stage-1 parent isn't, so its revocation lookup
+// enrolled. The capture parent isn't, so its revocation lookup
 // returns null and the denylist skips it. Order-independent.
 // Pass null to also make the Stage-2 lookup miss (KEY_NOT_FOUND path).
-function mockWrapKeys(stage2Row: ReturnType<typeof defaultStage2Row> | null): void {
+function mockWrapKeys(
+  stage2Row: ReturnType<typeof defaultStage2Row> | null,
+  stage2Serial = WRAP_STAGE2_SERIAL,
+): void {
   vi.mocked(lookupSigningKeyRevocation).mockImplementation(async (serial: string) =>
-    serial === WRAP_STAGE2_SERIAL ? stage2Row : null,
+    serial === stage2Serial ? stage2Row : null,
   );
 }
 
@@ -545,18 +548,16 @@ for (const wrap of PROOFMODE_WRAPS) {
 
     beforeEach(async () => {
       vi.mocked(lookupSigningKeyRevocation).mockReset();
-      // Only Stage 2 is enrolled; the ProofMode parent misses the ledger.
-      vi.mocked(lookupSigningKeyRevocation).mockImplementation(async (serial: string) =>
-        serial === wrap.stage2Serial
-          ? {
-              ...defaultStage2Row(),
-              cert_serial_number: wrap.stage2Serial,
-              platform: wrap.keyPlatform,
-              ...wrap.keys,
-              issued_at: "2026-10-01T00:00:00.000Z",
-              expires_at: "2027-10-01T00:00:00.000Z",
-            }
-          : null,
+      mockWrapKeys(
+        {
+          ...defaultStage2Row(),
+          cert_serial_number: wrap.stage2Serial,
+          platform: wrap.keyPlatform,
+          ...wrap.keys,
+          issued_at: "2026-10-01T00:00:00.000Z",
+          expires_at: "2027-10-01T00:00:00.000Z",
+        },
+        wrap.stage2Serial,
       );
       bytes = await readFile(fixturePath);
       trustConfig = await loadTrustConfig(trustSourcesPath);
@@ -584,7 +585,7 @@ for (const wrap of PROOFMODE_WRAPS) {
       expect(identifyTrustSource(issuer!, common_name, trustConfig)).toBe("proofmode");
     });
 
-    it("publishes no coordinates from the capture: not in the bytes, any manifest, or the stored result", async () => {
+    it("publishes no coordinates from the capture: no EXIF GPS, and no location field in the stored result or any manifest", async () => {
       const result = await verifyGeneral();
 
       // Accepted by the location gate, with only the city label derived.
@@ -596,8 +597,8 @@ for (const wrap of PROOFMODE_WRAPS) {
       // what was done about it, so this fixture can't pass by lacking GPS.
       const store = (await Reader.fromAsset({ buffer: bytes, mimeType: "image/jpeg" }))!.json() as any;
       const active = store.manifests[store.active_manifest];
-      const actions = active.assertions.find((a: any) => a.label === "c2pa.actions.v2").data.actions;
-      const removed = actions.find((a: any) => a.action === "c2pa.edited.metadata").parameters["org.realreel.removed"];
+      const actions = active.assertions.find((a: any) => a.label === "c2pa.actions.v2")?.data.actions ?? [];
+      const removed = actions.find((a: any) => a.action === "c2pa.edited.metadata")?.parameters["org.realreel.removed"];
       expect(removed).toEqual(expect.arrayContaining(["exif:GPSLatitude", "exif:GPSLongitude"]));
       const parentLabel = active.ingredients[0].active_manifest;
       expect(actions).toContainEqual(
