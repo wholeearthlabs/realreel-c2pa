@@ -14,11 +14,6 @@ captured in the app**. That guarantee rests on a hardware-bound
 closed-source; this repo — how a capture is signed on-device and verified
 server-side — is the part anyone can read, audit, and reuse.
 
-> [!WARNING]
-> **Not yet independently audited.** Published for transparency and community
-> review; it has had no formal third-party security audit. Use at your own risk,
-> and report anything you find privately — see [`SECURITY.md`](./SECURITY.md).
-
 ## How it works
 
 ```mermaid
