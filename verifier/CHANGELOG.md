@@ -1,5 +1,13 @@
 # @realreel/verifier
 
+## 0.13.1
+
+### Patch Changes
+
+- [#115](https://github.com/wholeearthlabs/realreel-c2pa/pull/115) [`4fbfd96`](https://github.com/wholeearthlabs/realreel-c2pa/commit/4fbfd96c2f2a438b0aa4e5a85c665a928cc3f52a) Thanks [@boojamya](https://github.com/boojamya)! - A capture resolves to its trust source only when the signer's organization equals the source's `issuerMatch` exactly, matching `findTrustedIssuer`. The OCSP re-check of a third-party capture may contact only that capture's own source's responders, not every source's.
+- Updated dependencies [[`4fbfd96`](https://github.com/wholeearthlabs/realreel-c2pa/commit/4fbfd96c2f2a438b0aa4e5a85c665a928cc3f52a)]:
+  - @realreel/c2pa-trust-core@0.10.0
+
 ## 0.13.0
 
 ### Minor Changes

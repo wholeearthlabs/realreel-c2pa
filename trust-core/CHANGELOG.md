@@ -1,5 +1,11 @@
 # @realreel/c2pa-trust-core
 
+## 0.10.0
+
+### Minor Changes
+
+- [#115](https://github.com/wholeearthlabs/realreel-c2pa/pull/115) [`4fbfd96`](https://github.com/wholeearthlabs/realreel-c2pa/commit/4fbfd96c2f2a438b0aa4e5a85c665a928cc3f52a) Thanks [@boojamya](https://github.com/boojamya)! - `findTrustedIssuer` matches a manifest's `signature_info.issuer` against each entry's `issuerMatch` exactly, not as a substring. c2pa-rs fills that field with the signing leaf's subject organization, so every genuine capture still matches; an organization whose name only contains a trusted one no longer does. List order no longer matters.
+
 ## 0.9.0
 
 ### Minor Changes
