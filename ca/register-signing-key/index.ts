@@ -670,9 +670,8 @@ export async function handleRegister(
   // Resolved inside the try: a junk CA_HIERARCHY throws CA_CONFIG_INVALID,
   // which belongs in the structured 500 below rather than escaping the
   // handler as an unshaped serve()-level error.
-  let hierarchy: CaHierarchy = "v1";
   try {
-    hierarchy = caHierarchy();
+    const hierarchy = caHierarchy();
     const kmsCreds = await deps.loadKmsCredentials();
     await deps.ensureIntermediateMatchesKms(kmsCreds, intermediatePem);
     const issued = await deps.issueLeafChainFromCSR(csr, {
