@@ -32,7 +32,8 @@ build-time constants.
 | Play Integrity package + project (verifier) | verifier config | env `PLAY_INTEGRITY_PACKAGE_NAME`, `PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` |
 | Play Integrity project (native) | `native/android/.../PhotoAttestModule.kt` (`CLOUD_PROJECT_NUMBER`) | edit the constant (native build-time) |
 | CSR subject DN (native) | `native/{android,ios}/...` constants | edit the constants — but note the CA overwrites the leaf subject at issuance, so these never reach a published cert |
-| Leaf cert subject DN | `ca/_shared/attestation/pki.ts` | env `LEAF_SUBJECT_COUNTRY` / `LEAF_SUBJECT_ORG` / `LEAF_SUBJECT_OU` / `LEAF_SUBJECT_CN` |
+| Leaf cert subject DN | `ca/_shared/attestation/pki.ts` | env `LEAF_SUBJECT_COUNTRY_V2` / `LEAF_SUBJECT_ORG_V2` / `LEAF_SUBJECT_CN_IOS` / `LEAF_SUBJECT_CN_ANDROID` — must byte-match your CPL record's DN (no OU) |
+| Leaf CPL record + AIA | `ca/_shared/attestation/pki.ts` | env `LEAF_CPL_RECORD_UUID_IOS` / `LEAF_CPL_RECORD_UUID_ANDROID` (required — issuance fails closed without them), `LEAF_AIA_OCSP_URL`, `LEAF_AIA_CA_ISSUERS_URL` |
 | Asset-storage SSRF allowlist | verifier config | env `ASSET_STORAGE_HOST_REGEX`, `ASSET_STORAGE_HOST_ALLOWLIST` |
 
 ## The big-ticket changes (beyond config)

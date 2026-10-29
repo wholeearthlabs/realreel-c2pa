@@ -244,14 +244,14 @@ async function getAccessToken(creds: KmsCredentials): Promise<string> {
 // this is a DER-encoded `SEQUENCE { r INTEGER, s INTEGER }`, which is the same
 // encoding X.509 expects in `signatureValue`. No P1363→DER conversion needed.
 //
-// The caller hashes the TBSCertificate before calling; `hash` names which
-// digest it computed and MUST match the KMS key algorithm (sha256 for the v1
-// `ec-sign-p256-sha256` intermediate, sha384 for the v2 `ec-sign-p384-sha384`
-// claim ICA) — KMS rejects a mismatched digest field.
+// The caller hashes the TBS before calling; `hash` names which digest it
+// computed and MUST match the KMS key algorithm (sha384 for the
+// `ec-sign-p384-sha384` claim ICA, sha256 for ocsp-leaf's
+// `ec-sign-p256-sha256` responder key) — KMS rejects a mismatched digest field.
 export async function kmsSignDigest(
   digest: Uint8Array,
   creds: KmsCredentials,
-  hash: "sha256" | "sha384" = "sha256",
+  hash: "sha256" | "sha384",
 ): Promise<Uint8Array> {
   const expectedLen = hash === "sha384" ? 48 : 32;
   if (digest.length !== expectedLen) {
@@ -322,27 +322,24 @@ export async function kmsSignDigest(
 
 // --- KMS getPublicKey -------------------------------------------------
 
-// Expected algorithm enum strings from Cloud KMS for the leaf-signing key,
-// per hierarchy. See https://cloud.google.com/kms/docs/algorithms.
-// v1: `EC_SIGN_P256_SHA256` (legacy intermediate) ↔ pki.ts's ecdsaWithSHA256.
-// v2: `EC_SIGN_P384_SHA384` (claim ICA) ↔ ecdsaWithSHA384.
+// Expected Cloud KMS algorithm enum string for the leaf-signing key (the claim
+// ICA) ↔ pki.ts's ecdsaWithSHA384. See
+// https://cloud.google.com/kms/docs/algorithms.
 //
-// If GCP_KMS_KEY_RESOURCE is ever pointed at a key whose algorithm doesn't
-// match the active CA_HIERARCHY, every leaf we issue would declare one
-// signatureAlgorithm while carrying another — leaves would fail to verify
-// against their own declared algorithm, and devices would be unable to
-// capture until the config drift is fixed. These constants + the cold-start
-// check in register-signing-key catch the misconfig at the first KMS call
-// rather than at first sign-then-verify.
-export const KMS_EXPECTED_ALGORITHM = "EC_SIGN_P256_SHA256";
-export const KMS_EXPECTED_ALGORITHM_V2 = "EC_SIGN_P384_SHA384";
+// If GCP_KMS_KEY_RESOURCE is ever pointed at a key with another algorithm,
+// every leaf we issue would declare one signatureAlgorithm while carrying
+// another — leaves would fail to verify against their own declared algorithm,
+// and devices would be unable to capture until the config drift is fixed. This
+// constant + the cold-start check in register-signing-key catch the misconfig
+// at the first KMS call rather than at first sign-then-verify.
+export const KMS_EXPECTED_ALGORITHM = "EC_SIGN_P384_SHA384";
 
 export interface KmsPublicKey {
   // DER-encoded SubjectPublicKeyInfo bytes (raw, no PEM wrapper). Same shape
   // as `extractSpkiDer(cert)` from pki.ts so callers can constant-time-compare
   // directly.
   spki: Uint8Array;
-  // Cloud KMS algorithm enum string (e.g. `EC_SIGN_P256_SHA256`). Verified
+  // Cloud KMS algorithm enum string (e.g. `EC_SIGN_P384_SHA384`). Verified
   // against KMS_EXPECTED_ALGORITHM by callers as part of the cold-start
   // consistency check.
   algorithm: string;
