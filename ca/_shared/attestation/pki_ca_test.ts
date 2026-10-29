@@ -1179,12 +1179,12 @@ Deno.test("v2 leaf — malformed cplRecordUuid fails closed", async () => {
   );
 });
 
-Deno.test("caHierarchy — defaults v1, honors v2, rejects junk", () => {
+Deno.test("caHierarchy — defaults v2, honors v1, rejects junk", () => {
   try {
     Deno.env.delete("CA_HIERARCHY");
-    assertEquals(caHierarchy(), "v1");
-    Deno.env.set("CA_HIERARCHY", "v2");
     assertEquals(caHierarchy(), "v2");
+    Deno.env.set("CA_HIERARCHY", "v1");
+    assertEquals(caHierarchy(), "v1");
     Deno.env.set("CA_HIERARCHY", "v3");
     let threw = false;
     try {

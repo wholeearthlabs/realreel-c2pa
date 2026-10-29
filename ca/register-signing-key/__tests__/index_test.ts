@@ -138,6 +138,27 @@ function withAndroidSigningCertEnv(
   return fn().finally(() => Deno.env.delete("ANDROID_APP_SIGNING_CERT_SHA256"));
 }
 
+// v2, the default hierarchy, reads each platform's CPL record UUID per request
+// and fails closed without it, so every test that reaches issuance runs under
+// this.
+const PLACEHOLDER_CPL_UUID = "00000000-0000-4000-8000-000000000000";
+function withCplUuids(
+  fn: () => Promise<void>,
+  uuids: { ios?: string; android?: string } = {
+    ios: PLACEHOLDER_CPL_UUID,
+    android: PLACEHOLDER_CPL_UUID,
+  },
+): Promise<void> {
+  if (uuids.ios) Deno.env.set("LEAF_CPL_RECORD_UUID_IOS", uuids.ios);
+  if (uuids.android) {
+    Deno.env.set("LEAF_CPL_RECORD_UUID_ANDROID", uuids.android);
+  }
+  return fn().finally(() => {
+    Deno.env.delete("LEAF_CPL_RECORD_UUID_IOS");
+    Deno.env.delete("LEAF_CPL_RECORD_UUID_ANDROID");
+  });
+}
+
 /**
  * Build a RegisterDeps with sensible happy-path stubs. Tests override
  * individual fields to drive specific failure modes. Modeled on the
@@ -385,49 +406,51 @@ Deno.test("register-signing-key — invalid platform → 400", async () => {
   assertEquals(res.status, 400);
 });
 
-Deno.test("register-signing-key — oversized deviceLabel → 200, truncated to cap (not rejected)", async () => {
-  // A cosmetic display label must never block enrollment. Samsung's
-  // expo-device osName (Build.VERSION.BASE_OS) can overflow the 64-char cap;
-  // the server truncates rather than 400ing so the Galaxy still enrolls.
-  const { deps, mockClient } = buildDeps();
-  const res = await handleRegister(
-    buildRequest({
-      bearer: "alice-jwt",
-      // MAX_DEVICE_LABEL_CHARS = 64.
-      body: buildIosBody({ deviceLabel: "x".repeat(200) }),
-    }),
-    deps,
-  );
-  assertEquals(res.status, 200);
-  // The persisted label is truncated to exactly the cap, not rejected.
-  const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
-  assertEquals((insertArgs.p_device_label as string).length, 64);
-  assertEquals(insertArgs.p_device_label, "x".repeat(64));
-});
+Deno.test("register-signing-key — oversized deviceLabel → 200, truncated to cap (not rejected)", () =>
+  withCplUuids(async () => {
+    // A cosmetic display label must never block enrollment. Samsung's
+    // expo-device osName (Build.VERSION.BASE_OS) can overflow the 64-char cap;
+    // the server truncates rather than 400ing so the Galaxy still enrolls.
+    const { deps, mockClient } = buildDeps();
+    const res = await handleRegister(
+      buildRequest({
+        bearer: "alice-jwt",
+        // MAX_DEVICE_LABEL_CHARS = 64.
+        body: buildIosBody({ deviceLabel: "x".repeat(200) }),
+      }),
+      deps,
+    );
+    assertEquals(res.status, 200);
+    // The persisted label is truncated to exactly the cap, not rejected.
+    const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
+    assertEquals((insertArgs.p_device_label as string).length, 64);
+    assertEquals(insertArgs.p_device_label, "x".repeat(64));
+  }));
 
-Deno.test("register-signing-key — truncation never persists a lone surrogate (astral char at boundary)", async () => {
-  // A crafted label whose astral-plane char straddles the 64th UTF-16 unit
-  // must not persist an unpaired surrogate — that's invalid UTF-8 and Postgres
-  // would reject the text, turning a cosmetic field back into a hard failure.
-  const { deps, mockClient } = buildDeps();
-  // 63 ASCII + a 2-code-unit emoji: units 64/65 are the surrogate pair, so a
-  // naive slice(0,64) would keep only the emoji's high half at index 63.
-  const label = "x".repeat(63) + "😀" + "y".repeat(50);
-  const res = await handleRegister(
-    buildRequest({
-      bearer: "alice-jwt",
-      body: buildIosBody({ deviceLabel: label }),
-    }),
-    deps,
-  );
-  assertEquals(res.status, 200);
-  const persisted = (mockClient.calls[1].values as Record<string, unknown>)
-    .p_device_label as string;
-  // Dangling high surrogate dropped → the 63 leading ASCII chars, no tail pair.
-  assertEquals(persisted, "x".repeat(63));
-  const lastUnit = persisted.charCodeAt(persisted.length - 1);
-  assertEquals(lastUnit >= 0xd800 && lastUnit <= 0xdbff, false);
-});
+Deno.test("register-signing-key — truncation never persists a lone surrogate (astral char at boundary)", () =>
+  withCplUuids(async () => {
+    // A crafted label whose astral-plane char straddles the 64th UTF-16 unit
+    // must not persist an unpaired surrogate — that's invalid UTF-8 and Postgres
+    // would reject the text, turning a cosmetic field back into a hard failure.
+    const { deps, mockClient } = buildDeps();
+    // 63 ASCII + a 2-code-unit emoji: units 64/65 are the surrogate pair, so a
+    // naive slice(0,64) would keep only the emoji's high half at index 63.
+    const label = "x".repeat(63) + "😀" + "y".repeat(50);
+    const res = await handleRegister(
+      buildRequest({
+        bearer: "alice-jwt",
+        body: buildIosBody({ deviceLabel: label }),
+      }),
+      deps,
+    );
+    assertEquals(res.status, 200);
+    const persisted = (mockClient.calls[1].values as Record<string, unknown>)
+      .p_device_label as string;
+    // Dangling high surrogate dropped → the 63 leading ASCII chars, no tail pair.
+    assertEquals(persisted, "x".repeat(63));
+    const lastUnit = persisted.charCodeAt(persisted.length - 1);
+    assertEquals(lastUnit >= 0xd800 && lastUnit <= 0xdbff, false);
+  }));
 
 Deno.test("register-signing-key — non-string deviceLabel → 400 Malformed deviceLabel", async () => {
   // Truncation covers over-long strings; a non-string is still a client bug
@@ -889,58 +912,61 @@ Deno.test("register-signing-key — Android: revocation list unavailable → 503
     assertEquals(mockClient.calls.length, 0); // no burn, no persist
   }));
 
-Deno.test("register-signing-key — iOS never touches the Android config or the revocation list", async () => {
-  Deno.env.delete("ANDROID_APP_SIGNING_CERT_SHA256");
-  let listLoaded = false;
-  const { deps } = buildDeps({
-    loadAndroidRevocationListImpl: () => {
-      listLoaded = true;
-      return Promise.reject(new Error("unavailable"));
-    },
-  });
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
-    deps,
-  );
-  assertEquals(res.status, 200);
-  assertEquals(listLoaded, false);
-});
+Deno.test("register-signing-key — iOS never touches the Android config or the revocation list", () =>
+  withCplUuids(async () => {
+    Deno.env.delete("ANDROID_APP_SIGNING_CERT_SHA256");
+    let listLoaded = false;
+    const { deps } = buildDeps({
+      loadAndroidRevocationListImpl: () => {
+        listLoaded = true;
+        return Promise.reject(new Error("unavailable"));
+      },
+    });
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
+      deps,
+    );
+    assertEquals(res.status, 200);
+    assertEquals(listLoaded, false);
+  }));
 
 Deno.test("register-signing-key — Android: validator receives the env digests, version floor, and the revocation list", () =>
-  withAndroidSigningCertEnv(async () => {
-    Deno.env.set("ANDROID_MIN_APP_VERSION_CODE", "7");
-    try {
-      const list = new Map([
-        ["abcd", { status: "REVOKED", reason: "KEY_COMPROMISE" }],
-      ]);
-      const captured: Array<
-        Parameters<RegisterDeps["validateAndroidAttestation"]>[0]
-      > = [];
-      const { deps } = buildDeps({
-        loadAndroidRevocationListImpl: () => Promise.resolve(list),
-        validateAndroidAttestationImpl: (opts) => {
-          captured.push(opts);
-          return Promise.resolve();
-        },
-      });
-      const res = await handleRegister(
-        buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
-        deps,
-      );
-      assertEquals(res.status, 200);
-      assertEquals(captured.length, 1);
-      const opts = captured[0];
-      assertEquals(opts.revokedSerials, list);
-      assertEquals(opts.signingCertSha256Digests, [
-        new Uint8Array(32).fill(0xab),
-      ]);
-      assertEquals(opts.minAppVersionCode, 7);
-      assertEquals(opts.expectedSecurityLevel, "strongbox");
-      assertEquals(opts.validationTime, undefined);
-    } finally {
-      Deno.env.delete("ANDROID_MIN_APP_VERSION_CODE");
-    }
-  }));
+  withCplUuids(() =>
+    withAndroidSigningCertEnv(async () => {
+      Deno.env.set("ANDROID_MIN_APP_VERSION_CODE", "7");
+      try {
+        const list = new Map([
+          ["abcd", { status: "REVOKED", reason: "KEY_COMPROMISE" }],
+        ]);
+        const captured: Array<
+          Parameters<RegisterDeps["validateAndroidAttestation"]>[0]
+        > = [];
+        const { deps } = buildDeps({
+          loadAndroidRevocationListImpl: () => Promise.resolve(list),
+          validateAndroidAttestationImpl: (opts) => {
+            captured.push(opts);
+            return Promise.resolve();
+          },
+        });
+        const res = await handleRegister(
+          buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+          deps,
+        );
+        assertEquals(res.status, 200);
+        assertEquals(captured.length, 1);
+        const opts = captured[0];
+        assertEquals(opts.revokedSerials, list);
+        assertEquals(opts.signingCertSha256Digests, [
+          new Uint8Array(32).fill(0xab),
+        ]);
+        assertEquals(opts.minAppVersionCode, 7);
+        assertEquals(opts.expectedSecurityLevel, "strongbox");
+        assertEquals(opts.validationTime, undefined);
+      } finally {
+        Deno.env.delete("ANDROID_MIN_APP_VERSION_CODE");
+      }
+    })
+  ));
 
 // =====================================================================
 // KMS + leaf issuance (failure paths)
@@ -952,7 +978,7 @@ Deno.test("register-signing-key — ensureIntermediateMatchesKms throws (algorit
       Promise.reject(
         new AttestationError(
           "KMS_ALGORITHM_MISMATCH",
-          "Cloud KMS algorithm is RSA_SIGN_PSS_2048_SHA256, expected EC_SIGN_P256_SHA256",
+          "Cloud KMS algorithm is RSA_SIGN_PSS_2048_SHA256, expected EC_SIGN_P384_SHA384",
         ),
       ),
   });
@@ -1001,108 +1027,113 @@ Deno.test("register-signing-key — issueLeafChainFromCSR throws → 500 Issuanc
 // Persistence
 // =====================================================================
 
-Deno.test("register-signing-key — INSERT RPC returns unique_violation (23505) → 409 Key already registered", async () => {
-  const { deps } = buildDeps({
-    insertResult: {
-      data: null,
-      error: { code: "23505", message: "duplicate key" },
-    },
-  });
+Deno.test("register-signing-key — INSERT RPC returns unique_violation (23505) → 409 Key already registered", () =>
+  withCplUuids(async () => {
+    const { deps } = buildDeps({
+      insertResult: {
+        data: null,
+        error: { code: "23505", message: "duplicate key" },
+      },
+    });
 
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
-    deps,
-  );
-  const { status, body } = await readJsonResponse<{ error: string }>(res);
-  assertEquals(status, 409);
-  assertEquals(body.error, "Key already registered");
-});
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<{ error: string }>(res);
+    assertEquals(status, 409);
+    assertEquals(body.error, "Key already registered");
+  }));
 
-Deno.test("register-signing-key — INSERT RPC returns generic error → 500 Persist failed", async () => {
-  const { deps } = buildDeps({
-    insertResult: {
-      data: null,
-      error: { code: "42501", message: "permission denied" },
-    },
-  });
+Deno.test("register-signing-key — INSERT RPC returns generic error → 500 Persist failed", () =>
+  withCplUuids(async () => {
+    const { deps } = buildDeps({
+      insertResult: {
+        data: null,
+        error: { code: "42501", message: "permission denied" },
+      },
+    });
 
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
-    deps,
-  );
-  const { status, body } = await readJsonResponse<{ error: string }>(res);
-  assertEquals(status, 500);
-  assertEquals(body.error, "Persist failed");
-});
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<{ error: string }>(res);
+    assertEquals(status, 500);
+    assertEquals(body.error, "Persist failed");
+  }));
 
 // =====================================================================
 // Happy paths
 // =====================================================================
 
-Deno.test("register-signing-key — iOS happy path → 200 with leafChainPEM + keyId", async () => {
-  // Sentinel-style App Attest credCert public key: tagged bytes so the
-  // RPC-arg assertion below catches a regression that hardcoded a
-  // constant instead of forwarding the validator's return value.
-  const SENTINEL_APP_ATTEST_PUBKEY = new Uint8Array(65);
-  SENTINEL_APP_ATTEST_PUBKEY[0] = 0x04;
-  for (let i = 1; i < 65; i++) {
-    SENTINEL_APP_ATTEST_PUBKEY[i] = 0xa0 | (i & 0x0f);
-  }
-  const expectedHex = "\\x" +
-    Array.from(SENTINEL_APP_ATTEST_PUBKEY)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+Deno.test("register-signing-key — iOS happy path → 200 with leafChainPEM + keyId", () =>
+  withCplUuids(async () => {
+    // Sentinel-style App Attest credCert public key: tagged bytes so the
+    // RPC-arg assertion below catches a regression that hardcoded a
+    // constant instead of forwarding the validator's return value.
+    const SENTINEL_APP_ATTEST_PUBKEY = new Uint8Array(65);
+    SENTINEL_APP_ATTEST_PUBKEY[0] = 0x04;
+    for (let i = 1; i < 65; i++) {
+      SENTINEL_APP_ATTEST_PUBKEY[i] = 0xa0 | (i & 0x0f);
+    }
+    const expectedHex = "\\x" +
+      Array.from(SENTINEL_APP_ATTEST_PUBKEY)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
 
-  const { deps, mockClient } = buildDeps({
-    validateAppleAttestationImpl: () =>
-      Promise.resolve({ credCertPublicKey: SENTINEL_APP_ATTEST_PUBKEY }),
-  });
-
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
-    deps,
-  );
-  const { status, body } = await readJsonResponse<{
-    ok: boolean;
-    leafChainPEM: string;
-    keyId: string;
-  }>(res);
-  assertEquals(status, 200);
-  assertEquals(body.ok, true);
-  assertExists(body.leafChainPEM);
-  assertExists(body.keyId);
-
-  // Two RPC calls happened in order: burn, then INSERT.
-  assertEquals(mockClient.calls.length, 2);
-  assertEquals(mockClient.calls[0].table, "rpc:consume_enrollment_challenge");
-  assertEquals(mockClient.calls[1].table, "rpc:register_user_signing_key");
-
-  // The INSERT RPC's args contain the iOS-only app_attest_public_key as
-  // a non-null hex literal that matches what validateAppleAttestation
-  // returned. A regression that hardcoded a constant pubkey (or pulled
-  // it from the wrong field) would mismatch the sentinel and fail here.
-  const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
-  assertEquals(insertArgs.p_platform, "ios");
-  assertEquals(insertArgs.p_app_attest_public_key, expectedHex);
-});
-
-Deno.test("register-signing-key — Android happy path → 200 with leafChainPEM, app_attest_public_key NULL", () =>
-  withAndroidSigningCertEnv(async () => {
-    const { deps, mockClient } = buildDeps();
+    const { deps, mockClient } = buildDeps({
+      validateAppleAttestationImpl: () =>
+        Promise.resolve({ credCertPublicKey: SENTINEL_APP_ATTEST_PUBKEY }),
+    });
 
     const res = await handleRegister(
-      buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+      buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
       deps,
     );
-    assertEquals(res.status, 200);
+    const { status, body } = await readJsonResponse<{
+      ok: boolean;
+      leafChainPEM: string;
+      keyId: string;
+    }>(res);
+    assertEquals(status, 200);
+    assertEquals(body.ok, true);
+    assertExists(body.leafChainPEM);
+    assertExists(body.keyId);
 
-    // Android rows persist app_attest_public_key = NULL by design (no
-    // App Attest equivalent on Android — Play Integrity uses different
-    // primitives that don't surface a per-key pubkey).
+    // Two RPC calls happened in order: burn, then INSERT.
+    assertEquals(mockClient.calls.length, 2);
+    assertEquals(mockClient.calls[0].table, "rpc:consume_enrollment_challenge");
+    assertEquals(mockClient.calls[1].table, "rpc:register_user_signing_key");
+
+    // The INSERT RPC's args contain the iOS-only app_attest_public_key as
+    // a non-null hex literal that matches what validateAppleAttestation
+    // returned. A regression that hardcoded a constant pubkey (or pulled
+    // it from the wrong field) would mismatch the sentinel and fail here.
     const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
-    assertEquals(insertArgs.p_platform, "android-strongbox");
-    assertEquals(insertArgs.p_app_attest_public_key, null);
+    assertEquals(insertArgs.p_platform, "ios");
+    assertEquals(insertArgs.p_app_attest_public_key, expectedHex);
   }));
+
+Deno.test("register-signing-key — Android happy path → 200 with leafChainPEM, app_attest_public_key NULL", () =>
+  withCplUuids(() =>
+    withAndroidSigningCertEnv(async () => {
+      const { deps, mockClient } = buildDeps();
+
+      const res = await handleRegister(
+        buildRequest({ bearer: "alice-jwt", body: buildAndroidBody() }),
+        deps,
+      );
+      assertEquals(res.status, 200);
+
+      // Android rows persist app_attest_public_key = NULL by design (no
+      // App Attest equivalent on Android — Play Integrity uses different
+      // primitives that don't surface a per-key pubkey).
+      const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
+      assertEquals(insertArgs.p_platform, "android-strongbox");
+      assertEquals(insertArgs.p_app_attest_public_key, null);
+    })
+  ));
 
 Deno.test(
   "register-signing-key — happy path passes burn RPC the correct (challenge, user_id) args",
@@ -1142,7 +1173,7 @@ Deno.test("buildCachedIntermediateCheck — caches success across calls", async 
       kmsCalls++;
       return Promise.resolve({
         spki: new Uint8Array([1, 2, 3]),
-        algorithm: "EC_SIGN_P256_SHA256",
+        algorithm: "EC_SIGN_P384_SHA384",
       });
     },
     // deno-lint-ignore no-explicit-any
@@ -1198,7 +1229,7 @@ Deno.test("buildCachedIntermediateCheck — clears cache on SPKI mismatch", asyn
       kmsCalls++;
       return Promise.resolve({
         spki: new Uint8Array([1, 2, 3]),
-        algorithm: "EC_SIGN_P256_SHA256",
+        algorithm: "EC_SIGN_P384_SHA384",
       });
     },
     // deno-lint-ignore no-explicit-any
@@ -1273,90 +1304,77 @@ Deno.test(
 
 Deno.test(
   "register-signing-key — supersedeKeyId forwarded into RPC p_supersede_key_id",
-  async () => {
-    const { deps, mockClient } = buildDeps();
-    const SENTINEL_OLD_KEY_ID = "sha256-of-prior-spki-base64====";
+  () =>
+    withCplUuids(async () => {
+      const { deps, mockClient } = buildDeps();
+      const SENTINEL_OLD_KEY_ID = "sha256-of-prior-spki-base64====";
 
-    const res = await handleRegister(
-      buildRequest({
-        bearer: "alice-jwt",
-        body: buildIosBody({ supersedeKeyId: SENTINEL_OLD_KEY_ID }),
-      }),
-      deps,
-    );
-    assertEquals(res.status, 200);
+      const res = await handleRegister(
+        buildRequest({
+          bearer: "alice-jwt",
+          body: buildIosBody({ supersedeKeyId: SENTINEL_OLD_KEY_ID }),
+        }),
+        deps,
+      );
+      assertEquals(res.status, 200);
 
-    // The INSERT RPC's args should carry the supersede key_id verbatim;
-    // the RPC itself (in plpgsql) does the user_id-guarded UPDATE.
-    const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
-    assertEquals(insertArgs.p_supersede_key_id, SENTINEL_OLD_KEY_ID);
-  },
+      // The INSERT RPC's args should carry the supersede key_id verbatim;
+      // the RPC itself (in plpgsql) does the user_id-guarded UPDATE.
+      const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
+      assertEquals(insertArgs.p_supersede_key_id, SENTINEL_OLD_KEY_ID);
+    }),
 );
 
 Deno.test(
   "register-signing-key — initial enrollment (no supersedeKeyId) → RPC receives null",
-  async () => {
-    const { deps, mockClient } = buildDeps();
+  () =>
+    withCplUuids(async () => {
+      const { deps, mockClient } = buildDeps();
 
-    const res = await handleRegister(
-      buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
-      deps,
-    );
-    assertEquals(res.status, 200);
+      const res = await handleRegister(
+        buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
+        deps,
+      );
+      assertEquals(res.status, 200);
 
-    // Initial-enrollment path: the body omits supersedeKeyId entirely.
-    // The edge function should pass NULL to the RPC so the plpgsql
-    // "IF p_supersede_key_id IS NOT NULL" guard short-circuits and no
-    // UPDATE is attempted. A regression that forwarded a stale local
-    // value (e.g., reading from a previous request's variable) would
-    // surface here.
-    const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
-    assertEquals(insertArgs.p_supersede_key_id, null);
-  },
+      // Initial-enrollment path: the body omits supersedeKeyId entirely.
+      // The edge function should pass NULL to the RPC so the plpgsql
+      // "IF p_supersede_key_id IS NOT NULL" guard short-circuits and no
+      // UPDATE is attempted. A regression that forwarded a stale local
+      // value (e.g., reading from a previous request's variable) would
+      // surface here.
+      const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
+      assertEquals(insertArgs.p_supersede_key_id, null);
+    }),
 );
 
 Deno.test(
   "register-signing-key — explicit null supersedeKeyId behaves like undefined",
-  async () => {
-    const { deps, mockClient } = buildDeps();
+  () =>
+    withCplUuids(async () => {
+      const { deps, mockClient } = buildDeps();
 
-    const res = await handleRegister(
-      buildRequest({
-        bearer: "alice-jwt",
-        body: buildIosBody({ supersedeKeyId: null }),
-      }),
-      deps,
-    );
-    assertEquals(res.status, 200);
-    const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
-    assertEquals(insertArgs.p_supersede_key_id, null);
-  },
+      const res = await handleRegister(
+        buildRequest({
+          bearer: "alice-jwt",
+          body: buildIosBody({ supersedeKeyId: null }),
+        }),
+        deps,
+      );
+      assertEquals(res.status, 200);
+      const insertArgs = mockClient.calls[1].values as Record<string, unknown>;
+      assertEquals(insertArgs.p_supersede_key_id, null);
+    }),
 );
 
 // ---------- v2 hierarchy wiring ---------------------------------------
 
 import { assuranceLevelFor, leafValidityDays } from "../index.ts";
 
-const PLACEHOLDER_CPL_UUID = "00000000-0000-4000-8000-000000000000";
-
-function withV2Env(
-  uuids: { ios?: string; android?: string },
-  fn: () => Promise<void>,
-): Promise<void> {
-  Deno.env.set("CA_HIERARCHY", "v2");
-  if (uuids.ios) Deno.env.set("LEAF_CPL_RECORD_UUID_IOS", uuids.ios);
-  if (uuids.android) {
-    Deno.env.set("LEAF_CPL_RECORD_UUID_ANDROID", uuids.android);
-  }
-  return fn().finally(() => {
-    Deno.env.delete("CA_HIERARCHY");
-    Deno.env.delete("LEAF_CPL_RECORD_UUID_IOS");
-    Deno.env.delete("LEAF_CPL_RECORD_UUID_ANDROID");
-  });
-}
+// These run with CA_HIERARCHY unset, so they also pin v2 as the default.
 
 Deno.test("register-signing-key — v2 iOS: issuance gets v2 opts + 180d at AL1", () =>
-  withV2Env({ ios: PLACEHOLDER_CPL_UUID }, async () => {
+  withCplUuids(async () => {
     const capturedOpts: Array<
       Parameters<RegisterDeps["issueLeafChainFromCSR"]>[1]
     > = [];
@@ -1390,8 +1408,7 @@ Deno.test("register-signing-key — v2 iOS: issuance gets v2 opts + 180d at AL1"
   }));
 
 Deno.test("register-signing-key — v2 Android: always AL2, 90d", () =>
-  withV2Env(
-    { android: PLACEHOLDER_CPL_UUID },
+  withCplUuids(
     () =>
       withAndroidSigningCertEnv(async () => {
         const capturedOpts: Array<
@@ -1422,7 +1439,7 @@ Deno.test("register-signing-key — v2 Android: always AL2, 90d", () =>
   ));
 
 Deno.test("register-signing-key — v2 with unset CPL UUID: 500, nothing persisted", () =>
-  withV2Env({}, async () => {
+  withCplUuids(async () => {
     const { deps, mockClient } = buildDeps();
     const res = await handleRegister(
       buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
@@ -1436,36 +1453,41 @@ Deno.test("register-signing-key — v2 with unset CPL UUID: 500, nothing persist
       mockClient.calls.some((c) => c.table === "rpc:register_user_signing_key"),
       false,
     );
-  }));
+  }, {}));
 
-Deno.test("register-signing-key — v1 default: no v2 opts to issuance, no assuranceLevel in response", async () => {
-  const capturedOpts: Array<
-    Parameters<RegisterDeps["issueLeafChainFromCSR"]>[1]
-  > = [];
-  const { deps } = buildDeps({
-    issueLeafChainImpl: (_csr, opts) => {
-      capturedOpts.push(opts);
-      return Promise.resolve({
-        pem:
-          "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
-        serialDecimal: "12345678",
-        serialBytes: new Uint8Array([1, 2, 3, 4]),
-        notAfter: new Date("2031-01-01T00:00:00Z"),
-      });
-    },
-  });
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
-    deps,
-  );
-  const { status, body } = await readJsonResponse<
-    { ok: boolean; assuranceLevel?: string }
-  >(res);
-  assertEquals(status, 200);
-  assertEquals("assuranceLevel" in body, false);
-  assertEquals(capturedOpts.length, 1);
-  assertEquals(capturedOpts[0].validityDays, 180);
-  assertEquals(capturedOpts[0].v2, undefined);
+Deno.test("register-signing-key — CA_HIERARCHY=v1: no v2 opts to issuance, no assuranceLevel in response", async () => {
+  Deno.env.set("CA_HIERARCHY", "v1");
+  try {
+    const capturedOpts: Array<
+      Parameters<RegisterDeps["issueLeafChainFromCSR"]>[1]
+    > = [];
+    const { deps } = buildDeps({
+      issueLeafChainImpl: (_csr, opts) => {
+        capturedOpts.push(opts);
+        return Promise.resolve({
+          pem:
+            "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
+          serialDecimal: "12345678",
+          serialBytes: new Uint8Array([1, 2, 3, 4]),
+          notAfter: new Date("2031-01-01T00:00:00Z"),
+        });
+      },
+    });
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
+      deps,
+    );
+    const { status, body } = await readJsonResponse<
+      { ok: boolean; assuranceLevel?: string }
+    >(res);
+    assertEquals(status, 200);
+    assertEquals("assuranceLevel" in body, false);
+    assertEquals(capturedOpts.length, 1);
+    assertEquals(capturedOpts[0].validityDays, 180);
+    assertEquals(capturedOpts[0].v2, undefined);
+  } finally {
+    Deno.env.delete("CA_HIERARCHY");
+  }
 });
 
 Deno.test("leafValidityDays — v2 per assurance level; v1 flat 180", () => {

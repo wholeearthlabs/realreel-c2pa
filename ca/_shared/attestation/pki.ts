@@ -651,21 +651,20 @@ const OID = {
 //
 // The CA can issue against two hierarchies:
 //   v1 — the legacy pre-conformance hierarchy (P-256 ICA, SHA-256 chain,
-//        `CN=RealReel-Device-Key` leaves, no CP §7.1.2 extensions). Default,
-//        and what production runs until the cutover gate clears.
+//        `CN=RealReel-Device-Key` leaves, no CP §7.1.2 extensions). The
+//        verifier no longer trusts its root.
 //   v2 — the conformant hierarchy (P-384 root+ICA signing with SHA-384,
 //        per-platform CPL-registered DNs, nonRepudiation KU, and the CP-required
 //        certificatePolicies / AIA / c2pa-al / c2pa-cpl-record extensions).
-// Selected by the CA_HIERARCHY env var so the production flip is a config
-// change (env + GCP_KMS_KEY_RESOURCE + REALREEL_INTERMEDIATE_CERT_PEM swapped
-// together), not a deploy. GUARDRAIL: do not set v2 in production until the
-// real CPL record UUIDs exist and the root is on the C2PA Trust List —
-// v2 leaves embed the UUID and are non-conformant with a placeholder.
+//        Default, and what production runs.
+// Selected by the CA_HIERARCHY env var, switched together with
+// GCP_KMS_KEY_RESOURCE and REALREEL_INTERMEDIATE_CERT_PEM. A v2 deploy missing
+// its CPL record UUIDs fails closed (resolveV2LeafOptions).
 
 export type CaHierarchy = "v1" | "v2";
 
 export function caHierarchy(): CaHierarchy {
-  const v = Deno.env.get("CA_HIERARCHY") ?? "v1";
+  const v = Deno.env.get("CA_HIERARCHY") ?? "v2";
   if (v !== "v1" && v !== "v2") {
     throw new AttestationError(
       "CA_CONFIG_INVALID",
