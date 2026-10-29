@@ -978,7 +978,7 @@ Deno.test("register-signing-key — ensureIntermediateMatchesKms throws (algorit
       Promise.reject(
         new AttestationError(
           "KMS_ALGORITHM_MISMATCH",
-          "Cloud KMS algorithm is RSA_SIGN_PSS_2048_SHA256, expected EC_SIGN_P384_SHA384",
+          "Cloud KMS algorithm is RSA_SIGN_PSS_2048_SHA256, expected EC_SIGN_P256_SHA256",
         ),
       ),
   });
@@ -1010,18 +1010,19 @@ Deno.test("register-signing-key — ensureIntermediateMatchesKms throws (SPKI mi
   assertEquals(res.status, 500);
 });
 
-Deno.test("register-signing-key — issueLeafChainFromCSR throws → 500 Issuance failed", async () => {
-  const { deps } = buildDeps({
-    issueLeafChainImpl: () =>
-      Promise.reject(new Error("KMS sign network failure")),
-  });
+Deno.test("register-signing-key — issueLeafChainFromCSR throws → 500 Issuance failed", () =>
+  withCplUuids(async () => {
+    const { deps } = buildDeps({
+      issueLeafChainImpl: () =>
+        Promise.reject(new Error("KMS sign network failure")),
+    });
 
-  const res = await handleRegister(
-    buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
-    deps,
-  );
-  assertEquals(res.status, 500);
-});
+    const res = await handleRegister(
+      buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
+      deps,
+    );
+    assertEquals(res.status, 500);
+  }));
 
 // =====================================================================
 // Persistence
