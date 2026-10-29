@@ -1,9 +1,9 @@
 // Cloud KMS REST client — signing operations only.
 //
 // Used by `register-signing-key` to issue the per-device leaf cert via the
-// RealReel intermediate key that lives inside Cloud KMS. The intermediate
-// key's private half never leaves KMS; this module only ever asks KMS to sign
-// a SHA-256 digest of a TBSCertificate we built locally.
+// claim ICA key that lives inside Cloud KMS (and by ocsp-leaf for its
+// responder key). The private halves never leave KMS; this module only ever
+// asks KMS to sign a digest of a TBS structure we built locally.
 //
 // Auth flow:
 //   1. Load service account JSON from GCP_KMS_SA_JSON.
