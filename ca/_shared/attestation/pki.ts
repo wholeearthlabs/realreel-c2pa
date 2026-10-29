@@ -619,7 +619,6 @@ const OID = {
   // RDN attributes
   countryName: "2.5.4.6",
   organizationName: "2.5.4.10",
-  organizationalUnitName: "2.5.4.11",
   commonName: "2.5.4.3",
   // Extensions
   basicConstraints: "2.5.29.19",
@@ -633,7 +632,6 @@ const OID = {
   adOcsp: "1.3.6.1.5.5.7.48.1",
   adCaIssuers: "1.3.6.1.5.5.7.48.2",
   // Signature algorithms
-  ecdsaWithSHA256: "1.2.840.10045.4.3.2",
   ecdsaWithSHA384: "1.2.840.10045.4.3.3",
   // Extended key usages
   ekuEmailProtection: "1.3.6.1.5.5.7.3.4",
@@ -647,32 +645,13 @@ const OID = {
   c2paCplRecord: "1.3.6.1.4.1.62558.4",
 } as const;
 
-// --- Hierarchy selection (v1 legacy / v2 conformant) --------------------
+// --- Leaf profile ------------------------------------------------------
 //
-// The CA can issue against two hierarchies:
-//   v1 — the legacy pre-conformance hierarchy (P-256 ICA, SHA-256 chain,
-//        `CN=RealReel-Device-Key` leaves, no CP §7.1.2 extensions). The
-//        verifier no longer trusts its root.
-//   v2 — the conformant hierarchy (P-384 root+ICA signing with SHA-384,
-//        per-platform CPL-registered DNs, nonRepudiation KU, and the CP-required
-//        certificatePolicies / AIA / c2pa-al / c2pa-cpl-record extensions).
-//        Default, and what production runs.
-// Selected by the CA_HIERARCHY env var, switched together with
-// GCP_KMS_KEY_RESOURCE and REALREEL_INTERMEDIATE_CERT_PEM. A v2 deploy missing
-// its CPL record UUIDs fails closed (resolveV2LeafOptions).
-
-export type CaHierarchy = "v1" | "v2";
-
-export function caHierarchy(): CaHierarchy {
-  const v = Deno.env.get("CA_HIERARCHY") ?? "v2";
-  if (v !== "v1" && v !== "v2") {
-    throw new AttestationError(
-      "CA_CONFIG_INVALID",
-      `CA_HIERARCHY must be "v1" or "v2", got "${v}"`,
-    );
-  }
-  return v;
-}
+// Every leaf is issued under the conformant hierarchy: P-384 root+ICA signing
+// with SHA-384, per-platform CPL-registered DNs, nonRepudiation KU, and the
+// CP-required certificatePolicies / AIA / c2pa-al / c2pa-cpl-record
+// extensions. A deploy missing its CPL record UUIDs fails closed
+// (resolveLeafProfile).
 
 /** Platform group for leaf issuance. Collapses the enrollment platforms
  * (`ios` / `android-strongbox` / `android-tee`) to the two CPL records. */
@@ -683,10 +662,10 @@ export type LeafPlatform = "ios" | "android";
  * 366 days. RealReel issues iOS at AL1 and Android at AL2. */
 export type AssuranceLevel = "AL1" | "AL2";
 
-// v2 issuance parameters. Resolved from env once per request by
-// resolveV2LeafOptions and carried explicitly, so buildLeafCertificate stays a
+// Per-leaf issuance parameters. Resolved from env once per request by
+// resolveLeafProfile and carried explicitly, so buildLeafCertificate stays a
 // pure function of its template (tests construct these directly).
-export interface V2LeafOptions {
+export interface LeafProfile {
   platform: LeafPlatform;
   assuranceLevel: AssuranceLevel;
   /** 36-char CPL record UUID embedded in c2pa-cpl-record (CP §7.1.2). */
@@ -703,16 +682,16 @@ const UUID_36 =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 /**
- * Resolve the v2 issuance parameters from env. The CPL record UUID is
- * per-platform (C2PA issues one CPL record per registered product DN) and has
- * NO default — v2 issuance without a configured UUID must fail closed rather
- * than mint a leaf missing its CPL binding. Dark testing sets a placeholder
+ * Resolve the leaf profile from env. The CPL record UUID is per-platform (C2PA
+ * issues one CPL record per registered product DN) and has NO default —
+ * issuance without a configured UUID must fail closed rather than mint a leaf
+ * missing its CPL binding. Dark testing sets a placeholder
  * UUID explicitly in the local env.
  */
-export function resolveV2LeafOptions(
+export function resolveLeafProfile(
   platform: LeafPlatform,
   assuranceLevel: AssuranceLevel,
-): V2LeafOptions {
+): LeafProfile {
   const uuidEnv = platform === "ios"
     ? "LEAF_CPL_RECORD_UUID_IOS"
     : "LEAF_CPL_RECORD_UUID_ANDROID";
@@ -720,8 +699,8 @@ export function resolveV2LeafOptions(
   if (!UUID_36.test(cplRecordUuid)) {
     throw new AttestationError(
       "CA_CONFIG_INVALID",
-      `${uuidEnv} must hold the 36-char CPL record UUID for CA_HIERARCHY=v2 ` +
-        "issuance (unset or malformed)",
+      `${uuidEnv} must hold the 36-char CPL record UUID for leaf issuance ` +
+        "(unset or malformed)",
     );
   }
   return {
@@ -742,15 +721,14 @@ export function resolveV2LeafOptions(
 // code, falling back to the RealReel values so the test suite and the standard
 // deploy run with no env set.
 //
-// The two hierarchies read DISJOINT env vars, because a v2 DN must byte-match
-// the DN registered in the C2PA CPL record and must not silently inherit any
-// v1 override:
-//   v1: LEAF_SUBJECT_COUNTRY, LEAF_SUBJECT_ORG, LEAF_SUBJECT_OU, LEAF_SUBJECT_CN
-//   v2: LEAF_SUBJECT_COUNTRY_V2, LEAF_SUBJECT_ORG_V2,
-//       LEAF_SUBJECT_CN_IOS / LEAF_SUBJECT_CN_ANDROID  (no OU)
-// A fork running v2 MUST set its own v2 DN vars AND the AIA URLs
-// (LEAF_AIA_OCSP_URL, LEAF_AIA_CA_ISSUERS_URL) — the AIA defaults point at
-// RealReel's responder/PKI hosts, which answer `unknown` for a fork's serials.
+// The DN must byte-match the DN registered in the C2PA CPL record:
+//   LEAF_SUBJECT_COUNTRY_V2, LEAF_SUBJECT_ORG_V2,
+//   LEAF_SUBJECT_CN_IOS / LEAF_SUBJECT_CN_ANDROID  (no OU)
+// The _V2 suffix is deliberate: the unsuffixed names belonged to the retired
+// legacy DN, and reusing them would let a stale override change the DN.
+// A fork MUST set its own DN vars AND the AIA URLs (LEAF_AIA_OCSP_URL,
+// LEAF_AIA_CA_ISSUERS_URL) — the AIA defaults point at RealReel's
+// responder/PKI hosts, which answer `unknown` for a fork's serials.
 //
 // User identity is never embedded — the (user_id, public_key) binding
 // lives in user_signing_keys — so any externally-published cert stays
@@ -767,62 +745,38 @@ export function resolveV2LeafOptions(
 // canonical form by overriding `toSchema` on the instance, so downstream
 // PKIX validators that only exercise the common path don't trip on shape.
 function realReelLeafSubject(
-  v2?: V2LeafOptions,
+  platform: LeafPlatform,
 ): pkijs.RelativeDistinguishedNames {
   // Source-of-truth table — one row per attribute, in the order they appear
   // in the DN. Both the pkijs typesAndValues array (for programmatic reads
   // of `cert.subject`) and the overridden toSchema (for serialization) are
   // derived from this so the two stay in sync.
   //
-  // v2 emits the CPL-registered DN: exactly C, O, and a per-platform CN
-  // (CP §7.1.2 requires C/O/CN and the DN must byte-match the CPL record —
-  // no OU). v1 keeps the legacy four-attribute DN.
+  // Exactly C, O, and a per-platform CN: CP §7.1.2 requires C/O/CN and the DN
+  // must byte-match the CPL record, so no OU.
   const attrs: ReadonlyArray<{
     type: string;
     value: string;
     stringClass: typeof asn1js.PrintableString | typeof asn1js.Utf8String;
-  }> = v2
-    ? [
-      {
-        type: OID.countryName,
-        value: Deno.env.get("LEAF_SUBJECT_COUNTRY_V2") ?? "US",
-        stringClass: asn1js.PrintableString,
-      },
-      {
-        type: OID.organizationName,
-        value: Deno.env.get("LEAF_SUBJECT_ORG_V2") ?? "Whole Earth Labs LLC",
-        stringClass: asn1js.Utf8String,
-      },
-      {
-        type: OID.commonName,
-        value: v2.platform === "ios"
-          ? (Deno.env.get("LEAF_SUBJECT_CN_IOS") ?? "RealReel iOS")
-          : (Deno.env.get("LEAF_SUBJECT_CN_ANDROID") ?? "RealReel Android"),
-        stringClass: asn1js.Utf8String,
-      },
-    ]
-    : [
-      {
-        type: OID.countryName,
-        value: Deno.env.get("LEAF_SUBJECT_COUNTRY") ?? "US",
-        stringClass: asn1js.PrintableString,
-      },
-      {
-        type: OID.organizationName,
-        value: Deno.env.get("LEAF_SUBJECT_ORG") ?? "RealReel",
-        stringClass: asn1js.Utf8String,
-      },
-      {
-        type: OID.organizationalUnitName,
-        value: Deno.env.get("LEAF_SUBJECT_OU") ?? "Production",
-        stringClass: asn1js.Utf8String,
-      },
-      {
-        type: OID.commonName,
-        value: Deno.env.get("LEAF_SUBJECT_CN") ?? "RealReel-Device-Key",
-        stringClass: asn1js.Utf8String,
-      },
-    ];
+  }> = [
+    {
+      type: OID.countryName,
+      value: Deno.env.get("LEAF_SUBJECT_COUNTRY_V2") ?? "US",
+      stringClass: asn1js.PrintableString,
+    },
+    {
+      type: OID.organizationName,
+      value: Deno.env.get("LEAF_SUBJECT_ORG_V2") ?? "Whole Earth Labs LLC",
+      stringClass: asn1js.Utf8String,
+    },
+    {
+      type: OID.commonName,
+      value: platform === "ios"
+        ? (Deno.env.get("LEAF_SUBJECT_CN_IOS") ?? "RealReel iOS")
+        : (Deno.env.get("LEAF_SUBJECT_CN_ANDROID") ?? "RealReel Android"),
+      stringClass: asn1js.Utf8String,
+    },
+  ];
 
   const dn = new pkijs.RelativeDistinguishedNames({
     typesAndValues: attrs.map((a) =>
@@ -860,10 +814,8 @@ export interface LeafTemplate {
   intermediate: pkijs.Certificate;
   validityDays: number; // see register-signing-key leafValidityDays()
   serialNumber: Uint8Array; // typically 20 random bytes
-  // Present iff issuing against the v2 (conformant) hierarchy: selects the
-  // per-platform DN, SHA-384 signature declaration, nonRepudiation KU, and
-  // the CP §7.1.2 extensions. Absent → legacy v1 shape.
-  v2?: V2LeafOptions;
+  // Selects the per-platform DN and fills the CP §7.1.2 extensions.
+  profile: LeafProfile;
 }
 
 // Build a fully-populated leaf Certificate object ready to be TBS-encoded,
@@ -915,7 +867,7 @@ export async function buildLeafCertificate(
   });
 
   cert.issuer = template.intermediate.subject;
-  cert.subject = realReelLeafSubject(template.v2);
+  cert.subject = realReelLeafSubject(template.profile.platform);
 
   const now = new Date();
   // Trim sub-second precision; UTCTime has 1-second resolution and pkijs's
@@ -938,14 +890,13 @@ export async function buildLeafCertificate(
 
   cert.subjectPublicKeyInfo = template.csr.subjectPublicKeyInfo;
 
-  // v2 chains sign with the P-384 ICA (KMS ec-sign-p384-sha384) →
-  // ecdsa-with-SHA384; v1 with the P-256 intermediate → ecdsa-with-SHA256.
-  // The leaf KEY stays P-256 either way (mixed-curve chains are CP-allowed
-  // and validate in c2pa-rs). Must agree with the digest issueLeafChainFromCSR
-  // hashes and the KMS key algorithm — kms.ts's expected-algorithm gate pins
-  // that at cold start.
+  // The P-384 ICA (KMS ec-sign-p384-sha384) signs → ecdsa-with-SHA384. The
+  // leaf KEY stays P-256 (mixed-curve chains are CP-allowed and validate in
+  // c2pa-rs). Must agree with the digest issueLeafChainFromCSR hashes and the
+  // KMS key algorithm — kms.ts's expected-algorithm gate pins that at cold
+  // start.
   const sigAlg = new pkijs.AlgorithmIdentifier({
-    algorithmId: template.v2 ? OID.ecdsaWithSHA384 : OID.ecdsaWithSHA256,
+    algorithmId: OID.ecdsaWithSHA384,
   });
   // X.509 requires the AlgorithmIdentifier inside the TBS (`signature`) and
   // outside the TBS (`signatureAlgorithm`) to match byte-for-byte. Verifiers
@@ -969,20 +920,19 @@ export async function buildLeafCertificate(
   );
 
   // keyUsage, critical. BIT STRING bits are MSB-first: digitalSignature is
-  // bit 0, nonRepudiation bit 1. v2 sets both (0b11000000 = 0xC0, 6 unused
+  // bit 0, nonRepudiation bit 1. Both set (0b11000000 = 0xC0, 6 unused
   // bits) — CP §7.1.2 requires digitalSignature + nonRepudiation, and current
   // c2pa-rs accepts the pair (re-tested 2026-07-27 against c2patool 0.26.60;
   // an earlier rejection blamed on c2pa-rs was a KU unusedBits encoding bug
-  // on our side). v1 stays digitalSignature-only (0x80, 7 unused) so the
-  // fielded legacy shape doesn't shift.
-  const kuBytes = new Uint8Array([template.v2 ? 0xc0 : 0x80]);
+  // on our side).
+  const kuBytes = new Uint8Array([0xc0]);
   cert.extensions.push(
     new pkijs.Extension({
       extnID: OID.keyUsage,
       critical: true,
       extnValue: new asn1js.BitString({
         valueHex: kuBytes.buffer,
-        unusedBits: template.v2 ? 6 : 7,
+        unusedBits: 6,
       }).toBER(false),
     }),
   );
@@ -1062,83 +1012,82 @@ export async function buildLeafCertificate(
     }),
   );
 
-  // CP §7.1.2 leaf extensions, v2 only. All four are non-critical.
-  if (template.v2) {
-    // certificatePolicies: the c2pa-certificate-policy OID, no qualifiers.
-    cert.extensions.push(
-      new pkijs.Extension({
-        extnID: OID.certificatePolicies,
-        critical: false,
-        extnValue: new pkijs.CertificatePolicies({
-          certificatePolicies: [
-            new pkijs.PolicyInformation({
-              policyIdentifier: OID.c2paCertPolicy,
-            }),
-          ],
-        }).toSchema().toBER(false),
-      }),
-    );
+  // CP §7.1.2 leaf extensions follow. All four are non-critical.
 
-    // AIA: OCSP (MUST) + caIssuers (SHOULD), both plain-HTTP URIs per
-    // OCSP/AIA convention. GeneralName type 6 = uniformResourceIdentifier.
-    cert.extensions.push(
-      new pkijs.Extension({
-        extnID: OID.authorityInfoAccess,
-        critical: false,
-        extnValue: new pkijs.InfoAccess({
-          accessDescriptions: [
-            new pkijs.AccessDescription({
-              accessMethod: OID.adOcsp,
-              accessLocation: new pkijs.GeneralName({
-                type: 6,
-                value: template.v2.ocspUrl,
-              }),
-            }),
-            new pkijs.AccessDescription({
-              accessMethod: OID.adCaIssuers,
-              accessLocation: new pkijs.GeneralName({
-                type: 6,
-                value: template.v2.caIssuersUrl,
-              }),
-            }),
-          ],
-        }).toSchema().toBER(false),
-      }),
-    );
+  // certificatePolicies: the c2pa-certificate-policy OID, no qualifiers.
+  cert.extensions.push(
+    new pkijs.Extension({
+      extnID: OID.certificatePolicies,
+      critical: false,
+      extnValue: new pkijs.CertificatePolicies({
+        certificatePolicies: [
+          new pkijs.PolicyInformation({
+            policyIdentifier: OID.c2paCertPolicy,
+          }),
+        ],
+      }).toSchema().toBER(false),
+    }),
+  );
 
-    // c2pa-al: the granted assurance level, encoded as a bare OBJECT
-    // IDENTIFIER (…3.10 = AL1, …3.20 = AL2).
-    cert.extensions.push(
-      new pkijs.Extension({
-        extnID: OID.c2paAssuranceLevel,
-        critical: false,
-        extnValue: new asn1js.ObjectIdentifier({
-          value: template.v2.assuranceLevel === "AL2"
-            ? OID.c2paAssuranceLevel2
-            : OID.c2paAssuranceLevel1,
-        }).toBER(false),
-      }),
-    );
+  // AIA: OCSP (MUST) + caIssuers (SHOULD), both plain-HTTP URIs per
+  // OCSP/AIA convention. GeneralName type 6 = uniformResourceIdentifier.
+  cert.extensions.push(
+    new pkijs.Extension({
+      extnID: OID.authorityInfoAccess,
+      critical: false,
+      extnValue: new pkijs.InfoAccess({
+        accessDescriptions: [
+          new pkijs.AccessDescription({
+            accessMethod: OID.adOcsp,
+            accessLocation: new pkijs.GeneralName({
+              type: 6,
+              value: template.profile.ocspUrl,
+            }),
+          }),
+          new pkijs.AccessDescription({
+            accessMethod: OID.adCaIssuers,
+            accessLocation: new pkijs.GeneralName({
+              type: 6,
+              value: template.profile.caIssuersUrl,
+            }),
+          }),
+        ],
+      }).toSchema().toBER(false),
+    }),
+  );
 
-    // c2pa-cpl-record: UTF8String (SIZE 36) carrying the CPL record UUID.
-    // resolveV2LeafOptions validated the shape; re-assert here so a caller
-    // constructing V2LeafOptions directly can't mint a malformed record.
-    if (!UUID_36.test(template.v2.cplRecordUuid)) {
-      throw new AttestationError(
-        "LEAF_BUILD_FAILED",
-        "v2 cplRecordUuid is not a 36-char UUID",
-      );
-    }
-    cert.extensions.push(
-      new pkijs.Extension({
-        extnID: OID.c2paCplRecord,
-        critical: false,
-        extnValue: new asn1js.Utf8String({
-          value: template.v2.cplRecordUuid,
-        }).toBER(false),
-      }),
+  // c2pa-al: the granted assurance level, encoded as a bare OBJECT
+  // IDENTIFIER (…3.10 = AL1, …3.20 = AL2).
+  cert.extensions.push(
+    new pkijs.Extension({
+      extnID: OID.c2paAssuranceLevel,
+      critical: false,
+      extnValue: new asn1js.ObjectIdentifier({
+        value: template.profile.assuranceLevel === "AL2"
+          ? OID.c2paAssuranceLevel2
+          : OID.c2paAssuranceLevel1,
+      }).toBER(false),
+    }),
+  );
+
+  // c2pa-cpl-record: UTF8String (SIZE 36) carrying the CPL record UUID.
+  // resolveLeafProfile validated the shape; re-assert here so a caller
+  // constructing a LeafProfile directly can't mint a malformed record.
+  if (!UUID_36.test(template.profile.cplRecordUuid)) {
+    throw new AttestationError(
+      "LEAF_BUILD_FAILED",
+      "cplRecordUuid is not a 36-char UUID",
     );
   }
+  cert.extensions.push(
+    new pkijs.Extension({
+      extnID: OID.c2paCplRecord,
+      critical: false,
+      extnValue: new asn1js.Utf8String({
+        value: template.profile.cplRecordUuid,
+      }).toBER(false),
+    }),
+  );
 
   return cert;
 }
@@ -1169,7 +1118,7 @@ function readSubjectKeyIdentifier(cert: pkijs.Certificate): Uint8Array | null {
   return new Uint8Array(result);
 }
 
-// DER-encode the leaf's TBSCertificate ready for SHA-256 hashing.
+// DER-encode the leaf's TBSCertificate ready for SHA-384 hashing.
 //
 // The TBS bytes produced here MUST byte-equal what finalizeLeafPEM re-encodes
 // inside the outer Certificate envelope — verifiers reject any
@@ -1187,7 +1136,7 @@ export function encodeTBS(leaf: pkijs.Certificate): Uint8Array {
 // Combine the leaf's fields (re-emits the TBS via pkijs's encodeTBS) with the
 // externally-produced signature into a finished X.509 cert, returned as PEM.
 // The `signatureDer` argument is the raw bytes Cloud KMS returns for
-// `ec-sign-p256-sha256` — a DER `Sequence { r INTEGER, s INTEGER }` — which
+// `ec-sign-p384-sha384` — a DER `Sequence { r INTEGER, s INTEGER }` — which
 // is exactly what X.509 signatureValue carries inside its BIT STRING wrapper.
 //
 // `toSchema(true)` is intentional: pkijs's default (`false`) reads from a
@@ -1261,12 +1210,12 @@ export async function verifyChainToRealReelRoot(
 
 // --- Leaf issuance orchestrator ----------------------------------------
 
-// Pluggable signer: takes the digest of the leaf's TBSCertificate — SHA-256
-// under v1, SHA-384 under v2, matching the declared signatureAlgorithm — and
-// returns the DER ECDSA signature (SEQUENCE { r INTEGER, s INTEGER }): the
-// exact shape Cloud KMS's `ec-sign-*` returns and the exact shape X.509
-// `signatureValue` carries. Pluggable so tests can substitute
-// `crypto.subtle.sign` + `p1363ToDer` without hitting real KMS.
+// Pluggable signer: takes the SHA-384 digest of the leaf's TBSCertificate
+// (matching the declared signatureAlgorithm) and returns the DER ECDSA
+// signature (SEQUENCE { r INTEGER, s INTEGER }): the exact shape Cloud KMS's
+// `ec-sign-*` returns and the exact shape X.509 `signatureValue` carries.
+// Pluggable so tests can substitute `crypto.subtle.sign` + `p1363ToDer`
+// without hitting real KMS.
 export type LeafTbsSigner = (digest: Uint8Array) => Promise<Uint8Array>;
 
 export interface IssueLeafChainOpts {
@@ -1276,9 +1225,8 @@ export interface IssueLeafChainOpts {
   intermediatePem: string;
   validityDays: number;
   signer: LeafTbsSigner;
-  // Present iff issuing against the v2 hierarchy (see LeafTemplate.v2).
-  // Also switches the TBS digest handed to `signer` to SHA-384.
-  v2?: V2LeafOptions;
+  // See LeafTemplate.profile.
+  profile: LeafProfile;
 }
 
 /**
@@ -1334,11 +1282,11 @@ export async function issueLeafChainFromCSR(
     intermediate,
     validityDays: opts.validityDays,
     serialNumber,
-    v2: opts.v2,
+    profile: opts.profile,
   });
 
   const tbs = encodeTBS(leaf);
-  const digest = opts.v2 ? await sha384(tbs) : await sha256(tbs);
+  const digest = await sha384(tbs);
   const signatureDer = await opts.signer(digest);
   const leafPem = finalizeLeafPEM(leaf, signatureDer);
 

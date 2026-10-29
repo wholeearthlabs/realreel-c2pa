@@ -138,9 +138,8 @@ function withAndroidSigningCertEnv(
   return fn().finally(() => Deno.env.delete("ANDROID_APP_SIGNING_CERT_SHA256"));
 }
 
-// v2, the default hierarchy, reads each platform's CPL record UUID per request
-// and fails closed without it, so every test that reaches issuance runs under
-// this.
+// Issuance reads each platform's CPL record UUID per request and fails closed
+// without it, so every test that reaches issuance runs under this.
 const PLACEHOLDER_CPL_UUID = "00000000-0000-4000-8000-000000000000";
 function withCplUuids(
   fn: () => Promise<void>,
@@ -978,7 +977,7 @@ Deno.test("register-signing-key — ensureIntermediateMatchesKms throws (algorit
       Promise.reject(
         new AttestationError(
           "KMS_ALGORITHM_MISMATCH",
-          "Cloud KMS algorithm is RSA_SIGN_PSS_2048_SHA256, expected EC_SIGN_P256_SHA256",
+          "Cloud KMS algorithm is RSA_SIGN_PSS_2048_SHA256, expected EC_SIGN_P384_SHA384",
         ),
       ),
   });
@@ -1368,13 +1367,11 @@ Deno.test(
     }),
 );
 
-// ---------- v2 hierarchy wiring ---------------------------------------
+// ---------- leaf issuance wiring --------------------------------------
 
 import { assuranceLevelFor, leafValidityDays } from "../index.ts";
 
-// These run with CA_HIERARCHY unset, so they also pin v2 as the default.
-
-Deno.test("register-signing-key — v2 iOS: issuance gets v2 opts + 180d at AL1", () =>
+Deno.test("register-signing-key — iOS: issuance gets the AL1 profile + 180d", () =>
   withCplUuids(async () => {
     const capturedOpts: Array<
       Parameters<RegisterDeps["issueLeafChainFromCSR"]>[1]
@@ -1403,12 +1400,12 @@ Deno.test("register-signing-key — v2 iOS: issuance gets v2 opts + 180d at AL1"
     assertEquals("assuranceLevel" in body, false);
     assertEquals(capturedOpts.length, 1);
     assertEquals(capturedOpts[0].validityDays, 180);
-    assertEquals(capturedOpts[0].v2?.platform, "ios");
-    assertEquals(capturedOpts[0].v2?.assuranceLevel, "AL1");
-    assertEquals(capturedOpts[0].v2?.cplRecordUuid, PLACEHOLDER_CPL_UUID);
+    assertEquals(capturedOpts[0].profile.platform, "ios");
+    assertEquals(capturedOpts[0].profile.assuranceLevel, "AL1");
+    assertEquals(capturedOpts[0].profile.cplRecordUuid, PLACEHOLDER_CPL_UUID);
   }));
 
-Deno.test("register-signing-key — v2 Android: always AL2, 90d", () =>
+Deno.test("register-signing-key — Android: always AL2, 90d", () =>
   withCplUuids(
     () =>
       withAndroidSigningCertEnv(async () => {
@@ -1434,12 +1431,12 @@ Deno.test("register-signing-key — v2 Android: always AL2, 90d", () =>
         assertEquals(res.status, 200);
         assertEquals(capturedOpts.length, 1);
         assertEquals(capturedOpts[0].validityDays, 90);
-        assertEquals(capturedOpts[0].v2?.platform, "android");
-        assertEquals(capturedOpts[0].v2?.assuranceLevel, "AL2");
+        assertEquals(capturedOpts[0].profile.platform, "android");
+        assertEquals(capturedOpts[0].profile.assuranceLevel, "AL2");
       }),
   ));
 
-Deno.test("register-signing-key — v2 with unset CPL UUID: 500, nothing persisted", () =>
+Deno.test("register-signing-key — unset CPL UUID: 500, nothing persisted", () =>
   withCplUuids(async () => {
     const { deps, mockClient } = buildDeps();
     const res = await handleRegister(
@@ -1456,46 +1453,9 @@ Deno.test("register-signing-key — v2 with unset CPL UUID: 500, nothing persist
     );
   }, {}));
 
-Deno.test("register-signing-key — CA_HIERARCHY=v1: no v2 opts to issuance, no assuranceLevel in response", async () => {
-  Deno.env.set("CA_HIERARCHY", "v1");
-  try {
-    const capturedOpts: Array<
-      Parameters<RegisterDeps["issueLeafChainFromCSR"]>[1]
-    > = [];
-    const { deps } = buildDeps({
-      issueLeafChainImpl: (_csr, opts) => {
-        capturedOpts.push(opts);
-        return Promise.resolve({
-          pem:
-            "-----BEGIN CERTIFICATE-----\nMOCKED-LEAF-CHAIN\n-----END CERTIFICATE-----",
-          serialDecimal: "12345678",
-          serialBytes: new Uint8Array([1, 2, 3, 4]),
-          notAfter: new Date("2031-01-01T00:00:00Z"),
-        });
-      },
-    });
-    const res = await handleRegister(
-      buildRequest({ bearer: "alice-jwt", body: buildIosBody() }),
-      deps,
-    );
-    const { status, body } = await readJsonResponse<
-      { ok: boolean; assuranceLevel?: string }
-    >(res);
-    assertEquals(status, 200);
-    assertEquals("assuranceLevel" in body, false);
-    assertEquals(capturedOpts.length, 1);
-    assertEquals(capturedOpts[0].validityDays, 180);
-    assertEquals(capturedOpts[0].v2, undefined);
-  } finally {
-    Deno.env.delete("CA_HIERARCHY");
-  }
-});
-
-Deno.test("leafValidityDays — v2 per assurance level; v1 flat 180", () => {
-  assertEquals(leafValidityDays("v1", "AL1"), 180);
-  assertEquals(leafValidityDays("v1", "AL2"), 180);
-  assertEquals(leafValidityDays("v2", "AL1"), 180);
-  assertEquals(leafValidityDays("v2", "AL2"), 90);
+Deno.test("leafValidityDays — per assurance level", () => {
+  assertEquals(leafValidityDays("AL1"), 180);
+  assertEquals(leafValidityDays("AL2"), 90);
   assertEquals(assuranceLevelFor("ios"), "AL1");
   assertEquals(assuranceLevelFor("android"), "AL2");
 });

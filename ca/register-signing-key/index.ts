@@ -56,25 +56,22 @@ import {
   AttestationError,
   base64ToBytes,
   bytesToBase64,
-  caHierarchy,
   ctEqual,
   extractCSRSpkiDer,
   extractSpkiDer,
   issueLeafChainFromCSR,
   parseCertFromPem,
   parseCSRFromPem,
-  resolveV2LeafOptions,
+  resolveLeafProfile,
   verifyCSRSignature,
 } from "../_shared/attestation/pki.ts";
 import type {
   AssuranceLevel,
-  CaHierarchy,
   LeafPlatform,
 } from "../_shared/attestation/pki.ts";
 import type { KmsCredentials } from "../_shared/kms.ts";
 import {
   KMS_EXPECTED_ALGORITHM,
-  KMS_EXPECTED_ALGORITHM_V2,
   kmsGetPublicKey,
   kmsSignDigest,
   loadKmsCredentials,
@@ -93,19 +90,15 @@ import {
 // before expiry via a non-destructive key rotation (the app's enrollment
 // client).
 //
-// v1 issues a flat 180 days. v2 validity follows the assurance level the
-// leaf's c2pa-al extension declares: CP §7.1.2 caps AL2 at 90 days, AL1 at
-// 366. Both come from assuranceLevelFor so they cannot disagree.
+// Validity follows the assurance level the leaf's c2pa-al extension declares:
+// CP §7.1.2 caps AL2 at 90 days, AL1 at 366. Both come from assuranceLevelFor
+// so they cannot disagree.
 //
 // No verifier-side sync needed: the verifier's time gate reads each leaf's
 // actual issued_at/expires_at from the issued_certificates ledger
 // (checkLedgerTimeBounds in verifier/src/cert-validity.ts), so changing a
 // lifetime here propagates through the ledger rows automatically.
-export function leafValidityDays(
-  hierarchy: CaHierarchy,
-  assuranceLevel: AssuranceLevel,
-): number {
-  if (hierarchy === "v1") return 180;
+export function leafValidityDays(assuranceLevel: AssuranceLevel): number {
   return assuranceLevel === "AL2" ? 90 : 180;
 }
 
@@ -190,31 +183,17 @@ export function buildCachedIntermediateCheck(deps: {
         cache = null;
         throw e;
       }
-      // Algorithm gate: the leaf's declared signatureAlgorithm tracks the
-      // active hierarchy (v1 → ecdsaWithSHA256 / P-256 intermediate, v2 →
-      // ecdsaWithSHA384 / P-384 claim ICA). KMS signing with any other
-      // algorithm produces leaves whose declared signatureAlgorithm lies.
-      // Fail-fast at cold start so a misconfigured GCP_KMS_KEY_RESOURCE —
-      // including a hierarchy flip that swapped only one of the paired env
-      // vars — can never mint a single bad cert.
-      let expectedAlgorithm: string;
-      try {
-        expectedAlgorithm = caHierarchy() === "v2"
-          ? KMS_EXPECTED_ALGORITHM_V2
-          : KMS_EXPECTED_ALGORITHM;
-      } catch (e) {
-        // A junk CA_HIERARCHY is a fixable misconfig like the two below —
-        // don't pin a rejected promise in the cache for the isolate's life.
-        cache = null;
-        throw e;
-      }
-      if (kmsPublicKey.algorithm !== expectedAlgorithm) {
+      // Algorithm gate: leaves declare ecdsaWithSHA384 (P-384 claim ICA). KMS
+      // signing with any other algorithm produces leaves whose declared
+      // signatureAlgorithm lies. Fail-fast at cold start so a misconfigured
+      // GCP_KMS_KEY_RESOURCE can never mint a single bad cert.
+      if (kmsPublicKey.algorithm !== KMS_EXPECTED_ALGORITHM) {
         cache = null;
         throw new AttestationError(
           "KMS_ALGORITHM_MISMATCH",
-          `Cloud KMS algorithm is ${kmsPublicKey.algorithm}, expected ${expectedAlgorithm} — ` +
-            "GCP_KMS_KEY_RESOURCE and CA_HIERARCHY are out of sync. " +
-            "Repoint at the matching key version.",
+          `Cloud KMS algorithm is ${kmsPublicKey.algorithm}, expected ${KMS_EXPECTED_ALGORITHM} — ` +
+            "GCP_KMS_KEY_RESOURCE points at the wrong key. " +
+            "Repoint at the claim ICA key version.",
         );
       }
       let intCert;
@@ -596,8 +575,7 @@ export async function handleRegister(
     );
   }
 
-  // Platform group + assurance level for leaf issuance (v2 semantics; v1
-  // ignores both).
+  // Platform group + assurance level for leaf issuance.
   const leafPlatform: LeafPlatform = platform === "ios" ? "ios" : "android";
   const assuranceLevel = assuranceLevelFor(leafPlatform);
 
@@ -656,7 +634,7 @@ export async function handleRegister(
   }
 
   // === Issue the CA-signed leaf via Cloud KMS ===
-  // Private key never leaves KMS; we hand KMS a SHA-256(TBS) and get back a
+  // Private key never leaves KMS; we hand KMS a SHA-384(TBS) and get back a
   // DER ECDSA signature, then assemble the leaf locally. Any failure here
   // is a 500 (server-side), not a 400 — the client did nothing wrong.
   //
@@ -667,29 +645,17 @@ export async function handleRegister(
   let leafChainPEM: string;
   let certSerialDecimal: string;
   let leafExpiresAt: Date;
-  // Resolved inside the try: a junk CA_HIERARCHY throws CA_CONFIG_INVALID,
-  // which belongs in the structured 500 below rather than escaping the
-  // handler as an unshaped serve()-level error.
   try {
-    const hierarchy = caHierarchy();
     const kmsCreds = await deps.loadKmsCredentials();
     await deps.ensureIntermediateMatchesKms(kmsCreds, intermediatePem);
     const issued = await deps.issueLeafChainFromCSR(csr, {
       intermediatePem,
-      validityDays: leafValidityDays(hierarchy, assuranceLevel),
-      signer: (digest) =>
-        deps.kmsSignDigest(
-          digest,
-          kmsCreds,
-          hierarchy === "v2" ? "sha384" : "sha256",
-        ),
+      validityDays: leafValidityDays(assuranceLevel),
+      signer: (digest) => deps.kmsSignDigest(digest, kmsCreds, "sha384"),
       // Resolves the per-platform CPL record UUID + AIA URLs from env; throws
-      // CA_CONFIG_INVALID (→ 500 here) if v2 is active without a configured
-      // UUID, so a half-configured flip can't mint a leaf missing its CPL
-      // binding.
-      v2: hierarchy === "v2"
-        ? resolveV2LeafOptions(leafPlatform, assuranceLevel)
-        : undefined,
+      // CA_CONFIG_INVALID (→ 500 here) without a configured UUID, so a
+      // half-configured deploy can't mint a leaf missing its CPL binding.
+      profile: resolveLeafProfile(leafPlatform, assuranceLevel),
     });
     leafChainPEM = issued.pem;
     // Persist alongside the cert PEM so the verifier can look up the

@@ -32,11 +32,13 @@ import {
   parseCSRFromPem,
   pemToDer,
   pkijs,
-  sha256,
+  resolveLeafProfile,
+  sha384,
   verifyChainToRealReelRoot,
   verifyChainToTrustedRoots,
   verifyCSRSignature,
 } from "./pki.ts";
+import type { LeafProfile } from "./pki.ts";
 
 const CSR_FIXTURE_PATH = new URL(
   "./__fixtures__/sample_csr.pem",
@@ -58,7 +60,7 @@ const CSR_FIXTURE_PATH = new URL(
 //      Otherwise DER decoders read the INTEGER as negative (two's complement),
 //      which silently corrupts the signature.
 function p1363ToDer(sig: Uint8Array): Uint8Array {
-  // 64 = P-256 (r,s 32 bytes each); 96 = P-384 (48 each, v2 test chains).
+  // 64 = P-256 (r,s 32 bytes each); 96 = P-384 (48 each, test chains).
   if (sig.length !== 64 && sig.length !== 96) {
     throw new Error(`expected 64/96-byte P1363 signature, got ${sig.length}`);
   }
@@ -113,15 +115,14 @@ interface TestCA {
 
 // Build a self-signed root or an intermediate signed by a parent. Tests need
 // these to stand in for the offline RealReel root + KMS intermediate without
-// touching real PKI. `curve` P-384 (with its natural SHA-384 chain signature)
-// mirrors the v2 ceremony hierarchy; default P-256/SHA-256 mirrors v1.
+// touching real PKI. P-384 with SHA-384 chain signatures mirrors the ceremony
+// hierarchy.
 async function buildTestCA(
   commonName: string,
   parent?: TestCA,
-  curve: "P-256" | "P-384" = "P-256",
 ): Promise<TestCA> {
   const kp = await crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: curve },
+    { name: "ECDSA", namedCurve: "P-384" },
     true,
     ["sign", "verify"],
   );
@@ -193,9 +194,7 @@ async function buildTestCA(
   ];
 
   const signingKey = parent ? parent.privateKey : kp.privateKey;
-  // CA tiers share a curve within one hierarchy (root and ICA are both
-  // P-256 in v1, both P-384 in v2), so the chain hash can track `curve`.
-  await cert.sign(signingKey, curve === "P-384" ? "SHA-384" : "SHA-256");
+  await cert.sign(signingKey, "SHA-384");
 
   return { cert, privateKey: kp.privateKey };
 }
@@ -219,6 +218,21 @@ function certToPem(cert: pkijs.Certificate): string {
 
 async function loadCSRFixture(): Promise<string> {
   return await Deno.readTextFile(CSR_FIXTURE_PATH);
+}
+
+const PLACEHOLDER_CPL_UUID = "00000000-0000-4000-8000-000000000000";
+
+function testProfile(
+  platform: "ios" | "android",
+  assuranceLevel: "AL1" | "AL2",
+): LeafProfile {
+  return {
+    platform,
+    assuranceLevel,
+    cplRecordUuid: PLACEHOLDER_CPL_UUID,
+    ocspUrl: "http://ocsp.realreel.xyz",
+    caIssuersUrl: "http://pki.realreel.xyz/realreel-claim-signing-ca.cer",
+  };
 }
 
 // --- CSR parse / verify / SPKI tests -----------------------------------
@@ -340,7 +354,7 @@ Deno.test("extractCSRSpkiDer — matches openssl-derived SPKI shape", async () =
 
 // --- Leaf issuance round-trip ------------------------------------------
 
-Deno.test("buildLeafCertificate / encodeTBS / finalizeLeafPEM — full round-trip verifies", async () => {
+Deno.test("buildLeafCertificate / encodeTBS / finalizeLeafPEM — full round-trip validates to the P-384 root (mixed-curve chain)", async () => {
   const pem = await loadCSRFixture();
   const csr = parseCSRFromPem(pem);
 
@@ -354,20 +368,21 @@ Deno.test("buildLeafCertificate / encodeTBS / finalizeLeafPEM — full round-tri
     csr,
     intermediate: intermediate.cert,
     validityDays: 180,
+    profile: testProfile("ios", "AL1"),
     serialNumber: serial,
   });
 
   const tbs = encodeTBS(leaf);
-  const digest = await sha256(tbs);
+  const digest = await sha384(tbs);
 
   // Sign the digest with the intermediate's key. crypto.subtle.sign with
   // ECDSA hashes internally — we already have the digest, so feed it the
   // pre-hashed TBS via the "raw" trick: actually subtle.sign doesn't support
-  // pre-hashed input, so we sign the TBS bytes themselves with hash=SHA-256.
-  // The outcome is byte-identical: SHA-256(tbs) then ECDSA-sign.
+  // pre-hashed input, so we sign the TBS bytes themselves with hash=SHA-384.
+  // The outcome is byte-identical: SHA-384(tbs) then ECDSA-sign.
   const sigP1363 = new Uint8Array(
     await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
+      { name: "ECDSA", hash: "SHA-384" },
       intermediate.privateKey,
       tbs as BufferSource,
     ),
@@ -375,7 +390,7 @@ Deno.test("buildLeafCertificate / encodeTBS / finalizeLeafPEM — full round-tri
   // Sanity: confirm digest matches what subtle.sign would compute, just so
   // the comment above isn't lying. (Cheap check; the actual signature
   // verifies below via the chain engine.)
-  assertEquals(digest.length, 32);
+  assertEquals(digest.length, 48);
 
   const sigDer = p1363ToDer(sigP1363);
   const leafPEM = finalizeLeafPEM(leaf, sigDer);
@@ -383,11 +398,11 @@ Deno.test("buildLeafCertificate / encodeTBS / finalizeLeafPEM — full round-tri
   // Re-parse the finalized leaf and check core fields.
   const leafParsed = parseCertFromPem(leafPEM);
 
-  // Subject CN is the server-determined "RealReel-Device-Key".
+  // Subject CN is the server-determined per-platform name.
   const cnAttr = leafParsed.subject.typesAndValues.find(
     (tv: pkijs.AttributeTypeAndValue) => tv.type === "2.5.4.3",
   );
-  assertEquals(cnAttr?.value.valueBlock.value, "RealReel-Device-Key");
+  assertEquals(cnAttr?.value.valueBlock.value, "RealReel iOS");
 
   // Issuer matches intermediate's subject.
   const intIssuerCN = intermediate.cert.subject.typesAndValues.find(
@@ -475,6 +490,7 @@ Deno.test("buildLeafCertificate — rejects non-positive validityDays", async ()
       csr,
       intermediate: intermediate.cert,
       validityDays: 0,
+      profile: testProfile("ios", "AL1"),
       serialNumber: new Uint8Array([1, 2, 3, 4]),
     });
   } catch (e) {
@@ -510,12 +526,13 @@ Deno.test("verifyChainToRealReelRoot — rejects chain not anchored to root", as
     csr,
     intermediate: intermediate.cert,
     validityDays: 180,
+    profile: testProfile("ios", "AL1"),
     serialNumber: new Uint8Array(20),
   });
   const tbs = encodeTBS(leaf);
   const sig = new Uint8Array(
     await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
+      { name: "ECDSA", hash: "SHA-384" },
       intermediate.privateKey,
       tbs as BufferSource,
     ),
@@ -539,7 +556,7 @@ Deno.test("verifyChainToRealReelRoot — rejects chain not anchored to root", as
 // relies on: signer injection (KMS sub) and leaf+intermediate ordering.
 
 Deno.test(
-  "issueLeafChainFromCSR — emits leaf-first, intermediate-second; calls signer with 32-byte digest",
+  "issueLeafChainFromCSR — emits leaf-first, intermediate-second; calls signer with 48-byte digest",
   async () => {
     const pem = await loadCSRFixture();
     const csr = parseCSRFromPem(pem);
@@ -567,6 +584,7 @@ Deno.test(
     const issued = await issueLeafChainFromCSR(csr, {
       intermediatePem,
       validityDays: 180,
+      profile: testProfile("ios", "AL1"),
       signer,
     });
 
@@ -587,7 +605,7 @@ Deno.test(
       ctEqual(extractSpkiDer(intParsed), extractSpkiDer(intermediate.cert)),
       true,
     );
-    assertEquals(observedDigestLen, 32);
+    assertEquals(observedDigestLen, 48);
 
     // The returned serialDecimal must match the
     // serial embedded in the leaf cert. The verifier looks up by this
@@ -624,6 +642,7 @@ Deno.test(
       await issueLeafChainFromCSR(csr, {
         intermediatePem: certToPem(intermediate.cert),
         validityDays: 180,
+        profile: testProfile("ios", "AL1"),
         signer: () => {
           throw original;
         },
@@ -647,17 +666,18 @@ Deno.test(
       csr,
       intermediate: intermediate.cert,
       validityDays: 180,
+      profile: testProfile("ios", "AL1"),
       serialNumber: new Uint8Array(20),
     });
 
     // Pre-round-trip: the override on leaf.subject.toSchema() should emit
-    // SEQUENCE { SET, SET, SET, SET } where each SET contains exactly one
+    // SEQUENCE { SET, SET, SET } where each SET contains exactly one
     // AttributeTypeAndValue — NOT pkijs's default single multi-valued SET.
     const subjectSchema = leaf.subject.toSchema() as unknown as {
       valueBlock: { value: Array<{ valueBlock: { value: unknown[] } }> };
     };
     const rdns = subjectSchema.valueBlock.value;
-    assertEquals(rdns.length, 4); // C, O, OU, CN — four separate RDNs
+    assertEquals(rdns.length, 3); // C, O, CN — three separate RDNs
     for (const rdn of rdns) {
       assertEquals(
         rdn.valueBlock.value.length,
@@ -702,8 +722,8 @@ Deno.test(
     >;
     assertEquals(
       subjectAfterRoundTrip.length,
-      4,
-      "subject must have 4 RDNs after DER round-trip",
+      3,
+      "subject must have 3 RDNs after DER round-trip",
     );
     for (const rdn of subjectAfterRoundTrip) {
       assertEquals(
@@ -726,6 +746,7 @@ Deno.test(
           intermediatePem:
             "-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----\n",
           validityDays: 180,
+          profile: testProfile("ios", "AL1"),
           signer: () =>
             Promise.resolve(
               new Uint8Array([0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01]),
@@ -748,12 +769,13 @@ Deno.test("verifyChainToRealReelRoot — rejects tampered intermediate signature
     csr,
     intermediate: intermediate.cert,
     validityDays: 180,
+    profile: testProfile("ios", "AL1"),
     serialNumber: new Uint8Array(20),
   });
   const tbs = encodeTBS(leaf);
   const sig = new Uint8Array(
     await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
+      { name: "ECDSA", hash: "SHA-384" },
       intermediate.privateKey,
       tbs as BufferSource,
     ),
@@ -796,12 +818,13 @@ Deno.test("verifyChainToRealReelRoot — rejects tampered LEAF signature (chain-
     csr,
     intermediate: intermediate.cert,
     validityDays: 180,
+    profile: testProfile("ios", "AL1"),
     serialNumber: new Uint8Array(20),
   });
   const tbs = encodeTBS(leaf);
   const sig = new Uint8Array(
     await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
+      { name: "ECDSA", hash: "SHA-384" },
       intermediate.privateKey,
       tbs as BufferSource,
     ),
@@ -859,7 +882,7 @@ Deno.test(
     });
     twin.subjectPublicKeyInfo = root.cert.subjectPublicKeyInfo; // same key
     twin.extensions = root.cert.extensions; // CA basicConstraints etc.
-    await twin.sign(root.privateKey, "SHA-256");
+    await twin.sign(root.privateKey, "SHA-384");
 
     // Real RealReel-style leaf signed by the intermediate.
     const csr = parseCSRFromPem(await loadCSRFixture());
@@ -867,12 +890,13 @@ Deno.test(
       csr,
       intermediate: intermediate.cert,
       validityDays: 180,
+      profile: testProfile("ios", "AL1"),
       serialNumber: new Uint8Array(20),
     });
     const tbs = encodeTBS(leaf);
     const sig = new Uint8Array(
       await crypto.subtle.sign(
-        { name: "ECDSA", hash: "SHA-256" },
+        { name: "ECDSA", hash: "SHA-384" },
         intermediate.privateKey,
         tbs as BufferSource,
       ),
@@ -917,31 +941,13 @@ Deno.test("describeCertChain — degrades gracefully on a cert with an unparseab
   assertStringIncludes(out, "invalid");
 });
 
-// --- v2 (conformant hierarchy) leaf issuance ---------------------------
+// --- CP §7.1.2 leaf profile ---------------------------------------------
 //
 // Mirrors the ceremony hierarchy: P-384 root + ICA signing with SHA-384,
-// P-256 leaf key (mixed-curve), CP §7.1.2 leaf profile. External validation
-// of this exact shape (c2patool 0.26.60: signs + validates as Trusted,
-// including the nonRepudiation KU bit) was confirmed 2026-07-27; these tests
-// pin our encoder's output so a refactor can't drift from it.
-
-import { caHierarchy, resolveV2LeafOptions, sha384 } from "./pki.ts";
-import type { V2LeafOptions } from "./pki.ts";
-
-const PLACEHOLDER_CPL_UUID = "00000000-0000-4000-8000-000000000000";
-
-function v2Opts(
-  platform: "ios" | "android",
-  assuranceLevel: "AL1" | "AL2",
-): V2LeafOptions {
-  return {
-    platform,
-    assuranceLevel,
-    cplRecordUuid: PLACEHOLDER_CPL_UUID,
-    ocspUrl: "http://ocsp.realreel.xyz",
-    caIssuersUrl: "http://pki.realreel.xyz/realreel-claim-signing-ca.cer",
-  };
-}
+// P-256 leaf key (mixed-curve). External validation of this exact shape
+// (c2patool 0.26.60: signs + validates as Trusted, including the
+// nonRepudiation KU bit) was confirmed 2026-07-27; these tests pin our
+// encoder's output so a refactor can't drift from it.
 
 // Inner DER bytes of an extension (unwraps the OCTET STRING envelope).
 function extInnerDer(cert: pkijs.Certificate, oid: string): ArrayBuffer {
@@ -962,25 +968,25 @@ function parseInner(cert: pkijs.Certificate, oid: string): asn1js.AsnType {
   return parsed.result;
 }
 
-// Build a v2 chain and issue one leaf through the full production path.
-async function issueV2Leaf(
+// Build a chain and issue one leaf through the full production path.
+async function issueLeaf(
   platform: "ios" | "android",
   assuranceLevel: "AL1" | "AL2",
   validityDays: number,
 ) {
-  const root = await buildTestCA("V2 Test Root", undefined, "P-384");
-  const ica = await buildTestCA("V2 Test Claim ICA", root, "P-384");
+  const root = await buildTestCA("Test Root CA");
+  const ica = await buildTestCA("Test Claim ICA", root);
   const csr = parseCSRFromPem(await loadCSRFixture());
 
   const issued = await issueLeafChainFromCSR(csr, {
     intermediatePem: certToPem(ica.cert),
     validityDays,
-    v2: v2Opts(platform, assuranceLevel),
-    // Shape-only signer (mirrors the v1 orchestration tests): asserts the v2
-    // digest is SHA-384 and returns a syntactically-valid DER SEQUENCE. The
-    // cryptographically-valid chain is covered by the round-trip test below.
+    profile: testProfile(platform, assuranceLevel),
+    // Shape-only signer (mirrors the orchestration tests): asserts the digest
+    // is SHA-384 and returns a syntactically-valid DER SEQUENCE. The
+    // cryptographically-valid chain is covered by the round-trip test above.
     signer: (digest: Uint8Array): Promise<Uint8Array> => {
-      assertEquals(digest.length, 48); // SHA-384 digest under v2
+      assertEquals(digest.length, 48); // SHA-384 digest
       return Promise.resolve(
         new Uint8Array(
           new asn1js.Sequence({
@@ -1001,8 +1007,8 @@ async function issueV2Leaf(
   return { leaf: parseCertFromPem(blocks[0]), issued };
 }
 
-Deno.test("v2 leaf — iOS AL1: DN is C/O/CN only with per-platform CN", async () => {
-  const { leaf } = await issueV2Leaf("ios", "AL1", 180);
+Deno.test("leaf profile — iOS AL1: DN is C/O/CN only with per-platform CN", async () => {
+  const { leaf } = await issueLeaf("ios", "AL1", 180);
   const attrs = leaf.subject.typesAndValues;
   assertEquals(attrs.length, 3); // no OU — DN must byte-match the CPL record
   assertEquals(attrs[0].type, "2.5.4.6");
@@ -1018,34 +1024,14 @@ Deno.test("v2 leaf — iOS AL1: DN is C/O/CN only with per-platform CN", async (
   );
 });
 
-Deno.test("v2 leaf — DN ignores v1 subject env overrides", async () => {
-  try {
-    Deno.env.set("LEAF_SUBJECT_COUNTRY", "CA");
-    Deno.env.set("LEAF_SUBJECT_ORG", "Legacy Org Override");
-    const { leaf } = await issueV2Leaf("ios", "AL1", 180);
-    const attrs = leaf.subject.typesAndValues;
-    assertEquals(
-      (attrs[0].value as asn1js.PrintableString).valueBlock.value,
-      "US",
-    );
-    assertEquals(
-      (attrs[1].value as asn1js.Utf8String).valueBlock.value,
-      "Whole Earth Labs LLC",
-    );
-  } finally {
-    Deno.env.delete("LEAF_SUBJECT_COUNTRY");
-    Deno.env.delete("LEAF_SUBJECT_ORG");
-  }
-});
-
-Deno.test("v2 leaf — declares ecdsa-with-SHA384 in both AlgorithmIdentifier slots", async () => {
-  const { leaf } = await issueV2Leaf("ios", "AL1", 180);
+Deno.test("leaf profile — declares ecdsa-with-SHA384 in both AlgorithmIdentifier slots", async () => {
+  const { leaf } = await issueLeaf("ios", "AL1", 180);
   assertEquals(leaf.signature.algorithmId, "1.2.840.10045.4.3.3");
   assertEquals(leaf.signatureAlgorithm.algorithmId, "1.2.840.10045.4.3.3");
 });
 
-Deno.test("v2 leaf — KU is digitalSignature+nonRepudiation (0xC0, 6 unused bits), critical", async () => {
-  const { leaf } = await issueV2Leaf("ios", "AL1", 180);
+Deno.test("leaf profile — KU is digitalSignature+nonRepudiation (0xC0, 6 unused bits), critical", async () => {
+  const { leaf } = await issueLeaf("ios", "AL1", 180);
   const ext = leaf.extensions?.find((e) => e.extnID === "2.5.29.15");
   if (!ext) throw new Error("keyUsage missing");
   assertEquals(ext.critical, true);
@@ -1054,8 +1040,8 @@ Deno.test("v2 leaf — KU is digitalSignature+nonRepudiation (0xC0, 6 unused bit
   assertEquals(bits.valueBlock.unusedBits, 6);
 });
 
-Deno.test("v2 leaf — carries certificatePolicies with the c2pa policy OID", async () => {
-  const { leaf } = await issueV2Leaf("ios", "AL1", 180);
+Deno.test("leaf profile — carries certificatePolicies with the c2pa policy OID", async () => {
+  const { leaf } = await issueLeaf("ios", "AL1", 180);
   const pols = new pkijs.CertificatePolicies({
     schema: parseInner(leaf, "2.5.29.32"),
   });
@@ -1066,8 +1052,8 @@ Deno.test("v2 leaf — carries certificatePolicies with the c2pa policy OID", as
   );
 });
 
-Deno.test("v2 leaf — AIA has OCSP + caIssuers HTTP URIs", async () => {
-  const { leaf } = await issueV2Leaf("ios", "AL1", 180);
+Deno.test("leaf profile — AIA has OCSP + caIssuers HTTP URIs", async () => {
+  const { leaf } = await issueLeaf("ios", "AL1", 180);
   const aia = new pkijs.InfoAccess({
     schema: parseInner(leaf, "1.3.6.1.5.5.7.1.1"),
   });
@@ -1086,15 +1072,15 @@ Deno.test("v2 leaf — AIA has OCSP + caIssuers HTTP URIs", async () => {
   );
 });
 
-Deno.test("v2 leaf — c2pa-al carries the granted level as a bare OID", async () => {
-  const al1 = await issueV2Leaf("ios", "AL1", 180);
+Deno.test("leaf profile — c2pa-al carries the granted level as a bare OID", async () => {
+  const al1 = await issueLeaf("ios", "AL1", 180);
   const al1Oid = parseInner(
     al1.leaf,
     "1.3.6.1.4.1.62558.3",
   ) as asn1js.ObjectIdentifier;
   assertEquals(al1Oid.valueBlock.toString(), "1.3.6.1.4.1.62558.3.10");
 
-  const al2 = await issueV2Leaf("android", "AL2", 90);
+  const al2 = await issueLeaf("android", "AL2", 90);
   const al2Oid = parseInner(
     al2.leaf,
     "1.3.6.1.4.1.62558.3",
@@ -1102,15 +1088,15 @@ Deno.test("v2 leaf — c2pa-al carries the granted level as a bare OID", async (
   assertEquals(al2Oid.valueBlock.toString(), "1.3.6.1.4.1.62558.3.20");
 });
 
-Deno.test("v2 leaf — c2pa-cpl-record is a UTF8String holding the CPL UUID", async () => {
-  const { leaf } = await issueV2Leaf("ios", "AL1", 180);
+Deno.test("leaf profile — c2pa-cpl-record is a UTF8String holding the CPL UUID", async () => {
+  const { leaf } = await issueLeaf("ios", "AL1", 180);
   const rec = parseInner(leaf, "1.3.6.1.4.1.62558.4") as asn1js.Utf8String;
   assertEquals(rec.valueBlock.value, PLACEHOLDER_CPL_UUID);
   assertEquals(rec.valueBlock.value.length, 36);
 });
 
-Deno.test("v2 leaf — android AL2 90-day validity; android CN", async () => {
-  const { leaf } = await issueV2Leaf("android", "AL2", 90);
+Deno.test("leaf profile — android AL2 90-day validity; android CN", async () => {
+  const { leaf } = await issueLeaf("android", "AL2", 90);
   // Exact span, no rounding: an AL2 leaf even one second over the 90-day CP
   // cap is non-conformant (inclusive RFC 5280 counting).
   assertEquals(
@@ -1124,9 +1110,9 @@ Deno.test("v2 leaf — android AL2 90-day validity; android CN", async () => {
   );
 });
 
-Deno.test("v2 leaf — full crypto round-trip validates to the P-384 root (mixed-curve chain)", async () => {
-  const root = await buildTestCA("V2 Test Root", undefined, "P-384");
-  const ica = await buildTestCA("V2 Test Claim ICA", root, "P-384");
+Deno.test("leaf profile — android AL2 full crypto round-trip validates to the P-384 root", async () => {
+  const root = await buildTestCA("Test Root CA");
+  const ica = await buildTestCA("Test Claim ICA", root);
   const csr = parseCSRFromPem(await loadCSRFixture());
   const serial = new Uint8Array(20);
   crypto.getRandomValues(serial);
@@ -1136,14 +1122,10 @@ Deno.test("v2 leaf — full crypto round-trip validates to the P-384 root (mixed
     intermediate: ica.cert,
     validityDays: 90,
     serialNumber: serial,
-    v2: v2Opts("android", "AL2"),
+    profile: testProfile("android", "AL2"),
   });
 
   const tbs = encodeTBS(leaf);
-  // Sanity: the production digest path is SHA-384 (48 bytes) under v2.
-  assertEquals((await sha384(tbs)).length, 48);
-  // subtle.sign hashes internally; signing the TBS with SHA-384 is
-  // byte-identical to ECDSA-signing our precomputed digest.
   const sigP1363 = new Uint8Array(
     await crypto.subtle.sign(
       { name: "ECDSA", hash: "SHA-384" },
@@ -1159,9 +1141,9 @@ Deno.test("v2 leaf — full crypto round-trip validates to the P-384 root (mixed
   );
 });
 
-Deno.test("v2 leaf — malformed cplRecordUuid fails closed", async () => {
-  const root = await buildTestCA("V2 Test Root", undefined, "P-384");
-  const ica = await buildTestCA("V2 Test Claim ICA", root, "P-384");
+Deno.test("leaf profile — malformed cplRecordUuid fails closed", async () => {
+  const root = await buildTestCA("Test Root CA");
+  const ica = await buildTestCA("Test Claim ICA", root);
   const csr = parseCSRFromPem(await loadCSRFixture());
   const serial = new Uint8Array(20);
   crypto.getRandomValues(serial);
@@ -1172,40 +1154,20 @@ Deno.test("v2 leaf — malformed cplRecordUuid fails closed", async () => {
         intermediate: ica.cert,
         validityDays: 90,
         serialNumber: serial,
-        v2: { ...v2Opts("ios", "AL1"), cplRecordUuid: "not-a-uuid" },
+        profile: { ...testProfile("ios", "AL1"), cplRecordUuid: "not-a-uuid" },
       }),
     AttestationError,
     "UUID",
   );
 });
 
-Deno.test("caHierarchy — defaults v2, honors v1, rejects junk", () => {
-  try {
-    Deno.env.delete("CA_HIERARCHY");
-    assertEquals(caHierarchy(), "v2");
-    Deno.env.set("CA_HIERARCHY", "v1");
-    assertEquals(caHierarchy(), "v1");
-    Deno.env.set("CA_HIERARCHY", "v3");
-    let threw = false;
-    try {
-      caHierarchy();
-    } catch (e) {
-      threw = true;
-      assertEquals((e as AttestationError).code, "CA_CONFIG_INVALID");
-    }
-    assertEquals(threw, true);
-  } finally {
-    Deno.env.delete("CA_HIERARCHY");
-  }
-});
-
-Deno.test("resolveV2LeafOptions — reads per-platform CPL UUID from env, fails closed when unset", () => {
+Deno.test("resolveLeafProfile — reads per-platform CPL UUID from env, fails closed when unset", () => {
   try {
     Deno.env.delete("LEAF_CPL_RECORD_UUID_IOS");
     Deno.env.delete("LEAF_CPL_RECORD_UUID_ANDROID");
     let threw = false;
     try {
-      resolveV2LeafOptions("ios", "AL1");
+      resolveLeafProfile("ios", "AL1");
     } catch (e) {
       threw = true;
       assertEquals((e as AttestationError).code, "CA_CONFIG_INVALID");
@@ -1213,7 +1175,7 @@ Deno.test("resolveV2LeafOptions — reads per-platform CPL UUID from env, fails 
     assertEquals(threw, true);
 
     Deno.env.set("LEAF_CPL_RECORD_UUID_IOS", PLACEHOLDER_CPL_UUID);
-    const opts = resolveV2LeafOptions("ios", "AL1");
+    const opts = resolveLeafProfile("ios", "AL1");
     assertEquals(opts.cplRecordUuid, PLACEHOLDER_CPL_UUID);
     assertEquals(opts.ocspUrl, "http://ocsp.realreel.xyz");
     assertEquals(
@@ -1223,7 +1185,7 @@ Deno.test("resolveV2LeafOptions — reads per-platform CPL UUID from env, fails 
     // Android reads its own env var — the iOS value must not leak across.
     let androidThrew = false;
     try {
-      resolveV2LeafOptions("android", "AL2");
+      resolveLeafProfile("android", "AL2");
     } catch {
       androidThrew = true;
     }

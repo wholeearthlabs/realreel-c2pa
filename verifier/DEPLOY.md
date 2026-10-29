@@ -130,7 +130,7 @@ gcloud artifacts repositories create verifier \
 
 ### 2. Provision the CA project
 
-Summary (keep your full CA custody model documented separately): create a KMS keyring + issuing key (e.g. keyring `realreel-ca`, key `realreel-intermediate`, algorithm `ec-sign-p256-sha256`, protection level `hsm`) and a pair of service accounts (one for production, one for dev) with `roles/cloudkms.signer` + `roles/cloudkms.publicKeyViewer` scoped to the key only. The verifier itself does NOT call Cloud KMS — that's the edge-function side. This step is listed here so the bootstrap is end-to-end checkable.
+Summary (keep your full CA custody model documented separately): create a KMS keyring + issuing key (e.g. keyring `realreel-ca-v2`, key `realreel-claim-ica`, algorithm `ec-sign-p384-sha384` — `register-signing-key` refuses any other, protection level `hsm`) and a pair of service accounts (one for production, one for dev) with `roles/cloudkms.signer` + `roles/cloudkms.publicKeyViewer` scoped to the key only. The verifier itself does NOT call Cloud KMS — that's the edge-function side. This step is listed here so the bootstrap is end-to-end checkable.
 
 ### 3. Link the Play Console listing to the Play Integrity project
 
