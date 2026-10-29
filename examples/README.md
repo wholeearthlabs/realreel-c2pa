@@ -16,20 +16,20 @@ RealReel C2PA — verify demo
 sample: .../verifier/__tests__/fixtures/realreel-uploaded.jpg
 
   ✓ TRUSTED  — manifest chains to the RealReel CA and passed every gate
-  trust source: realreel-legacy
+  trust source: realreel
 
 Two-stage provenance
-  Stage 1 (capture): realreel-20260820-145453.jpg
-    issuer: RealReel
-    signed: 2026-08-20T21:54:53+00:00
+  Stage 1 (capture): realreel-20261028-205827.jpg
+    issuer: Whole Earth Labs LLC
+    signed: 2026-10-29T03:58:29+00:00
     capturer: fc7ce1d3-82a8-4119-8e98-fe9b2161df6a
-  Stage 2 (upload):  realreel-20260821-114817.jpg
-    issuer: RealReel
-    signed: 2026-08-21T18:48:19+00:00
+  Stage 2 (upload):  realreel-20261029-092700.jpg
+    issuer: Whole Earth Labs LLC
+    signed: 2026-10-29T16:27:00+00:00
 
 Declared actions
   Stage 1: c2pa.created
-  Stage 2: c2pa.opened, c2pa.orientation, c2pa.resized.proportional, c2pa.transcoded, c2pa.edited.metadata, c2pa.redacted
+  Stage 2: c2pa.opened, c2pa.resized.proportional, c2pa.transcoded, c2pa.edited.metadata, c2pa.redacted
 ```
 
 It exits `0` on a Trusted verdict and `1` on a rejection.
@@ -54,8 +54,7 @@ Two things are stubbed so it needs **no external services**:
 
 `verifier/__tests__/fixtures/realreel-uploaded.jpg` is a real RealReel-signed
 JPEG: a Pixel 10 capture (Stage 1) re-signed at upload (Stage 2), chained to the
-pre-conformance RealReel root (hence `realreel-legacy`), with a DigiCert RFC 3161
-timestamp on both stages.
+RealReel C2PA root, with a DigiCert RFC 3161 timestamp on both stages.
 
 It's stored in [Git LFS](https://git-lfs.com). If the demo can't parse it, the
 file probably arrived as a small text pointer — run `git lfs pull` once.

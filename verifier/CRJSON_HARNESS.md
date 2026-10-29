@@ -70,6 +70,6 @@ None of these touch the status codes:
 
 - Each manifest carries `isUpdateManifest` and `isCompressedManifest`, required by the crJSON schema that follows 2.4 (c2pa-rs #2185) but not allowed by 2.4's closed manifest object. The schema tests excuse exactly these two properties.
 - Serialization fails outright on an ingredient assertion that breaks the CDDL co-presence rule (spec §3.6.1 wants `{}` for that assertion).
-- The `c2pa.time-stamp` DER token is emitted as an integer array rather than a `b64'` string (spec §3.6.3 Table 1 — visible in the `realreel-drained@baseline` golden).
+- The `c2pa.time-stamp` DER token is emitted as an integer array rather than a `b64'` string (spec §3.6.3 Table 1 — visible in the `realreel-drained@devices` golden).
 
 Inside `validationResults`, c2pa-rs stamps `specVersion: "2.3.0"` — a constant in its crJSON serializer (`CRJSON_SPEC_VERSION`, unchanged on main), i.e. the validator's own statement of the spec it validates against. The harness does not rewrite it; a test pins it so a change is noticed.

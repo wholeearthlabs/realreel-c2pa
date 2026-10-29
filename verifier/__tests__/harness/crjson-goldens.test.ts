@@ -27,15 +27,15 @@ interface Scenario {
 }
 
 const SCENARIOS: Scenario[] = [
-  { id: "realreel-uploaded@baseline", asset: "realreel-uploaded.jpg", trustList: "production", tsaList: "production", at: "baseline",
-    why: "two-stage RealReel capture+upload under the legacy root, both stages DigiCert-timestamped" },
-  { id: "realreel-uploaded@baseline+no-tsa", asset: "realreel-uploaded.jpg", trustList: "production", tsaList: "empty", at: "baseline",
+  { id: "realreel-uploaded@devices", asset: "realreel-uploaded.jpg", trustList: "production", tsaList: "production", at: "devices",
+    why: "two-stage RealReel capture+upload under the v2 root, both stages DigiCert-timestamped" },
+  { id: "realreel-uploaded@devices+no-tsa", asset: "realreel-uploaded.jpg", trustList: "production", tsaList: "empty", at: "devices",
     why: "TSA list input: without it the time-stamps are untrusted (informational) but the leaves are still inside validity" },
-  { id: "realreel-drained@baseline", asset: "realreel-drained.jpg", trustList: "production", tsaList: "production", at: "baseline",
+  { id: "realreel-drained@devices", asset: "realreel-drained.jpg", trustList: "production", tsaList: "production", at: "devices",
     why: "three-manifest offline chain: capture → interposed timestamp Update Manifest → upload" },
-  { id: "pixel-uploaded@baseline", asset: "pixel-uploaded.jpg", trustList: "production", tsaList: "production", at: "baseline",
+  { id: "pixel-uploaded@devices", asset: "pixel-uploaded.jpg", trustList: "production", tsaList: "production", at: "devices",
     why: "wrap mode: RealReel Stage 2 over a Pixel Camera parent" },
-  { id: "pixel-uploaded@baseline+no-pixel-no-tsa", asset: "pixel-uploaded.jpg", trustList: "productionWithoutPixel", tsaList: "empty", at: "baseline",
+  { id: "pixel-uploaded@devices+no-pixel-no-tsa", asset: "pixel-uploaded.jpg", trustList: "productionWithoutPixel", tsaList: "empty", at: "devices",
     why: "wrap parent falls back to the clock (Google root reachable through neither list) and is past its leaf validity → expired; active manifest unaffected" },
   { id: "pixel-og@baseline", asset: "pixel-og.jpg", trustList: "production", tsaList: "production", at: "baseline",
     why: "TSA-anchored validity: leaf expired 2026-05-06, valid at 2026-08-22 through its time-stamp" },

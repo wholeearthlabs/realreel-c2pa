@@ -897,8 +897,8 @@ function makeDrainedStore(opts?: {
             relationship: "parentOf",
             // The drain records the capture's sign-time verdict on the UM's
             // entry — mirrors realreel-drained.jpg, where the UM→capture
-            // entry carries assertion.dataHash.match and the Stage-2→UM
-            // entry (no binding on an Update Manifest) carries none.
+            // entry carries assertion.dataHash.match. The Stage-2→UM entry
+            // carries none, as app 0.1.6 recorded it (0.2.1 records a match).
             ...recordedResultsFor("clean", "assertion.dataHash.match"),
           },
         ],

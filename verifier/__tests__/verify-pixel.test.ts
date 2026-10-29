@@ -12,8 +12,7 @@
 // Fixture: __tests__/fixtures/pixel-og.jpg — Pixel stock-camera capture
 // (2026-04-12, ~4 MB, Ultra HDR: c2pa.hash.data.part + c2pa.hash.multi-asset
 // bindings), single-stage manifest, trust-rooted at the Google C2PA Root CA
-// G3 in trust-sources/pixel/root.pem. The same capture uploaded through
-// RealReel is fixtures/pixel-uploaded.jpg (a matched pair).
+// G3 in trust-sources/pixel/root.pem.
 //
 // Mocks: lookupSigningKeyRevocation. Force-wrap rejects before the realreel
 // profile runs, so the mock stays in default-not-called state. We assert that.
@@ -127,7 +126,7 @@ describe("Cross-source routing — realreel still accepted", () => {
       resolve(import.meta.dirname, "fixtures/realreel-uploaded.jpg"),
     );
     const FIXTURE_CERT_SERIAL =
-      "377878420465038296556426931842186971350666267668";
+      "143949351519606615726317605943517358757867817424";
     const FIXTURE_CAPTURER_UUID = "fc7ce1d3-82a8-4119-8e98-fe9b2161df6a";
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue({
       key_id: "stub",
@@ -140,8 +139,8 @@ describe("Cross-source routing — realreel still accepted", () => {
       // Ledger validity window bracketing every fixture's signature time
       // (time-stable: the ledger gate compares signature_time to these,
       // never to now).
-      issued_at: "2026-05-01T00:00:00.000Z",
-      expires_at: "2026-10-28T00:00:00.000Z",
+      issued_at: "2026-10-01T00:00:00.000Z",
+      expires_at: "2027-01-27T00:00:00.000Z",
     });
 
     const result = await verify({
@@ -151,6 +150,6 @@ describe("Cross-source routing — realreel still accepted", () => {
       trustConfig,
       declaredLocation: "precise",
     });
-    expect(result.sanitizedManifest.trust_source).toBe("realreel-legacy");
+    expect(result.sanitizedManifest.trust_source).toBe("realreel");
   });
 });

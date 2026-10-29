@@ -3,9 +3,9 @@
 // in a RealReel Stage 2 manifest (active, signed by the user's
 // RealReel-enrolled hardware key).
 //
-// Fixture: __tests__/fixtures/pixel-uploaded.jpg — a Pixel stock-camera
-// capture (the same one committed as fixtures/pixel-og.jpg) ingested and
-// uploaded through the production app with location "general". Pull a
+// Fixture: __tests__/fixtures/pixel-uploaded.jpg — a Pixel 10 stock-camera
+// capture ingested, rotated in the editor (c2pa.orientation) and uploaded
+// through the production app with location "general". Pull a
 // replacement from Supabase storage with:
 //
 //   supabase storage cp \
@@ -18,7 +18,7 @@
 //
 // What this suite uniquely covers (vs verify-realreel.test.ts, which
 // exercises native two-stage):
-//   1. Force-wrap: active manifest's issuer is "RealReel" → it passes the
+//   1. Force-wrap: the active manifest is RealReel-signed → it passes the
 //      force-wrap gate and runs the realreel profile (the single ingestion
 //      profile). A Pixel parent under a RealReel Stage 2 is accepted.
 //   2. The Pixel parent is validated by c2pa-node's chain check + the
@@ -32,8 +32,8 @@
 //      attestation in lenient mode). The user_id == JWT binding was dropped
 //      — the verifier is user-anonymous.
 //   5. Sanitized output carries both manifests; trust_source =
-//      "realreel-legacy" (fixtures predate the v2 hierarchy);
-//      parent_label resolves to the Pixel-signed Stage 1 manifest.
+//      "realreel"; parent_label resolves to the Pixel-signed Stage 1
+//      manifest.
 //
 // Stage-2 rejection paths in wrap mode: the second describe.skipIf
 // block below pins KEY_NOT_FOUND and KEY_REVOKED on the wrap path. They
@@ -107,8 +107,8 @@ const STAGE2_USER = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 //   - Stage 1 (parent) is Pixel-signed (issuer "Google LLC") and was never
 //     enrolled in user_signing_keys → the revocation lookup returns null.
 //   - Stage 2 (active) is the uploader's RealReel-enrolled key.
-const WRAP_STAGE2_SERIAL = "377878420465038296556426931842186971350666267668";
-const WRAP_STAGE1_SERIAL = "1891669733568435534318312781305354489733794134";
+const WRAP_STAGE2_SERIAL = "143949351519606615726317605943517358757867817424";
+const WRAP_STAGE1_SERIAL = "63692701516085854782361024119109739415682807";
 
 // Default mocked Stage-2 revocation row. The wrap fixture was produced
 // on Android (Pixel device running the RealReel app), so the
@@ -128,8 +128,8 @@ function defaultStage2Row(opts: { userId?: string; revoked?: boolean } = {}) {
     // Ledger validity window bracketing every fixture's signature time
     // (time-stable: the ledger gate compares signature_time to these,
     // never to now).
-    issued_at: "2026-05-01T00:00:00.000Z",
-    expires_at: "2026-10-28T00:00:00.000Z",
+    issued_at: "2026-10-01T00:00:00.000Z",
+    expires_at: "2027-01-27T00:00:00.000Z",
   };
 }
 
@@ -170,7 +170,7 @@ describe.skipIf(!fixtureExists)(
       trustConfig = await loadTrustConfig(trustSourcesPath);
     });
 
-    it("happy path: accepts the wrap; trust_source='realreel-legacy'; parent_label populated", async () => {
+    it("happy path: accepts the wrap; trust_source='realreel'; parent_label populated", async () => {
       mockWrapKeys(defaultStage2Row());
 
       const result = await verify({
@@ -181,10 +181,9 @@ describe.skipIf(!fixtureExists)(
         declaredLocation: "precise",
       });
 
-      // Active manifest is RealReel-signed (legacy-hierarchy fixture) →
-      // dispatcher routes to the realreel profile via the legacy source,
-      // sanitize stamps trust_source accordingly.
-      expect(result.sanitizedManifest.trust_source).toBe("realreel-legacy");
+      // Active manifest is RealReel-signed → dispatcher routes to the
+      // realreel profile, sanitize stamps trust_source accordingly.
+      expect(result.sanitizedManifest.trust_source).toBe("realreel");
       expect(result.sanitizedManifest.validation_state).toBe("trusted");
       // parent_label is the load-bearing signal that the wrap structure
       // survived sanitization — the parent (Pixel) manifest is still in
@@ -263,7 +262,7 @@ describe.skipIf(!fixtureExists)(
       // Stage-2's c2pa.metadata (the Pixel parent's manifest carries no
       // metadata assertion of its own — its EXIF lives in the file bytes).
       expect(labels).toContain("c2pa.metadata");
-      // Real-row size pin (~5.1 KB kept for this wrap).
+      // Real-row size pin (~5.5 KB kept for this wrap).
       expect(JSON.stringify(result.sanitizedManifest).length).toBeLessThan(6000);
     });
   },
@@ -494,7 +493,7 @@ describe.skipIf(!fixtureExists)(
       // sits after the OCSP read; make the structural failure come earlier by
       // handing the profile a store whose active manifest has no ingredient.
       const bytes = await readFile(wrapFixturePath);
-      const badTrust = { ...trustConfig, ocspHosts: ["http://ocsp.invalid"], loadedIds: new Set(["realreel", "realreel-legacy"]) };
+      const badTrust = { ...trustConfig, ocspHosts: ["http://ocsp.invalid"], loadedIds: new Set(["realreel"]) };
       // With the Pixel source unloaded, the parent resolves to no capture
       // source (UNTRUSTED_ISSUER) before the OCSP read.
       await expect(

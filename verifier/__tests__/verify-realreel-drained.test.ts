@@ -2,9 +2,9 @@
 // TSA-drained fixture.
 //
 // Fixture: __tests__/fixtures/realreel-drained.jpg — captured offline on the
-// same enrolled device as realreel-uploaded.jpg (so it reuses the same cert
-// serial + capturerUuid), timestamped on next connectivity via an Update
-// Manifest, then uploaded with location removed. Its manifest chain is the
+// same device and accounts as realreel-uploaded.jpg (so it reuses the same
+// cert serials + capturerUuid), timestamped on next connectivity via an Update Manifest,
+// then uploaded at "general" location. Its manifest chain is the
 // THREE-level shape the offline-queue drain produces:
 //
 //     Stage-2 (upload, active)
@@ -55,13 +55,14 @@ import { verify } from "../src/verify.js";
 import { loadTrustConfig } from "../src/trust/loader.js";
 import { lookupSigningKeyRevocation } from "../src/db.js";
 
-// Same enrolled device as realreel-uploaded.jpg → same key.
+// Same device and accounts as realreel-uploaded.jpg → same two keys.
+const STAGE1_CERT_SERIAL =
+  "320002776042256217317941033356147544071017289429";
 const FIXTURE_CERT_SERIAL =
-  "377878420465038296556426931842186971350666267668";
+  "143949351519606615726317605943517358757867817424";
 const FIXTURE_CAPTURER_UUID = "fc7ce1d3-82a8-4119-8e98-fe9b2161df6a";
 
-// Single-device fixture: every stage (capture, update, upload) is signed by
-// the same hardware key, so the mock returns the same row for every lookup.
+// The mock returns the same row for every lookup.
 function deviceRow() {
   return {
     key_id: "stub-key-id-from-mock",
@@ -74,8 +75,8 @@ function deviceRow() {
     // Ledger validity window bracketing every fixture's signature time
     // (time-stable: the ledger gate compares signature_time to these,
     // never to now).
-    issued_at: "2026-05-01T00:00:00.000Z",
-    expires_at: "2026-10-28T00:00:00.000Z",
+    issued_at: "2026-10-01T00:00:00.000Z",
+    expires_at: "2027-01-27T00:00:00.000Z",
   };
 }
 
@@ -99,13 +100,13 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      // Location-REMOVED fixture: 'none' drives the non-precise path through the
-      // real pipeline — it must still pass and not mis-fire on a clean strip.
-      declaredLocation: "none",
+      // "general" fixture: drives the non-precise path through the real
+      // pipeline — it must still pass and not mis-fire on a clean strip.
+      declaredLocation: "general",
     });
 
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
-    expect(result.sanitizedManifest.trust_source).toBe("realreel-legacy");
+    expect(result.sanitizedManifest.trust_source).toBe("realreel");
 
     const store = result.sanitizedManifest;
     const active = store.active_manifest!;
@@ -123,7 +124,7 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
     expect(update.assertions.some((a) => a.label === "c2pa.time-stamp")).toBe(false);
     expect(update.signature_info.time).toBeTruthy();
     expect(update.signature_info.timestamp_authority).toBeTruthy();
-    // Dropping the token keeps even a drained row a few KB (~5.8 KB kept);
+    // Dropping the token keeps even a drained row a few KB (~5.9 KB kept);
     // the per-manifest timestamp_authority adds only a few tens of bytes each.
     expect(JSON.stringify(store).length).toBeLessThan(6500);
 
@@ -150,14 +151,15 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      // Location-REMOVED fixture: 'none' drives the non-precise path through the
-      // real pipeline — it must still pass and not mis-fire on a clean strip.
-      declaredLocation: "none",
+      // "general" fixture: drives the non-precise path through the real
+      // pipeline — it must still pass and not mis-fire on a clean strip.
+      declaredLocation: "general",
     });
     // Two lookups: the capture's serial (Stage-1 denylist, post-walk) and the
     // Stage-2 serial — NOT the Update Manifest (the walk doesn't look it up).
     expect(vi.mocked(lookupSigningKeyRevocation)).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(lookupSigningKeyRevocation)).toHaveBeenCalledWith(FIXTURE_CERT_SERIAL);
+    expect(vi.mocked(lookupSigningKeyRevocation)).toHaveBeenNthCalledWith(1, STAGE1_CERT_SERIAL);
+    expect(vi.mocked(lookupSigningKeyRevocation)).toHaveBeenNthCalledWith(2, FIXTURE_CERT_SERIAL);
   });
 
   it("GPS privacy: the capture's c2pa.metadata was redacted at upload (location scrubbed from provenance)", async () => {
@@ -167,9 +169,9 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      // Location-REMOVED fixture: 'none' drives the non-precise path through the
-      // real pipeline — it must still pass and not mis-fire on a clean strip.
-      declaredLocation: "none",
+      // "general" fixture: drives the non-precise path through the real
+      // pipeline — it must still pass and not mis-fire on a clean strip.
+      declaredLocation: "general",
     });
 
     const store = result.sanitizedManifest;
@@ -177,7 +179,7 @@ describe("verify() against a once-offline-then-drained RealReel fixture", () => 
     const captureLabel = store.manifests[updateLabel]!.parent_label!;
     const capture = store.manifests[captureLabel]!;
 
-    // "Remove location" at upload redacts the capture's GPS-bearing
+    // A non-precise upload redacts the capture's GPS-bearing
     // c2pa.metadata assertion (a grandparent of Stage-2) — so the capture
     // manifest no longer carries it. This is the manifest-level half of the
     // privacy guarantee (the file's EXIF GPS bytes are stripped separately

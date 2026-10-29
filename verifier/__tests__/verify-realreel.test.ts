@@ -2,18 +2,17 @@
 // fixture captured + uploaded by the RealReel mobile app.
 //
 // Fixture: __tests__/fixtures/realreel-uploaded.jpg — Pixel 10, captured
-// 2026-08-20 and uploaded 2026-08-21 with a 90° editor rotation (app 0.1.6,
-// spec-2.4 action vocabulary incl. c2pa.orientation), trust-rooted at the
-// LEGACY RealReel root (trust-sources/realreel-legacy/root.pem) — the v2
-// hierarchy activates with the CPL listing; fixtures re-land after that
-// flip. Both stages carry an RFC 3161 sigTst2 token (DigiCert TSA).
+// 2026-10-29 and uploaded the same day at "general" location (app 0.2.1),
+// trust-rooted at the v2 RealReel root. Captured under one account and
+// uploaded from another on the same device; each account enrolls its own
+// key, so the two stages carry different cert serials. Both stages carry an
+// RFC 3161 sigTst2 token (DigiCert TSA).
 //
 // Pipeline exercised:
 //   1. loadTrustConfig — reads trust-sources.yaml + the root PEMs.
 //   2. verify() — Reader.fromAsset with our trust anchors.
-//   3. identifyTrustSource — matches signature_info.issuer "RealReel"
-//      against TRUSTED_ISSUERS[id=realreel-legacy]; force-wrap accepts it
-//      (dispatch is by verification_profile, shared with `realreel`).
+//   3. identifyTrustSource — matches signature_info.issuer "Whole Earth
+//      Labs LLC" against TRUSTED_ISSUERS[id=realreel].
 //   4. verifyRealReel — extracts cert_serial_number from Stage 2, looks
 //      up via mocked lookupSigningKeyRevocation, enforces Stage-2
 //      revocation + user_id binding. Stage 1 = structural checks only
@@ -61,15 +60,17 @@ import { lookupSigningKeyRevocation } from "../src/db.js";
 import { VerifyErrorCode } from "../src/errors.js";
 
 // Fixture metadata — derived from manifest inspection of the file:
-//   subject=RealReel-Device-Key, issuer=RealReel Issuing CA
-//   cert serial (decimal) = 377878420465038296556426931842186971350666267668
+//   subject=RealReel Android, issuer=RealReel Claim Signing CA
+//   cert serials (decimal): Stage 1 (capture) and Stage 2 (upload) below
 //   Stage 1's capturerUuid assertion: fc7ce1d3-82a8-4119-8e98-fe9b2161df6a
+const STAGE1_CERT_SERIAL =
+  "320002776042256217317941033356147544071017289429";
 const FIXTURE_CERT_SERIAL =
-  "377878420465038296556426931842186971350666267668";
+  "143949351519606615726317605943517358757867817424";
 const FIXTURE_CAPTURER_UUID = "fc7ce1d3-82a8-4119-8e98-fe9b2161df6a";
 
 // The mocked lookupSigningKeyRevocation always returns the SAME row
-// regardless of input — single-device fixture, Stage 2 keys the lookup.
+// regardless of input — Stage 2 keys the lookup.
 function defaultRevocationRow(opts: {
   revoked?: boolean;
   userId?: string;
@@ -90,8 +91,8 @@ function defaultRevocationRow(opts: {
     // Ledger validity window bracketing every fixture's signature time
     // (time-stable: the ledger gate compares signature_time to these,
     // never to now).
-    issued_at: "2026-05-01T00:00:00.000Z",
-    expires_at: "2026-10-28T00:00:00.000Z",
+    issued_at: "2026-10-01T00:00:00.000Z",
+    expires_at: "2027-01-27T00:00:00.000Z",
   };
 }
 
@@ -117,12 +118,11 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
 
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
-    // Legacy-hierarchy fixture → the transitional legacy source id.
-    expect(result.sanitizedManifest.trust_source).toBe("realreel-legacy");
+    expect(result.sanitizedManifest.trust_source).toBe("realreel");
 
     // The active manifest is Stage 2 (the upload); its parent_label
     // points at Stage 1 (the capture). This is the canonical
@@ -163,7 +163,7 @@ describe("verify() end-to-end against real RealReel fixture", () => {
 
   it("derives a deterministic content hash across repeated verifies of the same bytes", async () => {
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
-    const base = { assetBytes: fixtureBytes, mimeType: "image/jpeg", expectedUserId: FIXTURE_CAPTURER_UUID, trustConfig, declaredLocation: "precise" as const };
+    const base = { assetBytes: fixtureBytes, mimeType: "image/jpeg", expectedUserId: FIXTURE_CAPTURER_UUID, trustConfig, declaredLocation: "general" as const };
     const a = await verify(base);
     const b = await verify(base);
     expect(a.contentHash).toBe(b.contentHash);
@@ -177,7 +177,7 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
 
     // The single trust boundary for displayed metadata: the edge function
@@ -208,18 +208,18 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
 
     // The enrichment a manifest viewer reads: the leaf cert's common_name
     // (friendlier than the issuer DN) and the signing algorithm, kept for
     // every manifest in the store. Pinned against the real fixture's certs.
     const active = result.sanitizedManifest.active_manifest!;
-    expect(active.signature_info.common_name).toBe("RealReel-Device-Key");
+    expect(active.signature_info.common_name).toBe("RealReel Android");
     expect(active.signature_info.alg).toBe("Es256");
 
     const stage1 = result.sanitizedManifest.manifests[active.parent_label!];
-    expect(stage1!.signature_info.common_name).toBe("RealReel-Device-Key");
+    expect(stage1!.signature_info.common_name).toBe("RealReel Android");
     expect(stage1!.signature_info.alg).toBe("Es256");
   });
 
@@ -231,15 +231,15 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
 
     // Both stages of this fixture carry a DigiCert sigTst2 (capture at
-    // 2026-08-20T21:54:53Z, upload at 2026-08-21T18:48:19Z). The provider
+    // 2026-10-29T03:58:29Z, upload at 2026-10-29T16:27:00Z). The provider
     // name survives only in
     // c2pa-rs's validation_results explanation strings — sanitize lifts it out
     // (extractTsaByLabel) per manifest so a viewer can show "Timestamped by …".
-    const TSA = "DigiCert SHA256 RSA4096 Timestamp Responder 2025 1";
+    const TSA = "DigiCert SHA256 RSA4096 Timestamp Responder 2026 1";
     const active = result.sanitizedManifest.active_manifest!;
     expect(active.signature_info.timestamp_authority).toBe(TSA);
 
@@ -255,7 +255,7 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
 
     const labels = Object.values(result.sanitizedManifest.manifests).flatMap(
@@ -268,7 +268,7 @@ describe("verify() end-to-end against real RealReel fixture", () => {
     // c2pa.metadata, the actions log, the capture UUID.
     expect(labels).toContain("c2pa.metadata");
     expect(labels).toContain("org.realreel.capture");
-    // Real-row size pin: the kept shape is a few KB (~5.4 KB for this
+    // Real-row size pin: the kept shape is a few KB (~5.2 KB for this
     // fixture), and this ceiling also trips if the drop ever regresses.
     expect(JSON.stringify(result.sanitizedManifest).length).toBeLessThan(6000);
   });
@@ -281,16 +281,16 @@ describe("verify() end-to-end against real RealReel fixture", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
 
     // Dual-stage revocation: Stage 1 is now consulted for the
     // revocation denylist (revoked_at only — its user_id is never bound, so
     // cross-user capture stays allowed), and Stage 2 for the full lookup +
-    // gates. In this single-device native fixture both stages are signed by
-    // the same enrolled key, so both lookups use the same cert serial.
+    // gates, in that order.
     expect(vi.mocked(lookupSigningKeyRevocation)).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(lookupSigningKeyRevocation)).toHaveBeenCalledWith(FIXTURE_CERT_SERIAL);
+    expect(vi.mocked(lookupSigningKeyRevocation)).toHaveBeenNthCalledWith(1, STAGE1_CERT_SERIAL);
+    expect(vi.mocked(lookupSigningKeyRevocation)).toHaveBeenNthCalledWith(2, FIXTURE_CERT_SERIAL);
   });
 });
 
@@ -304,17 +304,16 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
-        declaredLocation: "precise",
+        declaredLocation: "general",
       }),
     ).rejects.toMatchObject({ code: VerifyErrorCode.KEY_NOT_FOUND });
   });
 
   it("rejects with KEY_REVOKED when the Stage 2 upload key is revoked", async () => {
-    // Order-based mock: the realreel profile looks Stage 1 up first, then
-    // Stage 2. Stage 1 is clean here; Stage 2 is revoked.
-    vi.mocked(lookupSigningKeyRevocation)
-      .mockResolvedValueOnce(defaultRevocationRow())
-      .mockResolvedValue(defaultRevocationRow({ revoked: true }));
+    // Keyed on serial: the capture key is clean, the upload key revoked.
+    vi.mocked(lookupSigningKeyRevocation).mockImplementation(async (serial) =>
+      defaultRevocationRow({ revoked: serial === FIXTURE_CERT_SERIAL }),
+    );
 
     await expect(
       verify({
@@ -322,18 +321,20 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
-        declaredLocation: "precise",
+        declaredLocation: "general",
       }),
-    ).rejects.toMatchObject({ code: VerifyErrorCode.KEY_REVOKED });
+    ).rejects.toMatchObject({
+      code: VerifyErrorCode.KEY_REVOKED,
+      detail: expect.stringContaining("stage 2 signing key revoked"),
+    });
   });
 
   it("rejects with KEY_REVOKED when the Stage 1 capture key is revoked (denylist)", async () => {
     // The laundering-oracle kill switch: a revoked CAPTURE key
-    // rejects the upload even though the Stage 2 upload key is clean. Stage 1
-    // is looked up first, so the first queued row is the revoked capture key.
-    vi.mocked(lookupSigningKeyRevocation)
-      .mockResolvedValueOnce(defaultRevocationRow({ revoked: true }))
-      .mockResolvedValue(defaultRevocationRow());
+    // rejects the upload even though the Stage 2 upload key is clean.
+    vi.mocked(lookupSigningKeyRevocation).mockImplementation(async (serial) =>
+      defaultRevocationRow({ revoked: serial === STAGE1_CERT_SERIAL }),
+    );
 
     await expect(
       verify({
@@ -341,9 +342,12 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
-        declaredLocation: "precise",
+        declaredLocation: "general",
       }),
-    ).rejects.toMatchObject({ code: VerifyErrorCode.KEY_REVOKED });
+    ).rejects.toMatchObject({
+      code: VerifyErrorCode.KEY_REVOKED,
+      detail: expect.stringContaining("stage 1 capture key revoked"),
+    });
   });
 
   it("accepts when the Stage 1 capture key is not enrolled (denylist skips not-found) — pins skip + lookup order", async () => {
@@ -353,9 +357,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
     // rejection). Stage 2 is looked up SECOND and returns a valid key →
     // trusted. If the two lookups were ever reordered, Stage 2 would receive
     // the null and throw KEY_NOT_FOUND instead of accepting, failing this
-    // test. (The stage-specific revoked tests above can't catch a reorder:
-    // both throw KEY_REVOKED regardless of which stage saw the revoked row,
-    // since the native fixture's two stages share one cert serial.)
+    // test.
     vi.mocked(lookupSigningKeyRevocation)
       .mockResolvedValueOnce(null)
       .mockResolvedValue(defaultRevocationRow());
@@ -365,7 +367,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
   });
@@ -384,7 +386,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
-        declaredLocation: "precise",
+        declaredLocation: "general",
       }),
     ).rejects.toMatchObject({ code: VerifyErrorCode.ATTESTATION_INVALID });
   });
@@ -403,7 +405,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID, // differs from the row's user_id
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
   });
@@ -424,7 +426,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
       mimeType: "image/jpeg",
       expectedUserId: saraId,
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
     // Both stages consulted: Stage 1 (revocation denylist) + Stage 2 (gate).
@@ -445,7 +447,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
       mimeType: "image/jpeg",
       expectedUserId: aliceId,
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
   });
@@ -458,7 +460,7 @@ describe("verify() end-to-end against real RealReel fixture (cont.)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
-        declaredLocation: "precise",
+        declaredLocation: "general",
       }),
     ).rejects.toMatchObject({ code: VerifyErrorCode.MANIFEST_MALFORMED });
   });
@@ -535,9 +537,9 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
   // it, the clock arg threads through, and the cert-lifetime arg
   // threads through. The fixture is the Android
   // realreel-uploaded.jpg used above; the active (Stage-2)
-  // signature_info.time = 2026-08-21T18:48:19+00:00 and BOTH stages carry
-  // a trusted DigiCert sigTst2 stamp (Stage-1 parent at 2026-08-20
-  // 21:54:53Z).
+  // signature_info.time = 2026-10-29T16:27:00+00:00 and BOTH stages carry
+  // a trusted DigiCert sigTst2 stamp (Stage-1 parent at 2026-10-29
+  // 03:58:29Z).
 
   beforeEach(() => {
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue(defaultRevocationRow());
@@ -559,7 +561,7 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig: noTsaTrust,
-        declaredLocation: "precise",
+        declaredLocation: "general",
       }),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
@@ -569,7 +571,7 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
 
   it("Gate 2 fires when clock is set before the fixture's signature time (future-dated)", async () => {
     // Inject a clock dated well before the fixture's
-    // 2026-08-21T18:48:19Z signature time. The clock-skew tolerance is
+    // 2026-10-29T16:27:00Z signature time. The clock-skew tolerance is
     // 5 minutes; several hours earlier easily trips it.
     await expect(
       verify({
@@ -577,8 +579,8 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
-        clock: { now: () => new Date("2026-08-21T12:00:00Z") },
-        declaredLocation: "precise",
+        clock: { now: () => new Date("2026-10-29T12:00:00Z") },
+        declaredLocation: "general",
       }),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
@@ -594,13 +596,13 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
   // fail here, not just leave unit tests green.
 
   it("Gate 3 wiring: a ledger window excluding the signature time rejects (time-warp)", async () => {
-    // issued_at AFTER the fixture's 2026-08-21T18:48:19Z signature time —
+    // issued_at AFTER the fixture's 2026-10-29T16:27:00Z signature time —
     // the time-warp branch fires regardless of the fixture's trusted TSA
     // (a genuine pre-issuance timestamp is damning, not exculpatory).
     vi.mocked(lookupSigningKeyRevocation).mockResolvedValue({
       ...defaultRevocationRow(),
-      issued_at: "2026-09-15T00:00:00.000Z",
-      expires_at: "2026-12-01T00:00:00.000Z",
+      issued_at: "2026-11-15T00:00:00.000Z",
+      expires_at: "2027-02-01T00:00:00.000Z",
     });
     await expect(
       verify({
@@ -608,7 +610,7 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
         mimeType: "image/jpeg",
         expectedUserId: FIXTURE_CAPTURER_UUID,
         trustConfig,
-        declaredLocation: "precise",
+        declaredLocation: "general",
       }),
     ).rejects.toMatchObject({
       code: VerifyErrorCode.SIGNATURE_INVALID,
@@ -631,7 +633,7 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
       mimeType: "image/jpeg",
       expectedUserId: FIXTURE_CAPTURER_UUID,
       trustConfig,
-      declaredLocation: "precise",
+      declaredLocation: "general",
     });
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
   });

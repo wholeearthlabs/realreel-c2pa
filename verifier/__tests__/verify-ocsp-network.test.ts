@@ -43,7 +43,7 @@ const trustConfig = await loadTrustConfig(resolve(import.meta.dirname, "../trust
 const wrapBytes = await readFile(resolve(import.meta.dirname, "fixtures/pixel-uploaded.jpg"));
 
 // The wrap fixture's Stage-2 leaf serial (see verify-realreel-wrap.test.ts).
-const WRAP_STAGE2_SERIAL = "377878420465038296556426931842186971350666267668";
+const WRAP_STAGE2_SERIAL = "143949351519606615726317605943517358757867817424";
 const STAGE2_USER = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 
 describe.skipIf(!NETWORK)("Pixel parent OCSP (network)", () => {
@@ -79,8 +79,8 @@ describe.skipIf(!NETWORK)("Pixel parent OCSP (network)", () => {
             platform: "android-strongbox",
             public_key: Buffer.alloc(0),
             app_attest_public_key: null,
-            issued_at: "2026-05-01T00:00:00.000Z",
-            expires_at: "2026-10-28T00:00:00.000Z",
+            issued_at: "2026-10-01T00:00:00.000Z",
+            expires_at: "2027-01-27T00:00:00.000Z",
           }
         : null,
     );

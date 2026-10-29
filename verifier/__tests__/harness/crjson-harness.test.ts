@@ -147,6 +147,9 @@ const PIXEL_OG = "pixel-og.jpg";
 const PIXEL_EDITED = "pixel-edited.jpg";
 const NO_MANIFEST = "synthetic-usercomment.jpg";
 const ALL_SIGNED = [V2, REALREEL, DRAINED, PIXEL_WRAP, PIXEL_OG];
+// The device captures postdate AT.baseline; validate each inside its own leaves.
+const DEVICES = new Set([REALREEL, DRAINED, PIXEL_WRAP]);
+const instantFor = (name: string) => (DEVICES.has(name) ? AT.devices : AT.baseline);
 
 const ready = await fixturesReady([...ALL_SIGNED, PIXEL_EDITED, NO_MANIFEST]);
 
@@ -157,15 +160,17 @@ const codes = (doc: CrjsonDocument, group: "failure" | "informational", manifest
 describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", () => {
   it("emits spec-2.4 crJSON for every signed fixture, and the deployed engine agrees with each", () => {
     for (const name of ALL_SIGNED) {
-      const run = runCrjsonHarness({ assetPath: fixture(name), ...production, validationTime: AT.baseline });
+      const at = instantFor(name);
+      const iso = at.toISOString().replace(".000Z", "");
+      const run = runCrjsonHarness({ assetPath: fixture(name), ...production, validationTime: at });
       expect(schemaErrors(run.crjson), name).toEqual([]);
       expect(run.crjson.manifests.length, name).toBeGreaterThan(0);
       // The active manifest leads (§3.4) and carries the injected instant.
-      expect(run.crjson.manifests[0].validationResults.validationTime, name).toBe("2026-08-22T00:00:00+00:00");
+      expect(run.crjson.manifests[0].validationResults.validationTime, name).toBe(`${iso}+00:00`);
       expect(run.record.engineAgreement, name).toEqual({ checked: true, agree: true, differences: [] });
       expect(run.record.engine).toEqual(ENGINE_IDENTITY);
       expect(run.record.validator.crjsonOrigin).toBe("c2patool");
-      expect(run.record.inputs.validationTime).toBe("2026-08-22T00:00:00Z");
+      expect(run.record.inputs.validationTime).toBe(`${iso}Z`);
     }
   });
 
@@ -183,8 +188,8 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
   });
 
   it("is byte-deterministic for the same inputs (frozen clock)", () => {
-    const a = runCrjsonHarness({ assetPath: fixture(DRAINED), ...production, validationTime: AT.baseline });
-    const b = runCrjsonHarness({ assetPath: fixture(DRAINED), ...production, validationTime: AT.baseline });
+    const a = runCrjsonHarness({ assetPath: fixture(DRAINED), ...production, validationTime: AT.devices });
+    const b = runCrjsonHarness({ assetPath: fixture(DRAINED), ...production, validationTime: AT.devices });
     expect(a.crjsonText).toBe(b.crjsonText);
     expect(a.record.inputs.asset.sha256).toBe(b.record.inputs.asset.sha256);
   });
@@ -229,7 +234,7 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     // anchor pool (trust/types.ts "RESIDUAL"). So dropping the Pixel root
     // from the C2PA list changes nothing while the TSA list carries it; only
     // dropping both leaves the wrapped parent untrusted. Its leaf is past
-    // notAfter (2026-05-06) on the clock, but the Stage-2 ingredient recorded
+    // notAfter (2026-12-12) on the clock, but the Stage-2 ingredient recorded
     // claimSignature.insideValidity for it, and c2pa-rs drops a live expiry so
     // attested; untrusted alone leaves the store Valid, not Invalid. The
     // policy layer, not the engine, scopes anchor roles; this pins the raw
@@ -237,9 +242,9 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
     // c2patool emits no per-manifest positive signingCredential code for an
     // ingredient, so "anchored" is the empty failure list the no-anchor
     // variant contrasts.
-    const wrap = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), ...production, validationTime: AT.baseline });
-    const noPixelRoot = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), trustListPem: TRUST_LISTS.productionWithoutPixel, tsaTrustListPem: TSA_LISTS.production, validationTime: AT.baseline });
-    const noPixelNoTsa = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), trustListPem: TRUST_LISTS.productionWithoutPixel, tsaTrustListPem: TSA_LISTS.empty, validationTime: AT.baseline });
+    const wrap = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), ...production, validationTime: AT.devices });
+    const noPixelRoot = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), trustListPem: TRUST_LISTS.productionWithoutPixel, tsaTrustListPem: TSA_LISTS.production, validationTime: AT.devices });
+    const noPixelNoTsa = runCrjsonHarness({ assetPath: fixture(PIXEL_WRAP), trustListPem: TRUST_LISTS.productionWithoutPixel, tsaTrustListPem: TSA_LISTS.empty, validationTime: AT.devices });
     for (const run of [wrap, noPixelRoot]) {
       expect(codes(run.crjson, "failure")).toEqual([]);
       expect(codes(run.crjson, "failure", 1)).toEqual([]);
@@ -251,8 +256,8 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
   });
 
   it("the TSA trust list reaches the validator: an empty list leaves the time-stamp untrusted", () => {
-    const withTsa = runCrjsonHarness({ assetPath: fixture(REALREEL), ...production, validationTime: AT.baseline });
-    const noTsa = runCrjsonHarness({ assetPath: fixture(REALREEL), trustListPem: TRUST_LISTS.production, tsaTrustListPem: TSA_LISTS.empty, validationTime: AT.baseline });
+    const withTsa = runCrjsonHarness({ assetPath: fixture(REALREEL), ...production, validationTime: AT.devices });
+    const noTsa = runCrjsonHarness({ assetPath: fixture(REALREEL), trustListPem: TRUST_LISTS.production, tsaTrustListPem: TSA_LISTS.empty, validationTime: AT.devices });
     expect(codes(withTsa.crjson, "informational")).not.toContain("timeStamp.untrusted");
     expect(codes(noTsa.crjson, "informational")).toContain("timeStamp.untrusted");
     expect(noTsa.record.inputs.tsaTrustList.certificates).toBe(0);
@@ -260,7 +265,7 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
   });
 
   it("two empty lists trust nothing", () => {
-    const run = runCrjsonHarness({ assetPath: fixture(REALREEL), trustListPem: TRUST_LISTS.empty, tsaTrustListPem: TSA_LISTS.empty, validationTime: AT.baseline });
+    const run = runCrjsonHarness({ assetPath: fixture(REALREEL), trustListPem: TRUST_LISTS.empty, tsaTrustListPem: TSA_LISTS.empty, validationTime: AT.devices });
     expect(codes(run.crjson, "failure")).toEqual(["signingCredential.untrusted"]);
     expect(codes(run.crjson, "informational")).toContain("timeStamp.untrusted");
     expect(run.record.engineAgreement.agree).toBe(true);
@@ -291,7 +296,7 @@ describe.skipIf(!harnessAvailable || !ready)("runCrjsonHarness (end to end)", ()
   });
 
   it("can skip the engine cross-check, and says so in the record", () => {
-    const run = runCrjsonHarness({ assetPath: fixture(REALREEL), ...production, validationTime: AT.baseline }, { crossCheck: false });
+    const run = runCrjsonHarness({ assetPath: fixture(REALREEL), ...production, validationTime: AT.devices }, { crossCheck: false });
     expect(run.record.engineAgreement.checked).toBe(false);
     expect(run.record.engine).toBeNull();
     expect(run.record.engineVerdict).toBeNull();
