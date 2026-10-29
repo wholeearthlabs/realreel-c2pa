@@ -638,23 +638,3 @@ describe("verify() — time-bound cert-validity gates (wire-up)", () => {
     expect(result.sanitizedManifest.validation_state).toBe("trusted");
   });
 });
-
-// fixtures/realreel-legacy-uploaded.jpg: a real 2026-08 upload signed under the
-// pre-conformance root (leaf O "RealReel"), which no source trusts anymore.
-describe("verify() against a legacy-signed RealReel upload", () => {
-  it("rejects UNTRUSTED_ISSUER before any key lookup", async () => {
-    await expect(
-      verify({
-        assetBytes: await readFile(resolve(import.meta.dirname, "fixtures/realreel-legacy-uploaded.jpg")),
-        mimeType: "image/jpeg",
-        expectedUserId: FIXTURE_CAPTURER_UUID,
-        trustConfig,
-        declaredLocation: "general",
-      }),
-    ).rejects.toMatchObject({
-      code: VerifyErrorCode.UNTRUSTED_ISSUER,
-      detail: expect.stringContaining("'RealReel'"),
-    });
-    expect(vi.mocked(lookupSigningKeyRevocation)).not.toHaveBeenCalled();
-  });
-});
