@@ -73,17 +73,19 @@ describe.skipIf(!fixturesExist)("parent gate — recorded ingredient results (re
   beforeAll(async () => {
     tmp = await mkdtemp(join(tmpdir(), "parent-gate-"));
     const yamlPath = join(tmp, "trust-sources.yaml");
+    // Both roots issue O=Whole Earth Labs LLC leaves; one source anchors both.
+    const rootsPath = join(tmp, "capture-and-upload-roots.pem");
+    const roots = await Promise.all(
+      ["capture", "upload"].map((r) => readFile(resolve(fixturesDir, `parent-gate-${r}-root.pem`), "utf8")),
+    );
+    await writeFile(rootsPath, roots.map((p) => p.trim()).join("\n") + "\n");
     await writeFile(
       yamlPath,
       [
         "sources:",
         "  - id: realreel",
-        "    name: capture root (test)",
-        `    root_cert: ${resolve(fixturesDir, "parent-gate-capture-root.pem")}`,
-        "    verification_profile: realreel",
-        "  - id: realreel-legacy",
-        "    name: upload root (test)",
-        `    root_cert: ${resolve(fixturesDir, "parent-gate-upload-root.pem")}`,
+        "    name: capture + upload roots (test)",
+        `    root_cert: ${rootsPath}`,
         "    verification_profile: realreel",
         "tsa_roots:",
         "  - id: update-root",

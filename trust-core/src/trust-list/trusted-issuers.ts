@@ -89,25 +89,12 @@ export const TRUSTED_ISSUERS: ReadonlyArray<TrustedIssuer> = [
     displayName: "RealReel",
     // The conformant (v2) hierarchy: P-384 root + Claim Signing ICA, leaf
     // subject O = "Whole Earth Labs LLC". c2pa-rs surfaces the leaf cert's
-    // subject O as `signature_info.issuer` (empirically pinned 2026-07-27
-    // against c2patool 0.26.60 with a production-encoder-issued leaf; real
-    // uploaded fixtures land with the fixture regeneration pass).
+    // subject O as `signature_info.issuer` (empirically pinned against
+    // verifier/__tests__/fixtures/realreel-uploaded.jpg, a Pixel 10 capture).
+    // The pre-conformance hierarchy (bare O = "RealReel") is no longer
+    // trusted.
     issuerMatch: "Whole Earth Labs LLC",
     rootCommonName: "RealReel C2PA Root CA",
-  },
-  {
-    id: "realreel-legacy",
-    displayName: "RealReel",
-    // The pre-conformance hierarchy every fielded enrollment signs under
-    // until re-enrollment onto the v2 ICA. Same verification profile as
-    // `realreel`, different trust anchor. Empirically pinned against
-    // verifier/__tests__/fixtures/realreel-uploaded.jpg (real iPhone
-    // capture): c2pa-rs surfaces "RealReel" — the legacy leaf subject O.
-    //
-    // Retire this entry once the last legacy leaf expires after the
-    // issuance flip (max one leaf lifetime).
-    issuerMatch: "RealReel",
-    rootCommonName: "RealReel Root CA",
   },
   {
     id: "pixel",

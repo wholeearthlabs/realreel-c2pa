@@ -6,7 +6,6 @@
 //
 // Included (in order):
 //   - verifier/trust-sources/realreel/realreel-c2pa-root.pem (realreel)
-//   - verifier/trust-sources/realreel-legacy/root.pem (realreel-legacy)
 //   - verifier/trust-sources/pixel/root.pem (pixel)
 //   - verifier/trust-sources/proofmode/root.pem (proofmode)
 //   - verifier/trust-sources/c2pa-tsa/c2pa-tsa-trust-list.pem (c2pa-tsa-list)
@@ -45,16 +44,6 @@ VR0jBBgwFoAUoaV/7ghFZ89nsoENzOrkL+Pmwg0wCgYIKoZIzj0EAwMDaAAwZQIw
 F8nY6P9IvWgtd9dKjnelTOZwICUuxVHbd/uHvU9hjwez+B33zyL1iP+8E/HUe9yD
 AjEAmUnK720BAi3UXkj8kZHs74wnIy4oh8buxmiecO1akF4I3B+0+18SkclV6ytF
 +Zms
------END CERTIFICATE-----
------BEGIN CERTIFICATE-----
-MIIBezCCASKgAwIBAgIRAJlU4KK8/8wiMDcIcM1clMUwCgYIKoZIzj0EAwIwGzEZ
-MBcGA1UEAxMQUmVhbFJlZWwgUm9vdCBDQTAgFw0yNjA1MTEyMDI5MzRaGA8yMDUx
-MDUwNTIwMjkzNFowGzEZMBcGA1UEAxMQUmVhbFJlZWwgUm9vdCBDQTBZMBMGByqG
-SM49AgEGCCqGSM49AwEHA0IABFzvcuH4z7Nf3HZl9rR6qPwSZ/+vg/7OS9yFLcUo
-+qDSDl2i4HdrHoa1mBvEX/KyxveoO47CgarssqOHSvQqGO2jRTBDMA4GA1UdDwEB
-/wQEAwIBBjASBgNVHRMBAf8ECDAGAQH/AgEBMB0GA1UdDgQWBBS56fLhEch2GUkT
-CA3gMHbefD9yazAKBggqhkjOPQQDAgNHADBEAiB40Ft2nAylOtxVj48kr8h6/xZO
-MDjfq3ZHRWArF680dQIgALK1PsEZVefrdi+rUplKPHrpF9dRjYYQEG7ecohMVS0=
 -----END CERTIFICATE-----
 -----BEGIN CERTIFICATE-----
 MIICLjCCAbOgAwIBAgIUUZK4AROFKiXQZ1UG7FG6qPGc1g8wCgYIKoZIzj0EAwMw

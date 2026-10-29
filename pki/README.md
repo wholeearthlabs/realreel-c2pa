@@ -15,8 +15,8 @@ at `pki.realreel.xyz`. Operated by Whole Earth Labs LLC.
 
 RealReel-signed manifests carry the full chain (leaf + Claim Signing ICA)
 in-band, so validators normally need only the anchor. The AIA `caIssuers`
-pointers let a party missing a link fetch it here: a new-hierarchy leaf points
-at the ICA, the ICA at the root (legacy-root leaves carry no AIA).
+pointers let a party missing a link fetch it here: a leaf points at the ICA,
+the ICA at the root.
 
 Responses are CORS-open (`access-control-allow-origin: *`) for browser-based
 C2PA validators. Public certificates only — the CA keys live in a Cloud KMS HSM.

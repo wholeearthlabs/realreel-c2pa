@@ -29,7 +29,7 @@ import { AT, fixture, fixturesReady, harnessAvailable, schemaErrors, TRUST_LISTS
 
 describe("harness inputs", () => {
   it("counts PEM certificates and tolerates an empty bundle", () => {
-    expect(pemCertificates(TRUST_LISTS.production)).toHaveLength(4);
+    expect(pemCertificates(TRUST_LISTS.production)).toHaveLength(3);
     expect(pemCertificates(TSA_LISTS.production).length).toBeGreaterThan(10);
     expect(pemCertificates("")).toEqual([]);
     expect(pemCertificates("not a pem")).toEqual([]);

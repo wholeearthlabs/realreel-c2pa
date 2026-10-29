@@ -39,9 +39,8 @@ clock. Successful responses carry `max-age=300`; the unsigned error forms are
 
 ## How requests reach it
 
-New-hierarchy leaves carry `AIA id-ad-ocsp = http://ocsp.realreel.xyz` — the
-ICA-status Worker's host. (Legacy-root leaves carry no AIA, so no OCSP client
-reaches this service for them.) The Worker stays the public front door: it answers ICA CertIDs
+RealReel leaves carry `AIA id-ad-ocsp = http://ocsp.realreel.xyz` — the
+ICA-status Worker's host. The Worker stays the public front door: it answers ICA CertIDs
 from KV and relays **single-CertID requests whose issuer hashes name the ICA**
 (RealReel leaves) here — never arbitrary third-party CertIDs. The relay is on
 when `LEAF_RESPONDER_ORIGIN` is set in the Worker's `wrangler.toml`.

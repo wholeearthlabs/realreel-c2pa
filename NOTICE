@@ -30,8 +30,9 @@ here does not imply any endorsement by their issuers.
     Public timestamping-authority roots, redistributed to anchor RFC 3161
     timestamp tokens emitted by those authorities.
 
-The RealReel Root CA certificate (verifier/trust-sources/realreel/root.pem) is a
-self-signed public root published by Whole Earth Labs LLC. The corresponding CA
+The RealReel C2PA Root CA certificate
+(verifier/trust-sources/realreel/realreel-c2pa-root.pem) is a self-signed public
+root published by Whole Earth Labs LLC. The corresponding CA
 private key is held in a hardware security module and is NOT part of this
 repository.
 
