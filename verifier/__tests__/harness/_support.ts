@@ -108,8 +108,12 @@ export function schemaErrors(doc: unknown): string[] {
 /** Frozen validation instants the suites use. Chosen against the fixtures'
  *  certificate windows (see the golden scenarios for which is which). */
 export const AT = {
-  /** Inside every fixture's leaf validity; the goldens' default. */
+  /** Inside the v2-hierarchy leaf's validity; pixel-og validates through its
+   *  time-stamp. */
   baseline: new Date("2026-08-22T00:00:00Z"),
+  /** Inside the device fixtures' RealReel leaves (to 2027-01-11) and past the
+   *  Pixel parent's notAfter (2026-12-12). */
+  devices: new Date("2026-12-20T00:00:00Z"),
   /** Past the untimestamped v2-hierarchy leaf's notAfter (2026-10-25). */
   future: new Date("2031-01-01T00:00:00Z"),
 };

@@ -32,25 +32,26 @@ const HERE = resolve(fileURLToPath(import.meta.url), "..");
 const VERIFIER_ROOT = resolve(HERE, "../verifier");
 
 // The sample is a real RealReel-signed JPEG: a Pixel 10 capture (Stage 1)
-// re-signed at upload (Stage 2), chained to the pre-conformance (legacy)
-// RealReel root. Both stages carry a DigiCert RFC-3161 timestamp. Reused
+// re-signed at upload (Stage 2), chained to the RealReel C2PA root. Both
+// stages carry a DigiCert RFC-3161 timestamp. Reused
 // straight from the test fixtures
 // (Git LFS — run `git lfs pull` if this reads as a small text pointer file).
 const SAMPLE_PATH = resolve(VERIFIER_ROOT, "__tests__/fixtures/realreel-uploaded.jpg");
 const TRUST_SOURCES_PATH = resolve(VERIFIER_ROOT, "trust-sources.yaml");
 
-// Identity baked into the sample's manifest. The cert serial is the lookup key
-// the verifier hands to the datastore; the capturer UUID is the enrolled
-// owner. (Mirrors verify-realreel.test.ts.)
-const SAMPLE_CERT_SERIAL = "377878420465038296556426931842186971350666267668";
+// Identity baked into the sample's manifest. The upload's cert serial is the
+// lookup key the verifier hands to the datastore; the capturer UUID fills the
+// row's user_id, which the verifier never binds. (Mirrors verify-realreel.test.ts.)
+const SAMPLE_CERT_SERIAL = "143949351519606615726317605943517358757867817424";
 const SAMPLE_CAPTURER_UUID = "fc7ce1d3-82a8-4119-8e98-fe9b2161df6a";
 
 /**
  * In-memory datastore: the sample's signing key is "enrolled" (non-revoked),
  * the nonce burn is a no-op, and the health check is a no-op. No Postgres.
  *
- * `lookup()` returns the same enrollment row for any cert serial — the sample
- * is a single-device capture, so both stages key the same enrolled key.
+ * `lookup()` knows only the upload key, so the capture key's lookup misses,
+ * which the Stage-1 revocation denylist skips. (The production ledger would
+ * find it.)
  */
 const inMemoryDatastore: VerifierDatastore = {
   async lookup(certSerialNumber: string): Promise<RevocationRow | null> {
@@ -63,11 +64,11 @@ const inMemoryDatastore: VerifierDatastore = {
       platform: "android", // the sample is a Pixel 10 capture
       public_key: Buffer.alloc(0),
       app_attest_public_key: null,
-      // Ledger validity window bracketing the sample's 2026-05-28 signature
+      // Ledger validity window bracketing the sample's 2026-10-29 signature
       // time — the ledger-backed time gate compares the signing time to
       // these, never to the wall clock.
-      issued_at: "2026-05-01T00:00:00.000Z",
-      expires_at: "2026-10-28T00:00:00.000Z",
+      issued_at: "2026-10-01T00:00:00.000Z",
+      expires_at: "2027-01-27T00:00:00.000Z",
     };
   },
   async burn(): Promise<void> {
@@ -173,7 +174,7 @@ async function main(): Promise<void> {
       assetBytes,
       mimeType: "image/jpeg",
       expectedUserId: SAMPLE_CAPTURER_UUID,
-      declaredLocation: "precise",
+      declaredLocation: "general",
       trustConfig,
       datastore: inMemoryDatastore,
       // attestationRequired left false + no playIntegrityConfig → lenient mode.

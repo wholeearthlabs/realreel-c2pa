@@ -133,8 +133,8 @@ describe("derivePhotoMetadata — real RealReel JPEG (none/general capture)", ()
     expect(m.get("make")).toBe("Google");
     expect(m.get("model")).toBe("Pixel 10");
     expect(m.get("fnumber")).toBe("1.7");
-    expect(m.get("iso")).toBe("30"); // exifr "ISO" → display alternate of isospeedratings
-    expect(m.get("datetimeoriginal")).toBe("2026:08:20 14:54:52");
+    expect(m.get("iso")).toBe("743"); // exifr "ISO" → display alternate of isospeedratings
+    expect(m.get("datetimeoriginal")).toBe("2026:10:28 20:58:27");
     // The RealReel build breadcrumb survives as a parseable JSON comment.
     expect(m.get("usercomment")).toContain('"realreel"');
 

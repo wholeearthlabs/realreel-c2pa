@@ -98,8 +98,8 @@ sources:
       the stock Pixel Camera app with Content Credentials. Single-stage
       capture manifest (no parent ingredient, no Stage 2 — Pixel doesn't
       re-sign at upload). Pixels don't enroll into user_signing_keys, so
-      revocation is Google's: the per-device leaf (and both intermediates,
-      G3 L3 and L4) publish OCSP at c2pa-ocsp.pki.goog, and the verifier
+      revocation is Google's: the per-device leaf (and its G3 intermediate,
+      L2, L3 or L4 so far) publish OCSP at c2pa-ocsp.pki.goog, and the verifier
       asks it about the leaf for every wrapped Pixel capture.
     # Root cert is "Google C2PA Root CA G3" (CN), extracted cert #6 from
     # the official C2PA Trust List at
