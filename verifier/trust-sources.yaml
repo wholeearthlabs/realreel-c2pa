@@ -144,11 +144,12 @@ tsa_roots:
       Time-Stamp Authorities. Vendored byte-for-byte from upstream so a
       diff against the source is trivial to audit:
       https://github.com/c2pa-org/conformance-public/blob/main/trust-list/C2PA-TSA-TRUST-LIST.pem
-      (snapshot taken 2026-05-27).
+      (snapshot taken 2026-10-29).
 
       Includes: Google C2PA (Core + Pixel TSAs), DigiCert RSA4096/ECC
       P384 Root for C2PA G1, SSL.com C2PA RSA/ECC Root CA 2025, Trufo,
-      Tauth, Irdeto, vivo, Huawei, Huanyu.
+      Tauth, Irdeto, vivo, Huawei, Huanyu, Snowball, Encypher, TrustAsia,
+      Castlabs, NETLOCK.
 
       Maintenance: the weekly audit-tsa-list workflow opens an issue when
       upstream changes; the refresh itself is manual (fetch, diff-to-audit,
