@@ -1,5 +1,15 @@
 # @realreel/c2pa-trust-core
 
+## 0.11.0
+
+### Minor Changes
+
+- [#119](https://github.com/wholeearthlabs/realreel-c2pa/pull/119) [`9f7ab6a`](https://github.com/wholeearthlabs/realreel-c2pa/commit/9f7ab6aa373832566b19097c86adb2ef23e5a326) Thanks [@boojamya](https://github.com/boojamya)! - RealReel no longer trusts its pre-conformance hierarchy ("RealReel Root CA"). The `realreel-legacy` `TRUSTED_ISSUERS` entry and its verifier source are removed, and the client trust-anchor bundle is regenerated without the root. A capture or upload signed under it, whose leaf organization is the bare "RealReel", no longer routes to a trusted source and rejects as `UNTRUSTED_ISSUER`. Enrollments moved to the v2 hierarchy in September 2026, and no upload has been legacy-signed since.
+
+### Patch Changes
+
+- [#120](https://github.com/wholeearthlabs/realreel-c2pa/pull/120) [`de1e99c`](https://github.com/wholeearthlabs/realreel-c2pa/commit/de1e99c14201696b1385337956da36455d3e67d9) Thanks [@boojamya](https://github.com/boojamya)! - The C2PA TSA Trust List is refreshed to upstream as of 2026-10-29, adding eight certificates: Snowball (ECC P-384 root and TSA ICA), Encypher (2026 root and TSA issuing CA), TrustAsia (RSA and ECC roots), Castlabs (ECC P-384 root) and NETLOCK (ECC TSA G2 CA 1). Timestamps from these TSAs now validate as trusted. The client trust-anchor bundle is regenerated.
+
 ## 0.10.0
 
 ### Minor Changes
