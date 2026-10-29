@@ -1,6 +1,6 @@
 // Unit tests for audit-tsa-list. Covers the pure auditTsaList() over stubbed
 // readers; the real fetch is exercised by `make verify-tsa-list`. Fixtures are
-// RealReel certs already in the repo — they only need to be distinct, parseable
+// certs already in the repo — they only need to be distinct, parseable
 // certificates, not TSAs.
 
 import { readFileSync } from "node:fs";
@@ -14,7 +14,7 @@ const pem = (path: string) => readFileSync(resolve(SOURCES, path), "utf-8").trim
 
 const ROOT = pem("realreel/realreel-c2pa-root.pem");
 const ICA = pem("realreel/realreel-claim-signing-ca.pem");
-const LEGACY = pem("realreel-legacy/root.pem");
+const PIXEL = pem("pixel/root.pem");
 
 // Mirrors the upstream format: an annotation line before each block.
 const bundle = (...certs: string[]) =>
@@ -27,7 +27,7 @@ const audit = (vendored: string, upstream: string | Error) =>
       upstream instanceof Error ? Promise.reject(upstream) : Promise.resolve(Buffer.from(upstream)),
   });
 
-const [rootCn, icaCn, legacyCn] = [ROOT, ICA, LEGACY].map((c) => parseBundle(c)[0]!.subjectCn);
+const [rootCn, icaCn, pixelCn] = [ROOT, ICA, PIXEL].map((c) => parseBundle(c)[0]!.subjectCn);
 
 describe("auditTsaList", () => {
   it("passes when the vendored file is byte-identical to upstream", async () => {
@@ -37,10 +37,10 @@ describe("auditTsaList", () => {
   });
 
   it("reports a certificate added upstream", async () => {
-    const result = await audit(bundle(ROOT, ICA), bundle(ROOT, ICA, LEGACY));
+    const result = await audit(bundle(ROOT, ICA), bundle(ROOT, ICA, PIXEL));
     expect(result.exitCode).toBe(3);
     expect(result.report).toContain("ADDED upstream, not yet trusted here (1)");
-    expect(result.report).toContain(legacyCn);
+    expect(result.report).toContain(pixelCn);
     expect(result.report).not.toContain("REMOVED");
   });
 
@@ -53,7 +53,7 @@ describe("auditTsaList", () => {
   });
 
   it("reports both directions at once", async () => {
-    const result = await audit(bundle(ROOT, ICA), bundle(ROOT, LEGACY));
+    const result = await audit(bundle(ROOT, ICA), bundle(ROOT, PIXEL));
     expect(result.exitCode).toBe(3);
     expect(result.report).toMatch(/REMOVED[^\n]*\(1\)[\s\S]*ADDED[^\n]*\(1\)/);
   });

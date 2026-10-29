@@ -56,30 +56,30 @@ describe("identifyTrustSource — routing", () => {
       identifyTrustSource(
         "Whole Earth Labs LLC",
         "RealReel iOS",
-        configWithLoaded("realreel", "realreel-legacy", "pixel"),
+        configWithLoaded("realreel", "pixel"),
       ),
     ).toBe("realreel");
   });
 
-  it("routes legacy-hierarchy leaves to 'realreel-legacy', never 'realreel'", () => {
+  it("routes legacy-hierarchy leaves nowhere", () => {
     expect(
       identifyTrustSource(
         "RealReel",
         "RealReel-Device-Key",
-        configWithLoaded("realreel", "realreel-legacy", "pixel"),
+        configWithLoaded("realreel", "pixel"),
       ),
-    ).toBe("realreel-legacy");
+    ).toBeNull();
   });
 
-  it("matches RealReel even with null common_name (entries are unopinionated)", () => {
-    // Neither RealReel entry has a commonNameMatch — routes on issuer alone.
+  it("matches RealReel even with null common_name (the entry is unopinionated)", () => {
+    // The RealReel entry has no commonNameMatch — routes on issuer alone.
     expect(
       identifyTrustSource(
-        "RealReel",
+        "Whole Earth Labs LLC",
         null,
-        configWithLoaded("realreel", "realreel-legacy", "pixel"),
+        configWithLoaded("realreel", "pixel"),
       ),
-    ).toBe("realreel-legacy");
+    ).toBe("realreel");
   });
 
   it("matches Pixel only when issuer AND Pixel-Camera common_name both match", () => {
@@ -87,7 +87,7 @@ describe("identifyTrustSource — routing", () => {
       identifyTrustSource(
         "Google LLC",
         "Pixel Camera",
-        configWithLoaded("realreel", "realreel-legacy", "pixel"),
+        configWithLoaded("realreel", "pixel"),
       ),
     ).toBe("pixel");
   });
@@ -183,39 +183,20 @@ describe("identifyTrustSource — loaded-source filter", () => {
     ).toBeNull();
   });
 
-  it("still routes the other source when only one is loaded", () => {
+  it("still routes a loaded source when another is unloaded", () => {
     expect(
       identifyTrustSource(
-        "RealReel",
-        null,
-        configWithLoaded("realreel-legacy"),
+        "Google LLC",
+        "Pixel Camera",
+        configWithLoaded("pixel"),
       ),
-    ).toBe("realreel-legacy");
-  });
-
-  it("does not fall back across hierarchies when one PEM is unloaded", () => {
-    // A legacy-signed manifest with only the v2 source loaded (or vice
-    // versa) must return null, not route to the other RealReel entry.
-    expect(
-      identifyTrustSource(
-        "RealReel",
-        null,
-        configWithLoaded("realreel"),
-      ),
-    ).toBeNull();
-    expect(
-      identifyTrustSource(
-        "Whole Earth Labs LLC",
-        "RealReel Android",
-        configWithLoaded("realreel-legacy"),
-      ),
-    ).toBeNull();
+    ).toBe("pixel");
   });
 
   it("returns null when no sources are loaded at all", () => {
     expect(
       identifyTrustSource(
-        "RealReel",
+        "Whole Earth Labs LLC",
         null,
         configWithLoaded(),
       ),
@@ -232,7 +213,7 @@ describe("identifyTrustSource — loaded-source filter", () => {
 
 describe("identifyTrustSource — exact organization match", () => {
   it("does not route an organization that contains a trusted one", () => {
-    const all = configWithLoaded("realreel", "realreel-legacy", "pixel", "proofmode");
+    const all = configWithLoaded("realreel", "pixel", "proofmode");
     for (const [issuer, cn] of [
       ["New Whole Earth Labs LLC", "RealReel iOS"],
       ["RealReel Media LLC", null],

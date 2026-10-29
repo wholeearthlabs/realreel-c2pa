@@ -60,7 +60,7 @@ const trustConfig = await loadTrustConfig(resolve(import.meta.dirname, "../../tr
 const bundle = (pems: string[]): string => pems.map((p) => p.trim()).join("\n") + (pems.length ? "\n" : "");
 
 export const TRUST_LISTS = {
-  /** Every claim-signing anchor in trust-sources.yaml (RealReel v2 + legacy, Pixel, ProofMode). */
+  /** Every claim-signing anchor in trust-sources.yaml (RealReel, Pixel, ProofMode). */
   production: bundle(trustConfig.sources.map((s) => s.rootCertPem)),
   /** Production minus the Pixel root — the wrap-mode parent becomes untrusted. */
   productionWithoutPixel: bundle(trustConfig.sources.filter((s) => s.id !== "pixel").map((s) => s.rootCertPem)),

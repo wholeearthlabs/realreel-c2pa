@@ -28,7 +28,7 @@ describe("TRUSTED_ISSUERS list invariants", () => {
     // and in server telemetry (the dispatcher's source-id tag stability).
     const ids = TRUSTED_ISSUERS.map((entry) => entry.id);
     expect(ids).toContain("realreel");
-    expect(ids).toContain("realreel-legacy");
+    expect(ids).not.toContain("realreel-legacy");
     expect(ids).toContain("pixel");
     expect(ids).toContain("proofmode");
   });
@@ -110,10 +110,9 @@ describe("findTrustedIssuer", () => {
     expect(result?.id).toBe("realreel");
   });
 
-  it("matches legacy-hierarchy leaves to realreel-legacy, not realreel", () => {
-    // Fielded pre-conformance leaves surface issuer "RealReel".
-    const result = findTrustedIssuer(manifestWithIssuer("RealReel"));
-    expect(result?.id).toBe("realreel-legacy");
+  it("does not match the legacy hierarchy", () => {
+    // Pre-conformance leaves surface the bare organization "RealReel".
+    expect(findTrustedIssuer(manifestWithIssuer("RealReel"))).toBeNull();
   });
 
   it("rejects an organization that merely contains a trusted one", () => {

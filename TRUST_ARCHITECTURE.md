@@ -154,9 +154,7 @@ inspect and verify a RealReel file:
 # Show the manifest (no trust check)
 c2patool path/to/realreel-photo.jpg
 
-# Verify the certificate chain against the RealReel roots (shipped in this repo).
-# Photos signed before the conformant-CA cutover chain to the legacy root; use
-# trust-sources/realreel-legacy/root.pem for those.
+# Verify the certificate chain against the RealReel root (shipped in this repo).
 c2patool path/to/realreel-photo.jpg trust \
   --trust_anchors verifier/trust-sources/realreel/realreel-c2pa-root.pem
 ```
@@ -164,8 +162,11 @@ c2patool path/to/realreel-photo.jpg trust \
 A RealReel file carries two stacked manifests — a Stage 1 capture manifest (the
 `parentOf` ingredient) and a Stage 2 upload manifest (the active one). A trusted
 verify prints `validation_state: Trusted` for both. The RealReel C2PA root is on
-the public C2PA Trust List; the legacy root is not, so a verifier that doesn't
-load it reports `signingCredential.untrusted` on pre-cutover content.
+the public C2PA Trust List. Photos signed before the conformant-CA cutover chain
+to a legacy root that RealReel no longer trusts; it stays in this
+repository's history
+([`realreel-legacy/root.pem`](https://github.com/wholeearthlabs/realreel-c2pa/blob/2db2bae257a2903d91c930ee747feb3200d40a7c/verifier/trust-sources/realreel-legacy/root.pem))
+for inspecting them.
 
 ## Multi-source trust
 
