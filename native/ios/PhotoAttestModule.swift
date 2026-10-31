@@ -262,16 +262,10 @@ public class PhotoAttestModule: Module {
 
   // MARK: - Internals
 
-  // The JS-facing message comes from `String(reflecting:)` → `debugDescription`,
-  // whose default prefixes the name and appends the Swift file:line, and the base
-  // `reason` is the literal "undefined reason" — which is why
-  // `promise.reject(code, message)` and plain Swift errors lose the message.
-  // Supplying `reason` and trimming `debugDescription` to it makes a rejection
-  // reach JS as its real code and message. Always reject with the error object.
-  // (Overriding `message` would not work: the protocol witness is bound at
-  // `Exception`'s conformance, so a subclass property is never consulted.)
+  // Always reject with this error object: the `reason` and `debugDescription`
+  // overrides make JS receive the plain message on every Expo SDK.
   private final class PhotoAttestError: Exception, @unchecked Sendable {
-    let message: String
+    private let detail: String
 
     init(
       code: String,
@@ -280,11 +274,11 @@ public class PhotoAttestModule: Module {
       line: UInt = #line,
       function: String = #function
     ) {
-      self.message = message
+      self.detail = message
       super.init(name: code, description: message, code: code, file: file, line: line, function: function)
     }
 
-    override var reason: String { message }
+    override var reason: String { detail }
 
     override var debugDescription: String { reason }
   }

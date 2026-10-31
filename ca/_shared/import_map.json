@@ -4,8 +4,8 @@
     "asn1js": "npm:asn1js@3.0.10",
     "cbor-x": "npm:cbor-x@1.6.6",
     "@noble/curves/nist.js": "npm:@noble/curves@2.4.0/nist.js",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2",
-    "@sentry/deno": "https://esm.sh/@sentry/deno@8.55.0?bundle",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.103.3",
+    "@sentry/deno": "npm:@sentry/deno@8.55.0",
     "std/http/server.ts": "https://deno.land/std@0.168.0/http/server.ts",
     "std/assert/mod.ts": "https://deno.land/std@0.224.0/assert/mod.ts"
   }
