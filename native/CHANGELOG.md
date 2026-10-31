@@ -1,5 +1,11 @@
 # @realreel/photo-attest
 
+## 0.9.2
+
+### Patch Changes
+
+- [#123](https://github.com/wholeearthlabs/realreel-c2pa/pull/123) [`467a8a4`](https://github.com/wholeearthlabs/realreel-c2pa/commit/467a8a4ce782969fca22fba687485315e2402ba8) Thanks [@boojamya](https://github.com/boojamya)! - The iOS module builds against Expo SDK 58, whose `Exception` declares a `message` property that clashed with the module's error type.
+
 ## 0.9.1
 
 ### Patch Changes
