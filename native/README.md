@@ -210,13 +210,14 @@ thumbnail pins, and no trust pool.
 
 ## Roadmap
 
-iOS SPM wiring goes through the config plugin because declarative SPM in Expo
-modules still hits duplicate-symbol errors on transitive chains like
-swift-crypto / swift-asn1
-([expo/expo#37813](https://github.com/expo/expo/issues/37813) — closed as stale by
-a bot, **not** fixed). Once that's resolved, this module can move to a
-declarative `spm_dependency` (the RN 0.75+ podspec helper, or cocoapods-spm's
-`spm_pkg`) and drop the plugin.
+iOS SPM wiring goes through the config plugin because React Native's
+`spm_dependency` (0.88) doesn't support a second pod importing the same package,
+such as an app's own module that reads manifests with `C2PA`. It builds each
+static pod that declares a package into the shared products dir, but rewrites
+the moved module map path only for the app target, so a pod that depends on
+PhotoAttest can't find it; and two such pods' module maps clash in that one
+directory. Once React Native handles both, this module can declare its packages
+in the podspec and drop the Podfile injection.
 
 ## License
 

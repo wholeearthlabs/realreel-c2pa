@@ -20,12 +20,9 @@ import * as path from 'path';
 // app.json / app.config.js.
 //
 // NOTE (reference implementation): this is the Podfile/CocoaPods integration
-// that ships in RealReel production today. The declarative alternative is the
-// RN 0.75+ `spm_dependency` podspec helper (or cocoapods-spm's `spm_pkg`), but
-// third-party SPM deps in Expo modules still hit duplicate-symbol errors on
-// transitive chains like swift-crypto/swift-asn1 (expo/expo#37813 — auto-closed
-// as stale, not fixed; still unresolved) — exactly what the pod-target-only
-// attachment below avoids — so the plugin remains the reliable path.
+// that ships in RealReel production today. React Native's `spm_dependency`
+// podspec helper doesn't yet support a second pod importing the same package
+// (see the README's Roadmap), so the plugin remains the reliable path.
 
 // Upstream renamed c2pa-ios → c2pa-swift (same repo; the old URL only
 // redirects). Package and product are still `C2PA`.
