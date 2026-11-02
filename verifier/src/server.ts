@@ -137,7 +137,8 @@ function registerRoutes(
 ): void {
   // ----- Layer 1: bearer-token auth (onRequest, before body parse) -----
   fastify.addHook("onRequest", async (req, reply) => {
-    if (req.url !== "/verify") return;
+    // The matched route, not req.url, which includes the query string.
+    if (req.routeOptions.url !== "/verify") return;
 
     const auth = req.headers.authorization ?? "";
     const expected = `Bearer ${config.sharedSecret}`;
