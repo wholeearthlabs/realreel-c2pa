@@ -1,5 +1,13 @@
 # @realreel/verifier
 
+## 0.14.1
+
+### Patch Changes
+
+- [#128](https://github.com/wholeearthlabs/realreel-c2pa/pull/128) [`56c724a`](https://github.com/wholeearthlabs/realreel-c2pa/commit/56c724a4964b1c51cdb87f6ce22e0ee9344b1e84) Thanks [@boojamya](https://github.com/boojamya)! - `@sentry/node` 10.76.2 → 10.78.0.
+
+- [#130](https://github.com/wholeearthlabs/realreel-c2pa/pull/130) [`62f1465`](https://github.com/wholeearthlabs/realreel-c2pa/commit/62f1465fc3e4d392725d84b9a090dac63572ac16) Thanks [@boojamya](https://github.com/boojamya)! - The `/verify` bearer check keys on the matched route, so every request the handler serves needs the shared secret.
+
 ## 0.14.0
 
 ### Minor Changes
